@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Ayodhya Protocol: Lanka Reforged</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; font-family: 'Segoe UI', sans-serif; -webkit-user-select: none; user-select: none; }
+    #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+    #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display: none; }
+    #hud.visible { display: block; }
+    #hud > * { pointer-events: auto; }
+
+    /* Health / Stamina bars */
+    #playerBars { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; }
+    .bar-container { width: 300px; height: 18px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden; position: relative; }
+    #hpBar { height: 100%; background: linear-gradient(90deg, #c0392b, #e74c3c); transition: width 0.15s; }
+    #staminaBar { height: 100%; background: linear-gradient(90deg, #2980b9, #3498db); transition: width 0.15s; }
+    .bar-label { position: absolute; width: 100%; text-align: center; color: #fff; font-size: 11px; line-height: 18px; text-shadow: 1px 1px 2px #000; top: 0; }
+
+    /* Cooldowns */
+    #cooldowns { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; margin-top: 10px; }
+    .cd-icon { width: 48px; height: 48px; background: rgba(0,0,0,0.7); border: 2px solid #d4a017; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #ffd700; font-size: 20px; position: relative; }
+    .cd-overlay { position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(0,0,0,0.6); transition: height 0.1s; }
+    .cd-key { position: absolute; top: -16px; font-size: 10px; color: #aaa; }
+
+    /* Team bars */
+    #teamBars { position: absolute; top: 20px; left: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .team-bar { display: flex; align-items: center; gap: 8px; }
+    .team-name { color: #fff; font-size: 12px; width: 24px; text-align: center; }
+    .team-hp { width: 120px; height: 10px; background: rgba(0,0,0,0.7); border-radius: 2px; overflow: hidden; }
+    .team-hp-fill { height: 100%; background: #2ecc71; transition: width 0.15s; }
+
+    /* Boss bar */
+    #bossBar { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 4px; }
+    #bossBar.visible { display: flex; }
+    #bossName { color: #ff4444; font-size: 14px; font-weight: bold; text-shadow: 0 0 10px #ff0000; letter-spacing: 2px; }
+    #bossHpContainer { width: 400px; height: 14px; background: rgba(0,0,0,0.7); border: 1px solid #ff4444; border-radius: 2px; overflow: hidden; }
+    #bossHpFill { height: 100%; background: linear-gradient(90deg, #8b0000, #ff4444); transition: width 0.2s; }
+    #bossPhaseLabel { color: #ff8888; font-size: 11px; }
+
+    /* Crosshair */
+    #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px; }
+    #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,200,50,0.8); }
+    #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+    #crosshair::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+
+    /* Charge indicator */
+    #chargeRing { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border: 2px solid transparent; border-radius: 50%; border-top-color: #ffd700; transition: transform 0.05s; display: none; }
+    #chargeRing.active { display: block; }
+
+    /* Notifications */
+    #notifications { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -80%); text-align: center; }
+    .notif { color: #ffd700; font-size: 18px; font-weight: bold; text-shadow: 0 0 10px rgba(255,215,0,0.5); animation: notifFade 2s forwards; }
+    @keyframes notifFade { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-30px); } }
+
+    /* Downed overlay */
+    #downedOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(139,0,0,0.3); display: none; justify-content: center; align-items: center; }
+    #downedOverlay.visible { display: flex; }
+    #downedText { color: #ff4444; font-size: 28px; font-weight: bold; text-shadow: 0 0 20px #ff0000; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+    /* Game over */
+    #gameOverScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; flex-direction: column; gap: 20px; }
+    #gameOverScreen.visible { display: flex; }
+    #gameOverTitle { font-size: 48px; font-weight: bold; text-shadow: 0 0 30px currentColor; }
+    #gameOverTitle.victory { color: #ffd700; }
+    #gameOverTitle.defeat { color: #ff4444; }
+
+    /* Loading */
+    #loadingScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0f; display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 20px; z-index: 100; }
+    #loadingScreen.hidden { display: none; }
+    #loadingTitle { color: #d4a017; font-size: 32px; font-weight: bold; letter-spacing: 4px; }
+    #loadingSubtitle { color: #888; font-size: 14px; }
+    .loader { width: 40px; height: 40px; border: 3px solid rgba(212,160,23,0.2); border-top-color: #d4a017; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ══════════════════════════════════════════════
+       HOW TO PLAY / INSTRUCTIONS SCREEN
+       ══════════════════════════════════════════════ */
+    #instructionsScreen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: linear-gradient(135deg, #0a0a0f 0%, #1a0a1f 50%, #0a0a0f 100%);
+      z-index: 90; display: none; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    #instructionsScreen.visible { display: block; }
+    .instr-inner {
+      max-width: 600px; margin: 0 auto; padding: 40px 24px 100px;
+    }
+    .instr-header {
+      text-align: center; margin-bottom: 32px;
+    }
+    .instr-title {
+      color: #d4a017; font-size: 28px; font-weight: bold; letter-spacing: 3px; margin-bottom: 4px;
+    }
+    .instr-sub {
+      color: #777; font-size: 13px; font-style: italic;
+    }
+    .instr-section {
+      margin-bottom: 24px;
+    }
+    .instr-section-title {
+      color: #d4a017; font-size: 15px; font-weight: bold; text-transform: uppercase;
+      letter-spacing: 2px; margin-bottom: 10px; padding-bottom: 4px;
+      border-bottom: 1px solid rgba(212,160,23,0.25);
+    }
+    .instr-row {
+      display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px;
+    }
+    .instr-key {
+      flex-shrink: 0; min-width: 64px; padding: 3px 8px; text-align: center;
+      background: rgba(212,160,23,0.12); border: 1px solid rgba(212,160,23,0.3);
+      border-radius: 4px; color: #d4a017; font-size: 12px; font-weight: bold;
+      font-family: monospace;
+    }
+    .instr-touch-key {
+      flex-shrink: 0; min-width: 64px; padding: 3px 8px; text-align: center;
+      background: rgba(80,160,255,0.12); border: 1px solid rgba(80,160,255,0.3);
+      border-radius: 4px; color: #50a0ff; font-size: 12px; font-weight: bold;
+    }
+    .instr-desc {
+      color: #ccc; font-size: 13px; line-height: 1.5;
+    }
+    .instr-note {
+      color: #888; font-size: 12px; line-height: 1.5; margin-top: 6px;
+      padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 4px;
+      border-left: 2px solid rgba(212,160,23,0.3);
+    }
+    .instr-lore {
+      color: #998; font-size: 13px; line-height: 1.6; margin-bottom: 20px;
+      padding: 12px 16px; background: rgba(212,160,23,0.04); border-radius: 6px;
+      border: 1px solid rgba(212,160,23,0.1);
+    }
+    #startBtn {
+      display: block; width: 100%; max-width: 320px; margin: 30px auto 0;
+      padding: 16px 32px; font-size: 18px; font-weight: bold; letter-spacing: 3px;
+      color: #0a0a0f; background: linear-gradient(135deg, #d4a017, #f0c040);
+      border: none; border-radius: 8px; cursor: pointer;
+      text-transform: uppercase; transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 4px 20px rgba(212,160,23,0.3);
+    }
+    #startBtn:active { transform: scale(0.97); box-shadow: 0 2px 10px rgba(212,160,23,0.2); }
+
+    /* ══════════════════════════════════════════════
+       TOUCH CONTROLS
+       ══════════════════════════════════════════════ */
+    #touchControls { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 11; }
+    #touchControls.visible { display: block; }
+    #touchControls > * { pointer-events: auto; }
+
+    /* Virtual joystick */
+    #joystickZone {
+      position: absolute; bottom: 20px; left: 20px; width: 140px; height: 140px;
+      border-radius: 50%; background: rgba(255,255,255,0.06); border: 2px solid rgba(255,255,255,0.12);
+    }
+    #joystickKnob {
+      position: absolute; width: 52px; height: 52px; border-radius: 50%;
+      background: rgba(212,160,23,0.5); border: 2px solid rgba(212,160,23,0.7);
+      top: 50%; left: 50%; transform: translate(-50%, -50%);
+      transition: none;
+    }
+
+    /* Action buttons (right side) */
+    .touch-btn {
+      position: absolute; width: 56px; height: 56px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: bold; border: 2px solid;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .touch-btn-label {
+      position: absolute; bottom: -14px; font-size: 9px; color: #aaa;
+      text-align: center; width: 100%; letter-spacing: 1px;
+    }
+    #btnShoot { right: 20px; bottom: 100px; background: rgba(212,160,23,0.2); border-color: rgba(212,160,23,0.5); color: #ffd700; }
+    #btnJump { right: 84px; bottom: 60px; background: rgba(100,200,100,0.15); border-color: rgba(100,200,100,0.4); color: #8f8; }
+    #btnDodge { right: 84px; bottom: 164px; background: rgba(100,150,255,0.15); border-color: rgba(100,150,255,0.4); color: #8af; }
+    #btnSprint { right: 20px; bottom: 196px; background: rgba(255,200,50,0.12); border-color: rgba(255,200,50,0.3); color: #ffd700; }
+    #btnFire { right: 148px; bottom: 100px; background: rgba(255,80,20,0.2); border-color: rgba(255,80,20,0.5); color: #ff6633; }
+    #btnShockwave { right: 148px; bottom: 196px; background: rgba(120,80,255,0.2); border-color: rgba(120,80,255,0.5); color: #a8f; }
+
+    /* ── Mobile responsive ── */
+    @media (max-width: 768px) {
+      .bar-container { width: 180px; height: 14px; }
+      .bar-label { font-size: 9px; line-height: 14px; }
+      #bossHpContainer { width: 240px; height: 10px; }
+      #bossName { font-size: 11px; }
+      .cd-icon { width: 36px; height: 36px; font-size: 16px; }
+      #cooldowns { bottom: 48px; }
+      #playerBars { bottom: 16px; }
+      #crosshair { width: 18px; height: 18px; }
+      #downedText { font-size: 20px; }
+      #gameOverTitle { font-size: 32px; }
+      .instr-title { font-size: 22px; }
+      .instr-inner { padding: 24px 16px 80px; }
+    }
+    @media (max-width: 420px) {
+      .bar-container { width: 140px; height: 12px; }
+      .bar-label { font-size: 8px; line-height: 12px; }
+      #bossHpContainer { width: 180px; }
+      .cd-icon { width: 30px; height: 30px; font-size: 14px; }
+      #cooldowns { display: none; } /* Hide desktop cooldowns on phone — use touch buttons */
+      .touch-btn { width: 48px; height: 48px; font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="chargeRing"></div>
+
+    <div id="teamBars"></div>
+
+    <div id="bossBar">
+      <div id="bossName">RAVANA PROTOCOL</div>
+      <div id="bossHpContainer"><div id="bossHpFill" style="width:100%"></div></div>
+      <div id="bossPhaseLabel">Phase I</div>
+    </div>
+
+    <div id="cooldowns">
+      <div class="cd-icon" id="cdFire"><span class="cd-key">Q</span>🔥<div class="cd-overlay" id="cdFireOverlay"></div></div>
+      <div class="cd-icon" id="cdShockwave"><span class="cd-key">E</span>💥<div class="cd-overlay" id="cdShockwaveOverlay"></div></div>
+    </div>
+
+    <div id="playerBars">
+      <div class="bar-container"><div class="bar-label" id="hpLabel">100 / 100</div><div id="hpBar" style="width:100%"></div></div>
+      <div class="bar-container"><div class="bar-label" id="staminaLabel">100 / 100</div><div id="staminaBar" style="width:100%"></div></div>
+    </div>
+
+    <div id="notifications"></div>
+    <div id="downedOverlay"><div id="downedText">DOWNED — Waiting for revive</div></div>
+    <div id="gameOverScreen"><div id="gameOverTitle"></div></div>
+  </div>
+
+  <!-- TOUCH CONTROLS (mobile only) -->
+  <div id="touchControls">
+    <div id="joystickZone"><div id="joystickKnob"></div></div>
+    <div class="touch-btn" id="btnShoot">🏹<span class="touch-btn-label">SHOOT</span></div>
+    <div class="touch-btn" id="btnJump">⬆<span class="touch-btn-label">JUMP</span></div>
+    <div class="touch-btn" id="btnDodge">↩<span class="touch-btn-label">DODGE</span></div>
+    <div class="touch-btn" id="btnSprint">⚡<span class="touch-btn-label">SPRINT</span></div>
+    <div class="touch-btn" id="btnFire">🔥<span class="touch-btn-label">FIRE</span></div>
+    <div class="touch-btn" id="btnShockwave">💥<span class="touch-btn-label">SHOCK</span></div>
+  </div>
+
+  <!-- HOW TO PLAY SCREEN -->
+  <div id="instructionsScreen">
+    <div class="instr-inner">
+      <div class="instr-header">
+        <div class="instr-title">AYODHYA PROTOCOL</div>
+        <div class="instr-sub">Lanka Reforged</div>
+      </div>
+
+      <div class="instr-lore">
+        The golden city of Lanka has been seized by the Ravana Protocol — a
+        rogue AI defense network that has reforged the ancient fortress into a
+        war machine. You are an operative of Project Ayodhya, armed with
+        prototype kinetic bows and shockwave tech. Breach the perimeter.
+        Neutralize the sentinels. Shut down Ravana.
+      </div>
+
+      <div class="instr-section">
+        <div class="instr-section-title">Objective</div>
+        <div class="instr-desc" style="padding-left:4px;">
+          Fight through enemy sentinels patrolling the jungle, then enter the
+          boss arena (northeast of spawn) and defeat the Ravana Protocol — a
+          three-phase boss that grows more dangerous as its health drops.
+        </div>
+      </div>
+
+      <!-- Desktop controls -->
+      <div class="instr-section" id="instrDesktop">
+        <div class="instr-section-title">Controls — Keyboard &amp; Mouse</div>
+        <div class="instr-row"><span class="instr-key">W A S D</span><span class="instr-desc">Move</span></div>
+        <div class="instr-row"><span class="instr-key">Mouse</span><span class="instr-desc">Look / Aim (click game to lock cursor)</span></div>
+        <div class="instr-row"><span class="instr-key">Click+Hold</span><span class="instr-desc">Charge bow — release to fire. Longer charge = more damage</span></div>
+        <div class="instr-row"><span class="instr-key">Shift</span><span class="instr-desc">Sprint (costs stamina)</span></div>
+        <div class="instr-row"><span class="instr-key">Space</span><span class="instr-desc">Jump</span></div>
+        <div class="instr-row"><span class="instr-key">C / Ctrl</span><span class="instr-desc">Dodge roll (costs stamina, brief invincibility)</span></div>
+        <div class="instr-row"><span class="instr-key">Q</span><span class="instr-desc">Fire Arrow — burning projectile, 5 s cooldown</span></div>
+        <div class="instr-row"><span class="instr-key">E</span><span class="instr-desc">Shockwave — AoE blast around you, 8 s cooldown</span></div>
+        <div class="instr-row"><span class="instr-key">R</span><span class="instr-desc">Revive downed teammate (hold near them, 3 s)</span></div>
+      </div>
+
+      <!-- Touch controls -->
+      <div class="instr-section" id="instrTouch">
+        <div class="instr-section-title">Controls — Touch</div>
+        <div class="instr-row"><span class="instr-touch-key">Left Stick</span><span class="instr-desc">Virtual joystick (bottom-left) — drag to move</span></div>
+        <div class="instr-row"><span class="instr-touch-key">Right Drag</span><span class="instr-desc">Swipe anywhere on the right half to look / aim</span></div>
+        <div class="instr-row"><span class="instr-touch-key">🏹 SHOOT</span><span class="instr-desc">Tap to fire a charged arrow forward</span></div>
+        <div class="instr-row"><span class="instr-touch-key">⬆ JUMP</span><span class="instr-desc">Tap to jump</span></div>
+        <div class="instr-row"><span class="instr-touch-key">↩ DODGE</span><span class="instr-desc">Tap to dodge roll</span></div>
+        <div class="instr-row"><span class="instr-touch-key">⚡ SPRINT</span><span class="instr-desc">Hold to sprint while moving</span></div>
+        <div class="instr-row"><span class="instr-touch-key">🔥 FIRE</span><span class="instr-desc">Tap for fire arrow ability</span></div>
+        <div class="instr-row"><span class="instr-touch-key">💥 SHOCK</span><span class="instr-desc">Tap for shockwave ability</span></div>
+      </div>
+
+      <div class="instr-section">
+        <div class="instr-section-title">Combat Tips</div>
+        <div class="instr-note">
+          Charge your bow longer for up to 3x damage. Dodge rolls give brief
+          invincibility — use them to avoid the boss's AoE slam and projectile
+          barrages. Sprint conserves stamina when you let go, but dodging costs
+          a flat chunk. Fire Arrow deals burn damage over time. Shockwave hits
+          everything in a wide radius — great when surrounded.
+        </div>
+      </div>
+
+      <div class="instr-section">
+        <div class="instr-section-title">Boss — Ravana Protocol</div>
+        <div class="instr-note">
+          <strong style="color:#ff8888;">Phase I</strong> — Melee strikes and
+          projectile barrages. Keep distance, dodge the patterns.<br>
+          <strong style="color:#ff6666;">Phase II (60% HP)</strong> — Gains
+          AoE ground slam. Watch for the red flash and dodge out.<br>
+          <strong style="color:#ff4444;">Phase III — ENRAGE (25% HP)</strong> —
+          All attacks deal 50% more damage and fire faster. Commit to the kill.
+        </div>
+      </div>
+
+      <button id="startBtn">BEGIN OPERATION</button>
+    </div>
+  </div>
+
+  <div id="loadingScreen">
+    <div id="loadingTitle">AYODHYA PROTOCOL</div>
+    <div id="loadingSubtitle">Lanka Reforged</div>
+    <div class="loader"></div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

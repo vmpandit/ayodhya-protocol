@@ -1,11 +1,10 @@
 // ── Ayodhya Protocol: Lanka Reforged ── World Builder & Entity Meshes ──
-// Characters render as billboard sprites when sprite PNGs are present in
-// textures/ (sprite_player.png, sprite_enemy.png, sprite_boss.png).
-// Falls back to N64-style flat-colour PBR primitive meshes if not found.
+// N64-style flat-colour PBR primitive meshes for all characters.
+// Environment uses PBR textures from TextureLoader when available.
 
 import {
   MeshBuilder, StandardMaterial, PBRMaterial, Color3, Vector3, Mesh,
-  Scene, ShadowGenerator, TransformNode, InstancedMesh,
+  Scene, TransformNode, InstancedMesh,
   Texture, Color4, GlowLayer, ParticleSystem, PointLight,
 } from '@babylonjs/core';
 import { Renderer } from './Renderer';
@@ -41,13 +40,6 @@ export class World {
   /** Loaded texture assets from TextureLoader (null = flat-colour fallback) */
   private assets: LoadedAssets | null = null;
 
-  /** Billboard sprite textures — loaded lazily on first character spawn */
-  private spritePlayer:  Texture | null = null;
-  private spriteEnemy:   Texture | null = null;
-  private spriteEnemy2:  Texture | null = null;
-  private spriteBoss:    Texture | null = null;
-  private spritesChecked = false;
-
   constructor(renderer: Renderer) {
     this.renderer = renderer;
     this.scene = renderer.scene;
@@ -58,79 +50,7 @@ export class World {
     this.assets = assets;
   }
 
-  /**
-   * Load a sprite PNG and strip its white background via canvas colour-keying.
-   * Returns a data:image/png URL with white pixels made transparent.
-   * Works on Gemini-generated sprites that have no alpha channel.
-   */
-  private removeWhiteBg(url: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width  = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0);
-        const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const d  = id.data;
-        for (let i = 0; i < d.length; i += 4) {
-          const min = Math.min(d[i], d[i + 1], d[i + 2]);
-          if (min > 235) {
-            // Pure background → fully transparent
-            d[i + 3] = 0;
-          } else if (min > 210) {
-            // Anti-aliasing fringe → smooth fade
-            d[i + 3] = Math.round(255 * (235 - min) / 25);
-          }
-          // else: keep original alpha (character pixels)
-        }
-        ctx.putImageData(id, 0, 0);
-        resolve(canvas.toDataURL('image/png'));
-      };
-      img.onerror = reject;
-      img.src = url;
-    });
-  }
-
-  /** Sprite system disabled — Gemini PNGs lack alpha. Always uses primitive meshes. */
-  private loadSpritesIfNeeded(): void { return; }
-
-  /**
-   * Build a camera-facing billboard plane for a character.
-   * The plane is white+unlit so the sprite texture colours show true.
-   * @param name  mesh name
-   * @param tex   sprite texture
-   * @param w     world-space width
-   * @param h     world-space height
-   * @param root  parent TransformNode
-   */
-  private mkBillboard(
-    name: string, tex: Texture,
-    w: number, h: number,
-    root: TransformNode,
-  ): Mesh {
-    const plane = MeshBuilder.CreatePlane(name, { width: w, height: h }, this.scene);
-    plane.parent = root;
-    plane.position.y = h / 2;            // pivot at feet
-    plane.billboardMode = Mesh.BILLBOARDMODE_Y; // rotate only around Y (stays upright)
-    const mat = new StandardMaterial(`${name}_mat`, this.scene);
-    // Use texture for BOTH diffuse (alpha source) and emissive (colour/brightness).
-    // emissiveTexture renders the sprite at full brightness regardless of scene lighting.
-    // Do NOT set emissiveColor=(1,1,1)+disableLighting — that renders solid white and
-    // ignores the diffuse texture colour entirely.
-    mat.diffuseTexture   = tex;
-    mat.emissiveTexture  = tex;           // sprite colour shown at full brightness (unlit)
-    mat.useAlphaFromDiffuseTexture = true;
-    mat.backFaceCulling  = false;         // visible from all angles
-    plane.material = mat;
-    return plane;
-  }
-
   build(): void {
-    // Pre-load sprite textures so they're ready before first character spawn
-    this.loadSpritesIfNeeded();
     this.buildGround();
     this.buildTrees();
     this.buildBossArena();
@@ -406,20 +326,6 @@ export class World {
     const n = `p${id}_`;
     const root = new TransformNode(`player_${id}`, this.scene);
 
-    // ── Sprite billboard (if sprite_player.png is present) ────────────
-    this.loadSpritesIfNeeded();
-    if (this.spritePlayer) {
-      this.mkBillboard(`${n}sprite`, this.spritePlayer, 1.1, 2.0, root);
-      // Tint remote players slightly green so they're distinguishable
-      if (!isLocal) {
-        const plane = root.getChildMeshes()[0];
-        if (plane?.material instanceof StandardMaterial) {
-          plane.material.emissiveColor = new Color3(0.6, 1.0, 0.6);
-        }
-      }
-      return root;
-    }
-
     // ── Palette ──────────────────────────────────────────────────────
     // Local player: deep navy + gold   Remote: teal + silver
     const [ar, ag, ab] = isLocal ? [0.08, 0.18, 0.6] : [0.04, 0.38, 0.28];
@@ -539,14 +445,6 @@ export class World {
     const n = `e${id}_`;
     const root = new TransformNode(`enemy_${id}`, this.scene);
 
-    // ── Sprite billboard — alternate between the two enemy sprites ────
-    this.loadSpritesIfNeeded();
-    const enemyTex = (id % 2 === 0 && this.spriteEnemy2) ? this.spriteEnemy2 : this.spriteEnemy;
-    if (enemyTex) {
-      this.mkBillboard(`${n}sprite`, enemyTex, 1.2, 2.6, root);
-      return root;
-    }
-
     // ── Palette — flat-colour PBR for primitive geometry ─────────────
     const mArmor = this.mkMat(`${n}armor`, 0.28, 0.04, 0.04, 0.45, 0.5);       // dark crimson
     const mDark  = this.mkMat(`${n}dark`,  0.1,  0.09, 0.08, 0.6,  0.4);       // matte black
@@ -644,13 +542,6 @@ export class World {
 
   private _buildRavanaParts(): TransformNode {
     const root = new TransformNode('boss', this.scene);
-
-    // ── Sprite billboard (if sprite_boss.png is present) ──────────────
-    this.loadSpritesIfNeeded();
-    if (this.spriteBoss) {
-      this.mkBillboard('boss_sprite', this.spriteBoss, 3.0, 4.5, root);
-      return root;
-    }
 
     // ── Palette — flat-colour PBR for primitive geometry ─────────────
     const mBody  = this.mkMat('boss_body',  0.18, 0.04, 0.28, 0.5,  0.4);          // dark void-purple

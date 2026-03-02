@@ -94,12 +94,19 @@ export class World {
     });
   }
 
-  /** Attempt to load sprite PNGs once, stripping white backgrounds via canvas. */
+  /**
+   * Sprite system DISABLED — Gemini-generated PNGs have opaque white/cream
+   * backgrounds with no alpha channel. Canvas colour-keying can't reliably
+   * detect the background colour, and data-URL textures don't load properly
+   * in all WebGPU contexts. Characters use N64-style primitive meshes instead.
+   *
+   * To re-enable: replace this method body with the tryLoad() logic and
+   * provide sprite PNGs with transparent backgrounds (PNG-32 with alpha).
+   */
   private loadSpritesIfNeeded(): void {
-    if (this.spritesChecked) return;
-    this.spritesChecked = true;
-
-    const tryLoad = (path: string, setter: (t: Texture) => void): void => {
+    return; // no-op — always use primitive mesh fallback
+    /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+    const _tryLoad = (path: string, setter: (t: Texture) => void): void => {
       this.removeWhiteBg(path)
         .then(dataUrl => {
           const t = new Texture(dataUrl, this.scene, false, true);

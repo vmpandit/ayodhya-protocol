@@ -94,58 +94,8 @@ export class World {
     });
   }
 
-  /**
-   * Sprite system DISABLED — Gemini-generated PNGs have opaque white/cream
-   * backgrounds with no alpha channel. Canvas colour-keying can't reliably
-   * detect the background colour, and data-URL textures don't load properly
-   * in all WebGPU contexts. Characters use N64-style primitive meshes instead.
-   *
-   * To re-enable: replace this method body with the tryLoad() logic and
-   * provide sprite PNGs with transparent backgrounds (PNG-32 with alpha).
-   */
-  private loadSpritesIfNeeded(): void {
-    return; // no-op — always use primitive mesh fallback
-    /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
-    const _tryLoad = (path: string, setter: (t: Texture) => void): void => {
-      this.removeWhiteBg(path)
-        .then(dataUrl => {
-          const t = new Texture(dataUrl, this.scene, false, true);
-          t.hasAlpha = true;
-          setter(t);
-        })
-        .catch(() => { /* file not present or can't load — use primitive fallback */ });
-    };
-
-    tryLoad('textures/sprite_player.png', t => {
-      this.spritePlayer = t;
-      // Rebuild any player meshes already on screen
-      for (const [id, root] of this.playerMeshes) {
-        const isLocal = root.name === `player_${id}`;
-        root.dispose(false, true);
-        this.playerMeshes.delete(id);
-        this.addPlayerMesh(id, isLocal);
-      }
-    });
-    tryLoad('textures/sprite_enemy.png', t => {
-      this.spriteEnemy = t;
-      for (const [id, root] of this.enemyMeshes) {
-        root.dispose(false, true);
-        this.enemyMeshes.delete(id);
-      }
-    });
-    tryLoad('textures/sprite_enemy2.png', t => {
-      this.spriteEnemy2 = t;
-      // Clear enemy meshes so they rebuild with the new variety
-      for (const [id, root] of this.enemyMeshes) {
-        root.dispose(false, true);
-        this.enemyMeshes.delete(id);
-      }
-    });
-    tryLoad('textures/sprite_boss.png', t => {
-      this.spriteBoss = t;
-      if (this.bossMesh) { this.bossMesh.dispose(false, true); this.bossMesh = null; }
-    });
-  }
+  /** Sprite system disabled — Gemini PNGs lack alpha. Always uses primitive meshes. */
+  private loadSpritesIfNeeded(): void { return; }
 
   /**
    * Build a camera-facing billboard plane for a character.

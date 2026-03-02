@@ -1,8 +1,7 @@
 // ── Ayodhya Protocol: Lanka Reforged ── World Builder & Entity Meshes ──
-// Character meshes are N64-era articulated geometry: all bodies are assembled
-// from boxes, cylinders, and spheres with PBR materials.
-// When TextureLoader assets are available, full PBR textures are used;
-// otherwise falls back to flat-colour PBR materials.
+// Characters render as billboard sprites when sprite PNGs are present in
+// textures/ (sprite_player.png, sprite_enemy.png, sprite_boss.png).
+// Falls back to N64-style flat-colour PBR primitive meshes if not found.
 
 import {
   MeshBuilder, StandardMaterial, PBRMaterial, Color3, Vector3, Mesh,
@@ -42,6 +41,12 @@ export class World {
   /** Loaded texture assets from TextureLoader (null = flat-colour fallback) */
   private assets: LoadedAssets | null = null;
 
+  /** Billboard sprite textures — loaded lazily on first character spawn */
+  private spritePlayer: Texture | null = null;
+  private spriteEnemy:  Texture | null = null;
+  private spriteBoss:   Texture | null = null;
+  private spritesChecked = false;
+
   constructor(renderer: Renderer) {
     this.renderer = renderer;
     this.scene = renderer.scene;
@@ -52,7 +57,76 @@ export class World {
     this.assets = assets;
   }
 
+  /** Attempt to load sprite PNGs once. Uses HEAD requests to check existence first. */
+  private loadSpritesIfNeeded(): void {
+    if (this.spritesChecked) return;
+    this.spritesChecked = true;
+
+    const tryLoad = (path: string, setter: (t: Texture) => void): void => {
+      fetch(path, { method: 'HEAD' })
+        .then(r => {
+          if (!r.ok) return;
+          const t = new Texture(path, this.scene, false, true);
+          t.hasAlpha = true;
+          setter(t);
+        })
+        .catch(() => { /* file not present — use primitive fallback */ });
+    };
+
+    tryLoad('textures/sprite_player.png', t => {
+      this.spritePlayer = t;
+      // Rebuild any player meshes already on screen
+      for (const [id, root] of this.playerMeshes) {
+        const isLocal = root.name === `player_${id}`;
+        root.dispose(false, true);
+        this.playerMeshes.delete(id);
+        this.addPlayerMesh(id, isLocal);
+      }
+    });
+    tryLoad('textures/sprite_enemy.png', t => {
+      this.spriteEnemy = t;
+      for (const [id, root] of this.enemyMeshes) {
+        root.dispose(false, true);
+        this.enemyMeshes.delete(id);
+      }
+    });
+    tryLoad('textures/sprite_boss.png', t => {
+      this.spriteBoss = t;
+      if (this.bossMesh) { this.bossMesh.dispose(false, true); this.bossMesh = null; }
+    });
+  }
+
+  /**
+   * Build a camera-facing billboard plane for a character.
+   * The plane is white+unlit so the sprite texture colours show true.
+   * @param name  mesh name
+   * @param tex   sprite texture
+   * @param w     world-space width
+   * @param h     world-space height
+   * @param root  parent TransformNode
+   */
+  private mkBillboard(
+    name: string, tex: Texture,
+    w: number, h: number,
+    root: TransformNode,
+  ): Mesh {
+    const plane = MeshBuilder.CreatePlane(name, { width: w, height: h }, this.scene);
+    plane.parent = root;
+    plane.position.y = h / 2;            // pivot at feet
+    plane.billboardMode = Mesh.BILLBOARDMODE_Y; // rotate only around Y (stays upright)
+    const mat = new StandardMaterial(`${name}_mat`, this.scene);
+    mat.diffuseTexture  = tex;
+    mat.emissiveColor   = new Color3(1, 1, 1);  // unlit — full brightness
+    mat.disableLighting = true;
+    mat.useAlphaFromDiffuseTexture = true;
+    mat.backFaceCulling = false;          // visible from all angles
+    plane.material = mat;
+    return plane;
+  }
+
   build(): void {
+    // Pre-load sprite textures so they're ready before first character spawn
+    this.loadSpritesIfNeeded();
     this.buildGround();
     this.buildTrees();
     this.buildBossArena();
@@ -328,6 +402,20 @@ export class World {
     const n = `p${id}_`;
     const root = new TransformNode(`player_${id}`, this.scene);
 
+    // ── Sprite billboard (if sprite_player.png is present) ────────────
+    this.loadSpritesIfNeeded();
+    if (this.spritePlayer) {
+      this.mkBillboard(`${n}sprite`, this.spritePlayer, 1.1, 2.0, root);
+      // Tint remote players slightly green so they're distinguishable
+      if (!isLocal) {
+        const plane = root.getChildMeshes()[0];
+        if (plane?.material instanceof StandardMaterial) {
+          plane.material.emissiveColor = new Color3(0.6, 1.0, 0.6);
+        }
+      }
+      return root;
+    }
+
     // ── Palette ──────────────────────────────────────────────────────
     // Local player: deep navy + gold   Remote: teal + silver
     const [ar, ag, ab] = isLocal ? [0.08, 0.18, 0.6] : [0.04, 0.38, 0.28];
@@ -447,6 +535,13 @@ export class World {
     const n = `e${id}_`;
     const root = new TransformNode(`enemy_${id}`, this.scene);
 
+    // ── Sprite billboard (if sprite_enemy.png is present) ─────────────
+    this.loadSpritesIfNeeded();
+    if (this.spriteEnemy) {
+      this.mkBillboard(`${n}sprite`, this.spriteEnemy, 1.2, 2.6, root);
+      return root;
+    }
+
     // ── Palette — flat-colour PBR for primitive geometry ─────────────
     const mArmor = this.mkMat(`${n}armor`, 0.28, 0.04, 0.04, 0.45, 0.5);       // dark crimson
     const mDark  = this.mkMat(`${n}dark`,  0.1,  0.09, 0.08, 0.6,  0.4);       // matte black
@@ -544,6 +639,13 @@ export class World {
 
   private _buildRavanaParts(): TransformNode {
     const root = new TransformNode('boss', this.scene);
+
+    // ── Sprite billboard (if sprite_boss.png is present) ──────────────
+    this.loadSpritesIfNeeded();
+    if (this.spriteBoss) {
+      this.mkBillboard('boss_sprite', this.spriteBoss, 3.0, 4.5, root);
+      return root;
+    }
 
     // ── Palette — flat-colour PBR for primitive geometry ─────────────
     const mBody  = this.mkMat('boss_body',  0.18, 0.04, 0.28, 0.5,  0.4);          // dark void-purple

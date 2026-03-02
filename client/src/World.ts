@@ -410,7 +410,7 @@ export class World {
     if (mesh) { mesh.dispose(false, true); this.playerMeshes.delete(id); }
   }
 
-  updatePlayerMesh(state: PlayerState, isLocal: boolean): void {
+  updatePlayerMesh(state: PlayerState, isLocal: boolean, overrideYaw?: number): void {
     let root = this.playerMeshes.get(state.id);
     if (!root) {
       this.addPlayerMesh(state.id, isLocal);
@@ -419,7 +419,7 @@ export class World {
     }
 
     root.position.set(state.pos.x, state.pos.y, state.pos.z);
-    root.rotation.y = state.yaw;
+    root.rotation.y = overrideYaw ?? state.yaw;
     root.rotation.x = state.status === PlayerStatus.Downed ? Math.PI / 2 * 0.8 : 0;
   }
 

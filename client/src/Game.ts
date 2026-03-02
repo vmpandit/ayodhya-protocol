@@ -352,7 +352,11 @@ export class Game {
   }
 
   private updateWorld(snap: GameSnapshot, _dt: number): void {
-    for (const ps of snap.players) this.world.updatePlayerMesh(ps, ps.id === this.localPlayerId);
+    for (const ps of snap.players) {
+      const isLocal = ps.id === this.localPlayerId;
+      const yawOverride = isLocal && this.controller ? this.controller.getVisualYaw() : undefined;
+      this.world.updatePlayerMesh(ps, isLocal, yawOverride);
+    }
     for (const es of snap.enemies) this.world.updateEnemyMesh(es);
     if (snap.boss) this.world.updateBossMesh(snap.boss);
 

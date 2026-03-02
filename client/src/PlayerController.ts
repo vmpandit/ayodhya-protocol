@@ -10,6 +10,14 @@ interface PendingAbility {
   dir: Vec3;
 }
 
+/** Shortest-path angle interpolation (handles wrapping). */
+function lerpAngle(a: number, b: number, t: number): number {
+  let diff = b - a;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return a + diff * t;
+}
+
 export class PlayerController {
   private canvas: HTMLCanvasElement;
   private camera: FreeCamera;
@@ -61,6 +69,20 @@ export class PlayerController {
   private cameraTouchLastY = 0;
   private touchFlags = 0;
   private touchShootTapped = false;
+
+  // ── Mobile tap-to-fire ──
+  /** Start time of camera touch for tap detection */
+  private cameraTouchStartTime = 0;
+  private cameraTouchStartX = 0;
+  private cameraTouchStartY = 0;
+  /** One-shot aim override from a screen tap (consumed by getAimDirection) */
+  private tapAimDir: Vec3 | null = null;
+
+  // ── Free-aim visual yaw (PC) ──
+  /** The character mesh facing direction — decoupled from camera yaw */
+  private visualYaw = 0;
+  /** Last frame's input flags for visual yaw logic */
+  private lastInputFlags = 0;
 
   constructor(canvas: HTMLCanvasElement, camera: FreeCamera) {
     this.canvas = canvas;
@@ -180,6 +202,28 @@ export class PlayerController {
           this.cameraTouchId = t.identifier;
           this.cameraTouchLastX = t.clientX;
           this.cameraTouchLastY = t.clientY;
+          // Track tap timing for tap-to-fire
+          this.cameraTouchStartTime = performance.now();
+          this.cameraTouchStartX = t.clientX;
+          this.cameraTouchStartY = t.clientY;
+        }
+      }
+    }, { passive: true });
+
+    // Tap-to-fire: short touch on right side fires toward that screen point
+    this.canvas.addEventListener('touchend', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === this.cameraTouchId) {
+          const elapsed = performance.now() - this.cameraTouchStartTime;
+          const dx = t.clientX - this.cameraTouchStartX;
+          const dy = t.clientY - this.cameraTouchStartY;
+          const moved = Math.sqrt(dx * dx + dy * dy);
+          // Short tap (<300ms, <15px drift) → fire toward that screen point
+          if (elapsed < 300 && moved < 15) {
+            this.tapAimDir = this.screenPointToAimDir(t.clientX, t.clientY);
+            this.touchShootTapped = true;
+          }
         }
       }
     }, { passive: true });
@@ -226,6 +270,33 @@ export class PlayerController {
     }
   }
 
+  /**
+   * Convert a screen tap position to an aim direction vector (from the player).
+   * Uses the camera's FOV to compute angular offset from screen centre.
+   */
+  private screenPointToAimDir(sx: number, sy: number): Vec3 {
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    const cx = cw / 2;
+    const cy = ch / 2;
+
+    const vFov = this.camera.fov;
+    const aspect = cw / ch;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+
+    const yawOffset  = -((sx - cx) / cx) * (hFov / 2);
+    const pitchOffset = -((sy - cy) / cy) * (vFov / 2);
+
+    const tapYaw   = this.yaw + yawOffset;
+    const tapPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch + pitchOffset));
+
+    return {
+      x: -Math.sin(tapYaw) * Math.cos(tapPitch),
+      y:  Math.sin(tapPitch),
+      z: -Math.cos(tapYaw) * Math.cos(tapPitch),
+    };
+  }
+
   // ══════════════════════════════════════════════
   //  INPUT FRAME
   // ══════════════════════════════════════════════
@@ -263,6 +334,7 @@ export class PlayerController {
       this.chargeStart = 0;
     }
 
+    this.lastInputFlags = flags;
     const input: PlayerInput = { seq: ++this.seq, flags, yaw: this.yaw, pitch: this.pitch, chargeMs, dt };
     this.pendingInputs.push(input);
     return input;
@@ -352,6 +424,9 @@ export class PlayerController {
 
     this.camera.setTarget(new Vector3(targetX, targetY, targetZ));
 
+    // ── Update visual yaw (character facing — decoupled from camera) ──
+    this.updateVisualYaw(dt);
+
     // Charge ring (desktop only)
     const chargeRing = document.getElementById('chargeRing')!;
     if (this.mouseDown && this.chargeStart > 0) {
@@ -372,6 +447,12 @@ export class PlayerController {
   }
 
   private getAimDirection(): Vec3 {
+    // ── Mobile tap-to-fire override (consumed once) ──
+    if (this.tapAimDir) {
+      const dir = this.tapAimDir;
+      this.tapAimDir = null;
+      return dir;
+    }
     if (this.targetLockPos) {
       // Aim toward locked target from player eye height
       const eyeY = this.localPlayerPos.y + 1.35;
@@ -393,4 +474,49 @@ export class PlayerController {
   isReviving(): boolean { return this.reviving; }
   getFireArrowCd(): number { return Math.max(0, this.fireArrowCdEnd - performance.now()) / C.FIRE_ARROW_COOLDOWN_MS; }
   getShockwaveCd(): number { return Math.max(0, this.shockwaveCdEnd - performance.now()) / C.SHOCKWAVE_COOLDOWN_MS; }
+
+  // ══════════════════════════════════════════════
+  //  VISUAL YAW (character facing, decoupled from camera)
+  // ══════════════════════════════════════════════
+
+  /**
+   * Update the visual yaw so the character mesh faces:
+   * - Movement direction when moving (WASD / joystick)
+   * - Aim direction when charging / firing
+   * - Current facing when idle (camera can orbit freely)
+   */
+  private updateVisualYaw(dt: number): void {
+    const flags = this.lastInputFlags;
+    const isMoving = (flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right)) !== 0;
+    const isFiring = this.mouseDown || (flags & InputFlag.Shoot) !== 0;
+
+    if (isFiring) {
+      // Snap toward aim direction while charging / firing
+      this.visualYaw = lerpAngle(this.visualYaw, this.yaw, Math.min(1, dt * 18));
+    } else if (isMoving) {
+      // Face movement direction
+      const sinY = Math.sin(this.yaw);
+      const cosY = Math.cos(this.yaw);
+      let tx = 0, tz = 0;
+
+      if (this.isTouch && this.joystickActive) {
+        tx = -this.joystickDx * cosY - this.joystickDy * sinY;
+        tz =  this.joystickDx * sinY - this.joystickDy * cosY;
+      } else {
+        if (flags & InputFlag.Forward)  { tx -= sinY; tz -= cosY; }
+        if (flags & InputFlag.Backward) { tx += sinY; tz += cosY; }
+        if (flags & InputFlag.Left)     { tx -= cosY; tz += sinY; }
+        if (flags & InputFlag.Right)    { tx += cosY; tz -= sinY; }
+      }
+
+      if (tx !== 0 || tz !== 0) {
+        const moveAngle = Math.atan2(-tx, -tz);
+        this.visualYaw = lerpAngle(this.visualYaw, moveAngle, Math.min(1, dt * 12));
+      }
+    }
+    // Idle → keep current visualYaw (camera can orbit without character spinning)
+  }
+
+  /** Character facing yaw for local player mesh (decoupled from camera). */
+  getVisualYaw(): number { return this.visualYaw; }
 }

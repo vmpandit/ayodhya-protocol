@@ -159,11 +159,14 @@ export class World {
     plane.position.y = h / 2;            // pivot at feet
     plane.billboardMode = Mesh.BILLBOARDMODE_Y; // rotate only around Y (stays upright)
     const mat = new StandardMaterial(`${name}_mat`, this.scene);
-    mat.diffuseTexture  = tex;
-    mat.emissiveColor   = new Color3(1, 1, 1);  // unlit — full brightness
-    mat.disableLighting = true;
+    // Use texture for BOTH diffuse (alpha source) and emissive (colour/brightness).
+    // emissiveTexture renders the sprite at full brightness regardless of scene lighting.
+    // Do NOT set emissiveColor=(1,1,1)+disableLighting — that renders solid white and
+    // ignores the diffuse texture colour entirely.
+    mat.diffuseTexture   = tex;
+    mat.emissiveTexture  = tex;           // sprite colour shown at full brightness (unlit)
     mat.useAlphaFromDiffuseTexture = true;
-    mat.backFaceCulling = false;          // visible from all angles
+    mat.backFaceCulling  = false;         // visible from all angles
     plane.material = mat;
     return plane;
   }

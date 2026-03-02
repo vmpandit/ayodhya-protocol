@@ -42,9 +42,10 @@ export class World {
   private assets: LoadedAssets | null = null;
 
   /** Billboard sprite textures — loaded lazily on first character spawn */
-  private spritePlayer: Texture | null = null;
-  private spriteEnemy:  Texture | null = null;
-  private spriteBoss:   Texture | null = null;
+  private spritePlayer:  Texture | null = null;
+  private spriteEnemy:   Texture | null = null;
+  private spriteEnemy2:  Texture | null = null;
+  private spriteBoss:    Texture | null = null;
   private spritesChecked = false;
 
   constructor(renderer: Renderer) {
@@ -85,6 +86,14 @@ export class World {
     });
     tryLoad('textures/sprite_enemy.png', t => {
       this.spriteEnemy = t;
+      for (const [id, root] of this.enemyMeshes) {
+        root.dispose(false, true);
+        this.enemyMeshes.delete(id);
+      }
+    });
+    tryLoad('textures/sprite_enemy2.png', t => {
+      this.spriteEnemy2 = t;
+      // Clear enemy meshes so they rebuild with the new variety
       for (const [id, root] of this.enemyMeshes) {
         root.dispose(false, true);
         this.enemyMeshes.delete(id);
@@ -535,10 +544,11 @@ export class World {
     const n = `e${id}_`;
     const root = new TransformNode(`enemy_${id}`, this.scene);
 
-    // ── Sprite billboard (if sprite_enemy.png is present) ─────────────
+    // ── Sprite billboard — alternate between the two enemy sprites ────
     this.loadSpritesIfNeeded();
-    if (this.spriteEnemy) {
-      this.mkBillboard(`${n}sprite`, this.spriteEnemy, 1.2, 2.6, root);
+    const enemyTex = (id % 2 === 0 && this.spriteEnemy2) ? this.spriteEnemy2 : this.spriteEnemy;
+    if (enemyTex) {
+      this.mkBillboard(`${n}sprite`, enemyTex, 1.2, 2.6, root);
       return root;
     }
 

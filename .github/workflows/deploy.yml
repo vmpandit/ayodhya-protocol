@@ -2,66 +2,52 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]       # triggers on every push to main
-  workflow_dispatch:        # allows manual trigger from the Actions tab
+    branches: [main]
+  workflow_dispatch:
 
-# Grant the GITHUB_TOKEN permission to deploy to Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Only allow one deployment at a time
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
-      # ── 1. Check out the repo ──────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Set up Node 20 ─────────────────────────────────────────────────
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: client/package-lock.json
 
-      # ── 3. Install client dependencies ────────────────────────────────────
       - name: Install dependencies
         working-directory: client
         run: npm ci
 
-      # ── 4. Build the client ───────────────────────────────────────────────
-      #    GITHUB_PAGES_BASE must match your repo name exactly, e.g. /ayodhya-protocol/
-      #    If you use a custom domain (CNAME) set it to / instead.
       - name: Build
         working-directory: client
         run: npm run build
         env:
-          GITHUB_PAGES_BASE: /${{ github.event.repository.name }}/
+          BASE_URL: /${{ github.event.repository.name }}/
 
-      # ── 5. Configure GitHub Pages ─────────────────────────────────────────
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      # ── 6. Upload the dist folder as the Pages artifact ───────────────────
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: client/dist
 
-      # ── 7. Deploy to GitHub Pages ─────────────────────────────────────────
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

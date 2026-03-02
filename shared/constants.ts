@@ -28,6 +28,29 @@ export const SHOCKWAVE_COOLDOWN_MS = 8000;
 export const SHOCKWAVE_DAMAGE = 40;
 export const SHOCKWAVE_RADIUS = 8;
 
+// ── Ramayan Special Arrows ──
+export const VAYU_ASTRA_COOLDOWN_MS = 6000;
+export const VAYU_ASTRA_DAMAGE = 20;
+export const VAYU_ASTRA_SPEED = 45;       // faster than normal
+export const VAYU_ASTRA_KNOCKBACK = 8;
+
+export const VARUNA_ASTRA_COOLDOWN_MS = 7000;
+export const VARUNA_ASTRA_DAMAGE = 18;
+export const VARUNA_ASTRA_SLOW_DURATION_MS = 3000;
+export const VARUNA_ASTRA_SLOW_FACTOR = 0.4;
+
+export const NAGA_ASTRA_COOLDOWN_MS = 8000;
+export const NAGA_ASTRA_DAMAGE = 12;
+export const NAGA_ASTRA_DOT = 6;
+export const NAGA_ASTRA_DOT_TICKS = 5;
+
+export const BRAHMA_ASTRA_COOLDOWN_MS = 20000;
+export const BRAHMA_ASTRA_DAMAGE = 80;
+
+// Enemy special arrow speed (slower for reaction time)
+export const ENEMY_SPECIAL_ARROW_SPEED = 18;  // slower than player arrows
+export const ENEMY_SPECIAL_ARROW_ALERT_MS = 1200; // alert display time
+
 // Player stats
 export const PLAYER_MAX_HP = 100;
 export const PLAYER_MAX_STAMINA = 100;

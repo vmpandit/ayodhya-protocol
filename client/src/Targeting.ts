@@ -1,8 +1,9 @@
 // ── Ayodhya Protocol: Lanka Reforged ── Soft-Lock Targeting System ──
 // Each frame, enemy world positions are projected to screen space.
-// The nearest enemy within MAX_LOCK_PX of screen centre is "locked".
-// The crosshair lerps 25 % of the way toward the lock, and a spinning
-// diamond reticle tracks directly on top of the target.
+// The nearest enemy within MAX_LOCK_PX of the mouse cursor is "locked".
+// The crosshair stays at screen centre, and a spinning diamond reticle
+// tracks directly on top of the locked target.
+// On mobile/touch, falls back to screen-centre targeting.
 
 import { Scene, Vector3, Matrix, Viewport } from '@babylonjs/core';
 import { EnemyState, BossState, EnemyAIState, BossPhase, Vec3 } from '@shared/types';
@@ -30,8 +31,13 @@ export class Targeting {
   // Spin angle for the diamond reticle (degrees)
   private rotAngle = 45;
 
-  /** Max pixel radius from screen centre for a target to be lockable */
-  private readonly MAX_LOCK_PX = 260;
+  // Mouse/Touch tracking
+  private mouseX = 0;
+  private mouseY = 0;
+  private isTouch = false;
+
+  /** Max pixel radius from mouse position for a target to be lockable */
+  private readonly MAX_LOCK_PX = 80;
   /** Lerp speed (higher = snappier tracking) */
   private readonly LERP_SPEED = 12;
 
@@ -50,6 +56,32 @@ export class Targeting {
     this.crossY = canvas.clientHeight / 2;
     this.reticleX = this.crossX;
     this.reticleY = this.crossY;
+
+    // Initialize mouse position to screen centre
+    this.mouseX = canvas.clientWidth / 2;
+    this.mouseY = canvas.clientHeight / 2;
+
+    // Set up mouse and touch listeners
+    this._setupInputListeners();
+  }
+
+  private _setupInputListeners(): void {
+    // Mouse move tracking
+    this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
+      this.isTouch = false;
+      const rect = this.canvas.getBoundingClientRect();
+      this.mouseX = e.clientX - rect.left;
+      this.mouseY = e.clientY - rect.top;
+    });
+
+    // Detect touch input (fall back to screen centre)
+    document.addEventListener('touchstart', () => {
+      this.isTouch = true;
+    });
+
+    document.addEventListener('touchmove', () => {
+      this.isTouch = true;
+    });
   }
 
   /**
@@ -70,6 +102,10 @@ export class Targeting {
     const transform = this.scene.getTransformMatrix();
     const viewport = new Viewport(0, 0, w, h);
 
+    // Determine reference point: use mouse position on desktop, screen centre on touch/mobile
+    const refX = this.isTouch ? cx : this.mouseX;
+    const refY = this.isTouch ? cy : this.mouseY;
+
     let bestDist = this.MAX_LOCK_PX;
     let bestTarget: TargetInfo | null = null;
 
@@ -81,7 +117,7 @@ export class Targeting {
       const sp = Vector3.Project(wp, Matrix.Identity(), transform, viewport);
       if (sp.z < 0 || sp.z > 1) continue;          // behind camera / clipped
 
-      const dist = Math.hypot(sp.x - cx, sp.y - cy);
+      const dist = Math.hypot(sp.x - refX, sp.y - refY);
       if (dist < bestDist) {
         bestDist = dist;
         bestTarget = {
@@ -97,7 +133,7 @@ export class Targeting {
       const wp = new Vector3(boss.pos.x, boss.pos.y + 2.8, boss.pos.z);
       const sp = Vector3.Project(wp, Matrix.Identity(), transform, viewport);
       if (sp.z >= 0 && sp.z <= 1) {
-        const dist = Math.hypot(sp.x - cx, sp.y - cy);
+        const dist = Math.hypot(sp.x - refX, sp.y - refY);
         if (dist < bestDist) {
           bestDist = dist;
           bestTarget = {
@@ -115,9 +151,9 @@ export class Targeting {
     const lf = Math.min(1, dt * this.LERP_SPEED);
 
     if (bestTarget) {
-      // Crosshair drifts 28 % toward the locked target
-      this.crossX = lerp(this.crossX, cx + (bestTarget.screenX - cx) * 0.28, lf);
-      this.crossY = lerp(this.crossY, cy + (bestTarget.screenY - cy) * 0.28, lf);
+      // Crosshair stays at screen centre (aim comes from mouse direction)
+      this.crossX = lerp(this.crossX, cx, lf);
+      this.crossY = lerp(this.crossY, cy, lf);
 
       // Reticle tracks directly on the locked target
       this.reticleX = lerp(this.reticleX, bestTarget.screenX, lf);

@@ -38,7 +38,7 @@ export class Renderer {
     this.scene = new Scene(this.engine);
     // Deep blood-orange sky at the horizon, dark canopy overhead
     this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
-    this.scene.ambientColor = new Color3(0.18, 0.1, 0.08);
+    this.scene.ambientColor = new Color3(0.32, 0.22, 0.18);
 
     // Layered exponential fog — near mist + far haze
     this.scene.fogMode    = Scene.FOGMODE_EXP2;
@@ -53,16 +53,16 @@ export class Renderer {
     this.camera.detachControl();
 
     // ── Lighting ────────────────────────────────────────────────────
-    // Hemisphere — very dim, cool ground bounce
+    // Hemisphere — brighter ambient so scene isn't too dark
     const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), this.scene);
-    ambient.intensity   = 0.28;
-    ambient.diffuse     = new Color3(0.55, 0.45, 0.35);   // warm upper sky
-    ambient.groundColor = new Color3(0.08, 0.06, 0.12);   // cool purple bounce
+    ambient.intensity   = 0.62;
+    ambient.diffuse     = new Color3(0.65, 0.55, 0.45);   // warm upper sky
+    ambient.groundColor = new Color3(0.18, 0.14, 0.22);   // cool purple bounce
 
     // Key light — low-angle blood-orange sun (22° elevation, NW)
     const sun = new DirectionalLight('sun',
       new Vector3(-0.65, -0.38, 0.65).normalize(), this.scene);
-    sun.intensity = 2.0;
+    sun.intensity = 2.8;
     sun.diffuse   = new Color3(1.0, 0.52, 0.18);          // deep orange
     sun.specular  = new Color3(1.0, 0.55, 0.2);
     sun.position  = new Vector3(40, 60, -40);
@@ -70,7 +70,7 @@ export class Renderer {
     // Fill light — indigo/purple from opposite side (sky fill)
     const fill = new DirectionalLight('fill',
       new Vector3(0.5, -0.5, -0.5).normalize(), this.scene);
-    fill.intensity = 0.55;
+    fill.intensity = 0.85;
     fill.diffuse   = new Color3(0.25, 0.2, 0.55);         // indigo fill
     fill.specular  = new Color3(0.0, 0.0, 0.0);           // no specular contribution
 
@@ -107,7 +107,7 @@ export class Renderer {
     pipe.imageProcessingEnabled = true;
     pipe.imageProcessing.toneMappingEnabled = true;
     pipe.imageProcessing.toneMappingType    = ImageProcessingConfiguration.TONEMAPPING_ACES;
-    pipe.imageProcessing.exposure    = 1.05;
+    pipe.imageProcessing.exposure    = 1.65;
     pipe.imageProcessing.contrast    = 1.35;              // punchy contrast
 
     // Dramatic vignette

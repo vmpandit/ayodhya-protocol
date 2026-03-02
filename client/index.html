@@ -132,6 +132,40 @@
       letter-spacing: 3px; text-transform: uppercase;
     }
 
+    /* Arrow alert — enemy special arrow warning */
+    #arrowAlert {
+      position: absolute; top: 35%; left: 50%; transform: translateX(-50%);
+      color: #ff4444; font-size: 22px; font-weight: bold; letter-spacing: 2px;
+      text-shadow: 0 0 16px rgba(255,0,0,0.7), 0 0 40px rgba(255,0,0,0.3);
+      pointer-events: none; opacity: 0; transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    #arrowAlert.visible { opacity: 1; animation: alertPulse 0.4s ease-in-out 3; }
+    @keyframes alertPulse {
+      0%, 100% { transform: translateX(-50%) scale(1); }
+      50% { transform: translateX(-50%) scale(1.08); }
+    }
+
+    /* Arrow selector bar */
+    #arrowSelector {
+      position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 6px; pointer-events: none;
+    }
+    .arrow-slot {
+      width: 42px; height: 42px; background: rgba(0,0,0,0.7);
+      border: 2px solid rgba(255,255,255,0.15); border-radius: 6px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #aaa; font-size: 16px; position: relative; overflow: hidden;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .arrow-slot.selected { border-color: #ffd700; color: #ffd700; box-shadow: 0 0 10px rgba(255,215,0,0.3); }
+    .arrow-slot-key { position: absolute; top: 1px; right: 3px; font-size: 9px; color: #777; font-family: monospace; }
+    .arrow-slot-name { font-size: 7px; letter-spacing: 0.5px; margin-top: 1px; }
+    .arrow-cd-fill {
+      position: absolute; bottom: 0; left: 0; width: 100%;
+      background: rgba(0,0,0,0.6); transition: height 0.1s;
+    }
+
     /* Low HP pulse animation */
     @keyframes lowHpPulse {
       0%, 100% { opacity: 1; }
@@ -307,6 +341,16 @@
       <div id="bossPhaseLabel">Phase I</div>
     </div>
 
+    <div id="arrowAlert"></div>
+
+    <div id="arrowSelector">
+      <div class="arrow-slot selected" id="arrowSlot0"><span class="arrow-slot-key">1</span>🔥<span class="arrow-slot-name">AGNI</span><div class="arrow-cd-fill"></div></div>
+      <div class="arrow-slot" id="arrowSlot1"><span class="arrow-slot-key">2</span>💨<span class="arrow-slot-name">VAYU</span><div class="arrow-cd-fill"></div></div>
+      <div class="arrow-slot" id="arrowSlot2"><span class="arrow-slot-key">3</span>💧<span class="arrow-slot-name">VARUNA</span><div class="arrow-cd-fill"></div></div>
+      <div class="arrow-slot" id="arrowSlot3"><span class="arrow-slot-key">4</span>🐍<span class="arrow-slot-name">NAGA</span><div class="arrow-cd-fill"></div></div>
+      <div class="arrow-slot" id="arrowSlot4"><span class="arrow-slot-key">5</span>✦<span class="arrow-slot-name">BRAHMA</span><div class="arrow-cd-fill"></div></div>
+    </div>
+
     <div id="cooldowns">
       <div class="cd-icon" id="cdFire"><span class="cd-key">Q</span>🔥<div class="cd-overlay" id="cdFireOverlay"></div></div>
       <div class="cd-icon" id="cdShockwave"><span class="cd-key">E</span>💥<div class="cd-overlay" id="cdShockwaveOverlay"></div></div>
@@ -362,12 +406,13 @@
       <div class="instr-section" id="instrDesktop">
         <div class="instr-section-title">Controls — Keyboard &amp; Mouse</div>
         <div class="instr-row"><span class="instr-key">W A S D</span><span class="instr-desc">Move</span></div>
-        <div class="instr-row"><span class="instr-key">Mouse</span><span class="instr-desc">Look / Aim (click game to lock cursor)</span></div>
-        <div class="instr-row"><span class="instr-key">Click+Hold</span><span class="instr-desc">Charge bow — release to fire. Longer charge = more damage</span></div>
+        <div class="instr-row"><span class="instr-key">Mouse</span><span class="instr-desc">Look / Aim (click game to lock cursor). Hover over enemy to target.</span></div>
+        <div class="instr-row"><span class="instr-key">L-Click / Q</span><span class="instr-desc">Fire basic arrow at targeted enemy</span></div>
+        <div class="instr-row"><span class="instr-key">R-Click</span><span class="instr-desc">Fire selected special arrow (Astra)</span></div>
+        <div class="instr-row"><span class="instr-key">Scroll / 1-5</span><span class="instr-desc">Cycle or select special arrow: Agni, Vayu, Varuna, Naga, Brahma</span></div>
         <div class="instr-row"><span class="instr-key">Shift</span><span class="instr-desc">Sprint (costs stamina)</span></div>
         <div class="instr-row"><span class="instr-key">Space</span><span class="instr-desc">Jump</span></div>
         <div class="instr-row"><span class="instr-key">C / Ctrl</span><span class="instr-desc">Dodge roll (costs stamina, brief invincibility)</span></div>
-        <div class="instr-row"><span class="instr-key">Q</span><span class="instr-desc">Fire Arrow — burning projectile, 5 s cooldown</span></div>
         <div class="instr-row"><span class="instr-key">E</span><span class="instr-desc">Shockwave — AoE blast around you, 8 s cooldown</span></div>
         <div class="instr-row"><span class="instr-key">R</span><span class="instr-desc">Revive downed teammate (hold near them, 3 s)</span></div>
       </div>
@@ -388,11 +433,11 @@
       <div class="instr-section">
         <div class="instr-section-title">Combat Tips</div>
         <div class="instr-note">
-          Charge your bow longer for up to 3x damage. Dodge rolls give brief
-          invincibility — use them to avoid the boss's AoE slam and projectile
-          barrages. Sprint conserves stamina when you let go, but dodging costs
-          a flat chunk. Fire Arrow deals burn damage over time. Shockwave hits
-          everything in a wide radius — great when surrounded.
+          Hover your mouse over enemies to target them. Left-click or Q fires
+          a basic arrow. Right-click fires your selected special arrow (cycle
+          with scroll wheel or number keys 1-5). Dodge rolls give brief
+          invincibility — use them to avoid the boss's AoE slam and incoming
+          special arrows. Watch for ⚠ alerts warning of enemy Astras!
         </div>
       </div>
 

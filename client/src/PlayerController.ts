@@ -2,7 +2,7 @@
 // Supports both keyboard/mouse and full touch controls (iPhone/mobile).
 
 import { FreeCamera, Vector3 } from '@babylonjs/core';
-import { PlayerInput, PlayerState, InputFlag, Vec3, AbilityType } from '@shared/types';
+import { PlayerInput, PlayerState, InputFlag, Vec3, AbilityType, SpecialArrowType } from '@shared/types';
 import * as C from '@shared/constants';
 
 interface PendingAbility {
@@ -24,8 +24,7 @@ export class PlayerController {
 
   // ── Keyboard state ──
   private keys = new Set<string>();
-  private mouseDown = false;
-  private chargeStart = 0;
+  private rightMouseDown = false;
 
   // ── Shared state ──
   private yaw = 0;
@@ -38,6 +37,16 @@ export class PlayerController {
   private fireArrowCdEnd = 0;
   private shockwaveCdEnd = 0;
   private reviving = false;
+
+  // ── Special arrow system ──
+  private selectedSpecialArrow: SpecialArrowType = 0; // 0 = AgniAstra
+  private specialArrowCdEnd: { [key in SpecialArrowType]: number } = {
+    0: 0, // AgniAstra
+    1: 0, // VayuAstra
+    2: 0, // VarunaAstra
+    3: 0, // NagaAstra
+    4: 0, // BrahmaAstra
+  };
 
   // ── Soft-lock targeting ──
   private targetLockPos: Vec3 | null = null;
@@ -104,20 +113,36 @@ export class PlayerController {
   private bindKeyboardEvents(): void {
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.code);
-      if (e.code === 'KeyQ') this.tryFireArrow();
+      if (e.code === 'KeyQ') this.touchShootTapped = true; // Q = basic arrow (instant)
       if (e.code === 'KeyE') this.tryShockwave();
       if (e.code === 'KeyR') this.reviving = true;
+      if (e.code === 'Digit1') this.selectSpecialArrow(0); // AgniAstra
+      if (e.code === 'Digit2') this.selectSpecialArrow(1); // VayuAstra
+      if (e.code === 'Digit3') this.selectSpecialArrow(2); // VarunaAstra
+      if (e.code === 'Digit4') this.selectSpecialArrow(3); // NagaAstra
+      if (e.code === 'Digit5') this.selectSpecialArrow(4); // BrahmaAstra
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
       if (e.code === 'KeyR') this.reviving = false;
     });
     this.canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) { this.mouseDown = true; this.chargeStart = performance.now(); }
+      if (e.button === 0) this.touchShootTapped = true; // Left-click = basic arrow
+      if (e.button === 2) this.rightMouseDown = true; // Right-click for special
     });
     this.canvas.addEventListener('mouseup', (e) => {
-      if (e.button === 0) this.mouseDown = false;
+      if (e.button === 2) {
+        this.rightMouseDown = false;
+        this.trySpecialArrow();
+      }
     });
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 1 : -1;
+      const newSelect = (this.selectedSpecialArrow + delta + 5) % 5;
+      this.selectSpecialArrow(newSelect as SpecialArrowType);
+    });
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === this.canvas) {
         document.addEventListener('mousemove', this.onMouseMove);
@@ -270,6 +295,35 @@ export class PlayerController {
     }
   }
 
+  private selectSpecialArrow(type: SpecialArrowType): void {
+    this.selectedSpecialArrow = type;
+  }
+
+  private trySpecialArrow(): void {
+    const now = performance.now();
+    const selectedType = this.selectedSpecialArrow;
+    if (now >= this.specialArrowCdEnd[selectedType]) {
+      // Map SpecialArrowType (0-4) to AbilityType constants
+      const abilityTypeMap: { [key in SpecialArrowType]: AbilityType } = {
+        0: AbilityType.FireArrow,
+        1: AbilityType.VayuAstra,
+        2: AbilityType.VarunaAstra,
+        3: AbilityType.NagaAstra,
+        4: AbilityType.BrahmaAstra,
+      };
+      this.pendingAbility = { type: abilityTypeMap[selectedType], dir: this.getAimDirection() };
+      // Set cooldown (cooldown values should be defined in constants)
+      const cooldownMap: { [key in SpecialArrowType]: number } = {
+        0: C.FIRE_ARROW_COOLDOWN_MS,
+        1: C.VAYU_ASTRA_COOLDOWN_MS,
+        2: C.VARUNA_ASTRA_COOLDOWN_MS,
+        3: C.NAGA_ASTRA_COOLDOWN_MS,
+        4: C.BRAHMA_ASTRA_COOLDOWN_MS,
+      };
+      this.specialArrowCdEnd[selectedType] = now + cooldownMap[selectedType];
+    }
+  }
+
   /**
    * Convert a screen tap position to an aim direction vector (from the player).
    * Uses the camera's FOV to compute angular offset from screen centre.
@@ -322,20 +376,13 @@ export class PlayerController {
       if (this.keys.has('ControlLeft') || this.keys.has('KeyC')) flags |= InputFlag.Dodge;
     }
 
-    let chargeMs = 0;
     if (this.touchShootTapped) {
-      chargeMs = C.BOW_MAX_CHARGE_MS * 0.6;
       flags |= InputFlag.Shoot;
       this.touchShootTapped = false;
     }
-    if (!this.mouseDown && this.chargeStart > 0) {
-      chargeMs = Math.min(C.BOW_MAX_CHARGE_MS, performance.now() - this.chargeStart);
-      if (chargeMs >= C.BOW_MIN_CHARGE_MS) flags |= InputFlag.Shoot;
-      this.chargeStart = 0;
-    }
 
     this.lastInputFlags = flags;
-    const input: PlayerInput = { seq: ++this.seq, flags, yaw: this.yaw, pitch: this.pitch, chargeMs, dt };
+    const input: PlayerInput = { seq: ++this.seq, flags, yaw: this.yaw, pitch: this.pitch, chargeMs: 0, dt };
     this.pendingInputs.push(input);
     return input;
   }
@@ -426,18 +473,6 @@ export class PlayerController {
 
     // ── Update visual yaw (character facing — decoupled from camera) ──
     this.updateVisualYaw(dt);
-
-    // Charge ring (desktop only)
-    const chargeRing = document.getElementById('chargeRing')!;
-    if (this.mouseDown && this.chargeStart > 0) {
-      const elapsed = performance.now() - this.chargeStart;
-      const pct = Math.min(1, elapsed / C.BOW_MAX_CHARGE_MS);
-      chargeRing.classList.add('active');
-      chargeRing.style.transform = `translate(-50%, -50%) rotate(${pct * 360}deg)`;
-      chargeRing.style.borderTopColor = pct >= 1 ? '#ff4444' : '#ffd700';
-    } else {
-      chargeRing.classList.remove('active');
-    }
   }
 
   /** Called each frame by Game.ts with the current target world position. */
@@ -474,6 +509,17 @@ export class PlayerController {
   isReviving(): boolean { return this.reviving; }
   getFireArrowCd(): number { return Math.max(0, this.fireArrowCdEnd - performance.now()) / C.FIRE_ARROW_COOLDOWN_MS; }
   getShockwaveCd(): number { return Math.max(0, this.shockwaveCdEnd - performance.now()) / C.SHOCKWAVE_COOLDOWN_MS; }
+  getSelectedSpecialArrow(): SpecialArrowType { return this.selectedSpecialArrow; }
+  getSpecialCooldown(type: SpecialArrowType): number {
+    const cooldownMap: { [key in SpecialArrowType]: number } = {
+      0: C.FIRE_ARROW_COOLDOWN_MS,
+      1: C.VAYU_ASTRA_COOLDOWN_MS,
+      2: C.VARUNA_ASTRA_COOLDOWN_MS,
+      3: C.NAGA_ASTRA_COOLDOWN_MS,
+      4: C.BRAHMA_ASTRA_COOLDOWN_MS,
+    };
+    return Math.max(0, this.specialArrowCdEnd[type] - performance.now()) / cooldownMap[type];
+  }
 
   // ══════════════════════════════════════════════
   //  VISUAL YAW (character facing, decoupled from camera)
@@ -482,16 +528,16 @@ export class PlayerController {
   /**
    * Update the visual yaw so the character mesh faces:
    * - Movement direction when moving (WASD / joystick)
-   * - Aim direction when charging / firing
+   * - Aim direction when right-click held or firing
    * - Current facing when idle (camera can orbit freely)
    */
   private updateVisualYaw(dt: number): void {
     const flags = this.lastInputFlags;
     const isMoving = (flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right)) !== 0;
-    const isFiring = this.mouseDown || (flags & InputFlag.Shoot) !== 0;
+    const isFiring = this.rightMouseDown || (flags & InputFlag.Shoot) !== 0;
 
     if (isFiring) {
-      // Snap toward aim direction while charging / firing
+      // Snap toward aim direction while right-click held or firing
       this.visualYaw = lerpAngle(this.visualYaw, this.yaw, Math.min(1, dt * 18));
     } else if (isMoving) {
       // Face movement direction

@@ -1,7 +1,7 @@
 // ── Ayodhya Protocol: Lanka Reforged ── HUD Manager ──
 // Polish pass: kill feed, combo counter, screen transitions, settings panel.
 
-import { PlayerState, BossState, BossPhase, PlayerStatus } from '@shared/types';
+import { PlayerState, BossState, BossPhase, PlayerStatus, SpecialArrowType } from '@shared/types';
 
 export class HUD {
   private hpBar: HTMLElement;
@@ -22,11 +22,17 @@ export class HUD {
   private killFeed: HTMLElement;
   private comboEl: HTMLElement;
   private comboCountEl: HTMLElement;
+  private arrowAlert: HTMLElement;
+  private arrowSelector: HTMLElement;
+  private arrowSlots: HTMLElement[] = [];
 
   // ── Combo tracking ────────────────────────────────────────
   private comboCount = 0;
   private comboTimer = 0;
   private readonly COMBO_WINDOW = 3.0; // seconds to maintain combo
+
+  // ── Arrow alert ────────────────────────────────────────────
+  private alertTimer = 0;
 
   constructor() {
     this.hpBar = document.getElementById('hpBar')!;
@@ -47,15 +53,30 @@ export class HUD {
     this.killFeed = document.getElementById('killFeed')!;
     this.comboEl = document.getElementById('comboDisplay')!;
     this.comboCountEl = document.getElementById('comboCount')!;
+    this.arrowAlert = document.getElementById('arrowAlert')!;
+    this.arrowSelector = document.getElementById('arrowSelector')!;
+
+    // Cache arrow slot elements
+    for (let i = 0; i < 5; i++) {
+      const slot = document.getElementById(`arrowSlot${i}`);
+      if (slot) this.arrowSlots.push(slot);
+    }
   }
 
-  /** Call every frame to decay combo timer */
+  /** Call every frame to decay combo timer and arrow alert */
   update(dt: number): void {
     if (this.comboCount > 0) {
       this.comboTimer -= dt;
       if (this.comboTimer <= 0) {
         this.comboCount = 0;
         this.comboEl.classList.remove('visible');
+      }
+    }
+    // Decay arrow alert
+    if (this.alertTimer > 0) {
+      this.alertTimer -= dt;
+      if (this.alertTimer <= 0) {
+        this.arrowAlert.classList.remove('visible');
       }
     }
   }
@@ -192,4 +213,23 @@ export class HUD {
 
   /** Get current combo count for scoring/feedback. */
   getComboCount(): number { return this.comboCount; }
+
+  /** Flash an enemy special arrow alert on screen. */
+  showArrowAlert(arrowName: string): void {
+    this.arrowAlert.textContent = `⚠ ${arrowName} INCOMING!`;
+    this.arrowAlert.classList.add('visible');
+    this.alertTimer = 1.5; // seconds
+  }
+
+  /** Update the special arrow selector bar to highlight the selected arrow. */
+  updateArrowSelector(selected: SpecialArrowType, cooldowns: number[]): void {
+    for (let i = 0; i < this.arrowSlots.length; i++) {
+      const slot = this.arrowSlots[i];
+      slot.classList.toggle('selected', i === (selected as number));
+      const cdOverlay = slot.querySelector('.arrow-cd-fill') as HTMLElement;
+      if (cdOverlay) {
+        cdOverlay.style.height = `${(cooldowns[i] || 0) * 100}%`;
+      }
+    }
+  }
 }

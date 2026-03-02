@@ -8,6 +8,13 @@ import {
 } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import * as C from '@shared/constants';
+import {
+  VAYU_ASTRA_DAMAGE, VAYU_ASTRA_SPEED, VAYU_ASTRA_COOLDOWN_MS,
+  VARUNA_ASTRA_DAMAGE, VARUNA_ASTRA_COOLDOWN_MS,
+  NAGA_ASTRA_DAMAGE, NAGA_ASTRA_COOLDOWN_MS,
+  BRAHMA_ASTRA_DAMAGE, BRAHMA_ASTRA_COOLDOWN_MS,
+  ENEMY_SPECIAL_ARROW_SPEED,
+} from '@shared/constants';
 
 interface LocalProjectile {
   state: ProjectileState;
@@ -43,6 +50,10 @@ export class LocalSim {
   private tick = 0;
   private fireArrowCd = 0;
   private shockwaveCd = 0;
+  private vayuAstraCd = 0;
+  private varunaAstraCd = 0;
+  private nagaAstraCd = 0;
+  private brahmaAstraCd = 0;
   private dodgeCdEnd = 0;
   private dodgeEnd = 0;
   private playerVelY = 0;
@@ -51,6 +62,7 @@ export class LocalSim {
   public onDamage: (targetType: DamageTargetType, targetId: number, damage: number, sourceId: number) => void = () => {};
   public onProjectileSpawn: (proj: ProjectileState) => void = () => {};
   public onGameOver: (won: boolean) => void = () => {};
+  public onEnemySpecialArrow: (arrowName: string) => void = () => {};
 
   constructor() {
     this.player = {
@@ -149,10 +161,9 @@ export class LocalSim {
       this.grounded = false;
     }
 
-    // Shoot
+    // Shoot (instant fire at moderate damage ~60% charge)
     if (flags & InputFlag.Shoot) {
-      const chargePct = Math.min(1, input.chargeMs / C.BOW_MAX_CHARGE_MS);
-      const damage = C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * chargePct;
+      const damage = C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * 0.6;
       const dir: Vec3 = {
         x: -Math.sin(input.yaw) * Math.cos(input.pitch),
         y: Math.sin(input.pitch),
@@ -177,6 +188,18 @@ export class LocalSim {
     } else if (ability === AbilityType.Shockwave && now >= this.shockwaveCd) {
       this.shockwaveCd = now + C.SHOCKWAVE_COOLDOWN_MS;
       this.applyShockwave();
+    } else if (ability === AbilityType.VayuAstra && now >= this.vayuAstraCd) {
+      this.vayuAstraCd = now + VAYU_ASTRA_COOLDOWN_MS;
+      this.spawnProjectile(1, ProjectileType.VayuAstra, this.player.pos, dir, VAYU_ASTRA_DAMAGE, VAYU_ASTRA_SPEED);
+    } else if (ability === AbilityType.VarunaAstra && now >= this.varunaAstraCd) {
+      this.varunaAstraCd = now + VARUNA_ASTRA_COOLDOWN_MS;
+      this.spawnProjectile(1, ProjectileType.VarunaAstra, this.player.pos, dir, VARUNA_ASTRA_DAMAGE);
+    } else if (ability === AbilityType.NagaAstra && now >= this.nagaAstraCd) {
+      this.nagaAstraCd = now + NAGA_ASTRA_COOLDOWN_MS;
+      this.spawnProjectile(1, ProjectileType.NagaAstra, this.player.pos, dir, NAGA_ASTRA_DAMAGE);
+    } else if (ability === AbilityType.BrahmaAstra && now >= this.brahmaAstraCd) {
+      this.brahmaAstraCd = now + BRAHMA_ASTRA_COOLDOWN_MS;
+      this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE);
     }
   }
 
@@ -199,11 +222,11 @@ export class LocalSim {
     }
   }
 
-  private spawnProjectile(ownerId: number, type: ProjectileType, origin: Vec3, dir: Vec3, damage: number): void {
+  private spawnProjectile(ownerId: number, type: ProjectileType, origin: Vec3, dir: Vec3, damage: number, speed?: number): void {
     const id = this.nextProjId++;
-    const speed = C.ARROW_SPEED;
+    const projSpeed = speed ?? C.ARROW_SPEED;
     const l = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) || 1;
-    const vel: Vec3 = { x: (dir.x / l) * speed, y: (dir.y / l) * speed, z: (dir.z / l) * speed };
+    const vel: Vec3 = { x: (dir.x / l) * projSpeed, y: (dir.y / l) * projSpeed, z: (dir.z / l) * projSpeed };
     const pos: Vec3 = { x: origin.x, y: origin.y + 1.2, z: origin.z };
     const state: ProjectileState = { id, type, ownerId, pos, vel, damage };
     this.projectiles.set(id, { state, spawnTime: performance.now(), dotTicks: 0 });
@@ -230,7 +253,9 @@ export class LocalSim {
       if (proj.state.pos.y < 0) { projToRemove.push(id); continue; }
 
       // Player arrows hit enemies/boss
-      if (proj.state.type === ProjectileType.Arrow || proj.state.type === ProjectileType.FireArrow) {
+      if (proj.state.type === ProjectileType.Arrow || proj.state.type === ProjectileType.FireArrow ||
+          proj.state.type === ProjectileType.VayuAstra || proj.state.type === ProjectileType.VarunaAstra ||
+          proj.state.type === ProjectileType.NagaAstra || proj.state.type === ProjectileType.BrahmaAstra) {
         for (const enemy of this.enemies) {
           if (enemy.state.aiState === EnemyAIState.Dead) continue;
           if (dist3(proj.state.pos, enemy.state.pos) < 1.2) {
@@ -252,7 +277,9 @@ export class LocalSim {
       }
 
       // Enemy/boss projectiles hit player
-      if (proj.state.type === ProjectileType.EnemyProjectile || proj.state.type === ProjectileType.BossProjectile) {
+      if (proj.state.type === ProjectileType.EnemyProjectile || proj.state.type === ProjectileType.BossProjectile ||
+          proj.state.type === ProjectileType.EnemyAgniAstra || proj.state.type === ProjectileType.EnemyVayuAstra ||
+          proj.state.type === ProjectileType.EnemyNagaAstra) {
         if (this.player.status === PlayerStatus.Alive && !this.player.isDodging) {
           if (dist3(proj.state.pos, this.player.pos) < 1.0) {
             this.damagePlayer(proj.state.damage, proj.state.ownerId);
@@ -316,7 +343,30 @@ export class LocalSim {
         } else if (nearestDist <= C.ENEMY_RANGED_RANGE && now >= enemy.rangedCdEnd) {
           const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
           dir.y += 0.1;
-          this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
+
+          // 30% chance to fire special arrow instead of normal projectile
+          if (Math.random() < 0.3) {
+            const specialArrowRoll = Math.random();
+            let specialType: ProjectileType;
+            let arrowName: string;
+
+            if (specialArrowRoll < 0.33) {
+              specialType = ProjectileType.EnemyAgniAstra;
+              arrowName = "Agni Astra";
+            } else if (specialArrowRoll < 0.66) {
+              specialType = ProjectileType.EnemyVayuAstra;
+              arrowName = "Vayu Astra";
+            } else {
+              specialType = ProjectileType.EnemyNagaAstra;
+              arrowName = "Naga Astra";
+            }
+
+            this.spawnProjectile(200 + enemy.state.id, specialType, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE, ENEMY_SPECIAL_ARROW_SPEED);
+            this.onEnemySpecialArrow(arrowName);
+          } else {
+            this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
+          }
+
           enemy.rangedCdEnd = now + C.ENEMY_RANGED_COOLDOWN_MS;
         } else {
           enemy.state.pos.x += (dx / l) * C.ENEMY_CHASE_SPEED * dt;

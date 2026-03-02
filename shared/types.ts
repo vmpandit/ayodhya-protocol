@@ -76,10 +76,26 @@ export interface PlayerState {
 // ── Projectile types ──
 export const enum ProjectileType {
   Arrow = 0,
-  FireArrow = 1,
+  FireArrow = 1,        // Agni Astra (player)
   ShockwaveArrow = 2,
   EnemyProjectile = 3,
   BossProjectile = 4,
+  VayuAstra = 5,        // Wind arrow — knockback
+  VarunaAstra = 6,      // Water arrow — slow
+  NagaAstra = 7,        // Serpent arrow — poison DoT
+  BrahmaAstra = 8,      // Ultimate — massive damage, long CD
+  EnemyAgniAstra = 9,   // Enemy fires Agni Astra
+  EnemyVayuAstra = 10,  // Enemy fires Vayu Astra
+  EnemyNagaAstra = 11,  // Enemy fires Naga Astra
+}
+
+// ── Special arrow inventory (player-selectable) ──
+export const enum SpecialArrowType {
+  AgniAstra = 0,     // Fire — burn DoT
+  VayuAstra = 1,     // Wind — knockback
+  VarunaAstra = 2,   // Water — slow
+  NagaAstra = 3,     // Serpent — poison
+  BrahmaAstra = 4,   // Ultimate — massive single hit
 }
 
 export interface ProjectileState {
@@ -141,6 +157,10 @@ export interface GameSnapshot {
 
 // ── Ability ──
 export const enum AbilityType {
-  FireArrow = 0,
+  FireArrow = 0,    // Agni Astra
   Shockwave = 1,
+  VayuAstra = 2,
+  VarunaAstra = 3,
+  NagaAstra = 4,
+  BrahmaAstra = 5,
 }

@@ -1,11 +1,12 @@
 // ── Ayodhya Protocol: Lanka Reforged ── World Builder & Entity Meshes ──
 // N64-style flat-colour PBR primitive meshes for all characters.
 // Environment uses PBR textures from TextureLoader when available.
+// Enemies support billboard sprite rendering with fallback to primitives.
 
 import {
   MeshBuilder, StandardMaterial, PBRMaterial, Color3, Vector3, Mesh,
   Scene, TransformNode, InstancedMesh,
-  Texture, Color4, GlowLayer, ParticleSystem, PointLight,
+  Texture, Color4, GlowLayer, ParticleSystem, PointLight, DynamicTexture,
 } from '@babylonjs/core';
 import { Renderer } from './Renderer';
 import { LoadedAssets } from './TextureLoader';
@@ -40,6 +41,12 @@ export class World {
   /** Loaded texture assets from TextureLoader (null = flat-colour fallback) */
   private assets: LoadedAssets | null = null;
 
+  /** Cached enemy sprite textures with white background removed */
+  private enemySpriteTextures = {
+    sprite1: null as Texture | null,  // sprite_enemy.png (odd IDs)
+    sprite2: null as Texture | null,  // sprite_enemy2.png (even IDs)
+  };
+
   constructor(renderer: Renderer) {
     this.renderer = renderer;
     this.scene = renderer.scene;
@@ -50,7 +57,8 @@ export class World {
     this.assets = assets;
   }
 
-  build(): void {
+  async build(): Promise<void> {
+    await this.loadEnemySprites();
     this.buildGround();
     this.buildTrees();
     this.buildBossArena();
@@ -58,6 +66,89 @@ export class World {
     if (!this.assets) this.buildSkybox();
     this.buildGlowLayer();
     this.buildAmbientParticles();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  ENEMY SPRITE LOADING
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Asynchronously load enemy sprite PNGs and process them to remove white backgrounds.
+   * Uses canvas-based processing to convert near-white pixels to transparent.
+   */
+  private async loadEnemySprites(): Promise<void> {
+    try {
+      // Load sprite_enemy.png (for odd enemy IDs)
+      this.enemySpriteTextures.sprite1 = await this.loadAndProcessSprite('sprite_enemy.png');
+      // Load sprite_enemy2.png (for even enemy IDs)
+      this.enemySpriteTextures.sprite2 = await this.loadAndProcessSprite('sprite_enemy2.png');
+    } catch (err) {
+      console.warn('Failed to load enemy sprites, falling back to primitive meshes:', err);
+      this.enemySpriteTextures.sprite1 = null;
+      this.enemySpriteTextures.sprite2 = null;
+    }
+  }
+
+  /**
+   * Load a sprite image and process it to remove white backgrounds.
+   * Pixels where R>230 && G>230 && B>230 are made fully transparent.
+   */
+  private loadAndProcessSprite(imagePath: string): Promise<Texture> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      img.onload = () => {
+        try {
+          // Create a canvas and draw the image
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Failed to get canvas context');
+
+          ctx.drawImage(img, 0, 0);
+
+          // Get pixel data and process white pixels
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+
+          // Iterate through all pixels (RGBA format, 4 bytes per pixel)
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+
+            // If near-white (R>230 && G>230 && B>230), make transparent
+            if (r > 230 && g > 230 && b > 230) {
+              data[i + 3] = 0; // Set alpha to 0
+            }
+          }
+
+          ctx.putImageData(imageData, 0, 0);
+
+          // Create a DynamicTexture from the processed canvas
+          const dynamicTexture = new DynamicTexture(
+            `sprite_${imagePath}`,
+            canvas.width,
+            this.scene
+          );
+          const ctx2 = dynamicTexture.getContext();
+          ctx2.drawImage(canvas, 0, 0);
+          dynamicTexture.update();
+
+          resolve(dynamicTexture);
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      img.onerror = () => {
+        reject(new Error(`Failed to load sprite image: ${imagePath}`));
+      };
+
+      img.src = imagePath;
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -424,7 +515,7 @@ export class World {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  ENEMY MESHES  (Rakshasa Sentinel — ~20 parts)
+  //  ENEMY MESHES  (Rakshasa Sentinel — billboard sprites or primitive fallback)
   // ══════════════════════════════════════════════════════════════════════════
 
   updateEnemyMesh(state: EnemyState): void {
@@ -445,73 +536,99 @@ export class World {
     const n = `e${id}_`;
     const root = new TransformNode(`enemy_${id}`, this.scene);
 
-    // ── Palette — flat-colour PBR for primitive geometry ─────────────
-    const mArmor = this.mkMat(`${n}armor`, 0.28, 0.04, 0.04, 0.45, 0.5);       // dark crimson
-    const mDark  = this.mkMat(`${n}dark`,  0.1,  0.09, 0.08, 0.6,  0.4);       // matte black
-    const mSkin  = this.mkMat(`${n}skin`,  0.32, 0.42, 0.18, 0.0,  0.85);      // sickly olive
-    const mHorn  = this.mkMat(`${n}horn`,  0.55, 0.48, 0.35, 0.4,  0.5);       // bone grey
-    const mEye   = this.mkMat(`${n}eye`,   1.0,  0.45, 0.0,  0.0,  0.0, 0.9, 0.35, 0.0); // orange glow
-    const mClaw  = this.mkMat(`${n}claw`,  0.15, 0.15, 0.12, 0.5,  0.45);      // dark metal
+    // Check if we have sprites loaded and can use billboard rendering
+    const useSprites = this.enemySpriteTextures.sprite1 !== null && this.enemySpriteTextures.sprite2 !== null;
 
-    // ── Feet / Hooves ─────────────────────────────────────────────────
-    this.mkBox(`${n}footL`, 0.24, 0.16, 0.32, mDark, root, -0.14, 0.08, 0.03);
-    this.mkBox(`${n}footR`, 0.24, 0.16, 0.32, mDark, root,  0.14, 0.08, 0.03);
+    if (useSprites) {
+      // ── Billboard sprite approach ──────────────────────────────────
+      // Alternate between sprite_enemy.png (odd IDs) and sprite_enemy2.png (even IDs)
+      const spriteTexture = (id % 2 === 1) ? this.enemySpriteTextures.sprite1 : this.enemySpriteTextures.sprite2;
 
-    // ── Shins ─────────────────────────────────────────────────────────
-    this.mkBox(`${n}shinL`, 0.22, 0.42, 0.22, mSkin,  root, -0.14, 0.37, 0);
-    this.mkBox(`${n}shinR`, 0.22, 0.42, 0.22, mSkin,  root,  0.14, 0.37, 0);
+      if (spriteTexture) {
+        // Create a plane mesh with billboard mode Y (faces camera horizontally)
+        const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
+        billboardPlane.parent = root;
+        billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
+        billboardPlane.scaling.setAll(2.5); // About 2.5 units tall
 
-    // ── Thighs ────────────────────────────────────────────────────────
-    this.mkBox(`${n}thighL`, 0.26, 0.44, 0.26, mArmor, root, -0.14, 0.78, 0);
-    this.mkBox(`${n}thighR`, 0.26, 0.44, 0.26, mArmor, root,  0.14, 0.78, 0);
+        // Create material with processed sprite texture
+        const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
+        billboardMat.emissiveTexture = spriteTexture;
+        billboardMat.useAlphaFromDiffuseTexture = true;
+        billboardMat.disableLighting = true;
+        billboardMat.backFaceCulling = false;
+        billboardPlane.material = billboardMat;
+      }
+    } else {
+      // ── Fallback: primitive mesh system (original) ──────────────────
+      // ── Palette — flat-colour PBR for primitive geometry ─────────────
+      const mArmor = this.mkMat(`${n}armor`, 0.28, 0.04, 0.04, 0.45, 0.5);       // dark crimson
+      const mDark  = this.mkMat(`${n}dark`,  0.1,  0.09, 0.08, 0.6,  0.4);       // matte black
+      const mSkin  = this.mkMat(`${n}skin`,  0.32, 0.42, 0.18, 0.0,  0.85);      // sickly olive
+      const mHorn  = this.mkMat(`${n}horn`,  0.55, 0.48, 0.35, 0.4,  0.5);       // bone grey
+      const mEye   = this.mkMat(`${n}eye`,   1.0,  0.45, 0.0,  0.0,  0.0, 0.9, 0.35, 0.0); // orange glow
+      const mClaw  = this.mkMat(`${n}claw`,  0.15, 0.15, 0.12, 0.5,  0.45);      // dark metal
 
-    // ── Waist ─────────────────────────────────────────────────────────
-    this.mkBox(`${n}waist`, 0.54, 0.2, 0.32, mArmor, root, 0, 1.08, 0);
+      // ── Feet / Hooves ─────────────────────────────────────────────────
+      this.mkBox(`${n}footL`, 0.24, 0.16, 0.32, mDark, root, -0.14, 0.08, 0.03);
+      this.mkBox(`${n}footR`, 0.24, 0.16, 0.32, mDark, root,  0.14, 0.08, 0.03);
 
-    // ── Torso (wide, brutish) ─────────────────────────────────────────
-    const torso = this.mkBox(`${n}torso`, 0.68, 0.62, 0.4, mArmor, root, 0, 1.55, 0);
-    this.renderer.shadowGenerator.addShadowCaster(torso);
+      // ── Shins ─────────────────────────────────────────────────────────
+      this.mkBox(`${n}shinL`, 0.22, 0.42, 0.22, mSkin,  root, -0.14, 0.37, 0);
+      this.mkBox(`${n}shinR`, 0.22, 0.42, 0.22, mSkin,  root,  0.14, 0.37, 0);
 
-    // Belly plates (horizontal ridges)
-    this.mkBox(`${n}plate1`, 0.64, 0.07, 0.08, mDark, root, 0, 1.32, -0.22);
-    this.mkBox(`${n}plate2`, 0.64, 0.07, 0.08, mDark, root, 0, 1.55, -0.22);
-    this.mkBox(`${n}plate3`, 0.64, 0.07, 0.08, mDark, root, 0, 1.78, -0.22);
+      // ── Thighs ────────────────────────────────────────────────────────
+      this.mkBox(`${n}thighL`, 0.26, 0.44, 0.26, mArmor, root, -0.14, 0.78, 0);
+      this.mkBox(`${n}thighR`, 0.26, 0.44, 0.26, mArmor, root,  0.14, 0.78, 0);
 
-    // ── Shoulders (spaulders) ─────────────────────────────────────────
-    this.mkCyl(`${n}shldrL`, 0.14, 0.32, 0.32, 8, mArmor, root, -0.5,  1.82, 0, 0, 0, Math.PI / 2);
-    this.mkCyl(`${n}shldrR`, 0.14, 0.32, 0.32, 8, mArmor, root,  0.5,  1.82, 0, 0, 0, Math.PI / 2);
+      // ── Waist ─────────────────────────────────────────────────────────
+      this.mkBox(`${n}waist`, 0.54, 0.2, 0.32, mArmor, root, 0, 1.08, 0);
 
-    // ── Upper arms ────────────────────────────────────────────────────
-    this.mkBox(`${n}uarmL`, 0.22, 0.38, 0.22, mSkin, root, -0.56, 1.47, 0);
-    this.mkBox(`${n}uarmR`, 0.22, 0.38, 0.22, mSkin, root,  0.56, 1.47, 0);
+      // ── Torso (wide, brutish) ─────────────────────────────────────────
+      const torso = this.mkBox(`${n}torso`, 0.68, 0.62, 0.4, mArmor, root, 0, 1.55, 0);
+      this.renderer.shadowGenerator.addShadowCaster(torso);
 
-    // ── Forearms ──────────────────────────────────────────────────────
-    this.mkBox(`${n}farmL`, 0.2, 0.34, 0.2, mSkin, root, -0.56, 1.1, 0);
-    this.mkBox(`${n}farmR`, 0.2, 0.34, 0.2, mSkin, root,  0.56, 1.1, 0);
+      // Belly plates (horizontal ridges)
+      this.mkBox(`${n}plate1`, 0.64, 0.07, 0.08, mDark, root, 0, 1.32, -0.22);
+      this.mkBox(`${n}plate2`, 0.64, 0.07, 0.08, mDark, root, 0, 1.55, -0.22);
+      this.mkBox(`${n}plate3`, 0.64, 0.07, 0.08, mDark, root, 0, 1.78, -0.22);
 
-    // ── Claws (3 per hand — simplified as thin wedges) ────────────────
-    for (let c = 0; c < 3; c++) {
-      const offX = (c - 1) * 0.07;
-      this.mkBox(`${n}clawL${c}`, 0.04, 0.18, 0.05, mClaw, root, -0.56 + offX, 0.9, -0.04, -0.4, 0, 0);
-      this.mkBox(`${n}clawR${c}`, 0.04, 0.18, 0.05, mClaw, root,  0.56 + offX, 0.9, -0.04, -0.4, 0, 0);
+      // ── Shoulders (spaulders) ─────────────────────────────────────────
+      this.mkCyl(`${n}shldrL`, 0.14, 0.32, 0.32, 8, mArmor, root, -0.5,  1.82, 0, 0, 0, Math.PI / 2);
+      this.mkCyl(`${n}shldrR`, 0.14, 0.32, 0.32, 8, mArmor, root,  0.5,  1.82, 0, 0, 0, Math.PI / 2);
+
+      // ── Upper arms ────────────────────────────────────────────────────
+      this.mkBox(`${n}uarmL`, 0.22, 0.38, 0.22, mSkin, root, -0.56, 1.47, 0);
+      this.mkBox(`${n}uarmR`, 0.22, 0.38, 0.22, mSkin, root,  0.56, 1.47, 0);
+
+      // ── Forearms ──────────────────────────────────────────────────────
+      this.mkBox(`${n}farmL`, 0.2, 0.34, 0.2, mSkin, root, -0.56, 1.1, 0);
+      this.mkBox(`${n}farmR`, 0.2, 0.34, 0.2, mSkin, root,  0.56, 1.1, 0);
+
+      // ── Claws (3 per hand — simplified as thin wedges) ────────────────
+      for (let c = 0; c < 3; c++) {
+        const offX = (c - 1) * 0.07;
+        this.mkBox(`${n}clawL${c}`, 0.04, 0.18, 0.05, mClaw, root, -0.56 + offX, 0.9, -0.04, -0.4, 0, 0);
+        this.mkBox(`${n}clawR${c}`, 0.04, 0.18, 0.05, mClaw, root,  0.56 + offX, 0.9, -0.04, -0.4, 0, 0);
+      }
+
+      // ── Neck (thick) ──────────────────────────────────────────────────
+      this.mkCyl(`${n}neck`, 0.18, 0.2, 0.24, 6, mSkin, root, 0, 1.96, 0);
+
+      // ── Head ──────────────────────────────────────────────────────────
+      const head = this.mkBox(`${n}head`, 0.46, 0.38, 0.38, mArmor, root, 0, 2.24, 0);
+      this.renderer.shadowGenerator.addShadowCaster(head);
+
+      // ── 4 glowing eyes (2 rows on front face) ─────────────────────────
+      this.mkSph(`${n}eye1`, 0.1, 6, mEye, root, -0.13, 2.30, -0.2);
+      this.mkSph(`${n}eye2`, 0.1, 6, mEye, root,  0.13, 2.30, -0.2);
+      this.mkSph(`${n}eye3`, 0.09, 6, mEye, root, -0.1,  2.14, -0.2);
+      this.mkSph(`${n}eye4`, 0.09, 6, mEye, root,  0.1,  2.14, -0.2);
+
+      // ── Horns (2, curving outward) ────────────────────────────────────
+      this.mkCyl(`${n}hornL`, 0.46, 0.04, 0.12, 6, mHorn, root, -0.16, 2.5, 0, 0, 0,  0.55);
+      this.mkCyl(`${n}hornR`, 0.46, 0.04, 0.12, 6, mHorn, root,  0.16, 2.5, 0, 0, 0, -0.55);
     }
-
-    // ── Neck (thick) ──────────────────────────────────────────────────
-    this.mkCyl(`${n}neck`, 0.18, 0.2, 0.24, 6, mSkin, root, 0, 1.96, 0);
-
-    // ── Head ──────────────────────────────────────────────────────────
-    const head = this.mkBox(`${n}head`, 0.46, 0.38, 0.38, mArmor, root, 0, 2.24, 0);
-    this.renderer.shadowGenerator.addShadowCaster(head);
-
-    // ── 4 glowing eyes (2 rows on front face) ─────────────────────────
-    this.mkSph(`${n}eye1`, 0.1, 6, mEye, root, -0.13, 2.30, -0.2);
-    this.mkSph(`${n}eye2`, 0.1, 6, mEye, root,  0.13, 2.30, -0.2);
-    this.mkSph(`${n}eye3`, 0.09, 6, mEye, root, -0.1,  2.14, -0.2);
-    this.mkSph(`${n}eye4`, 0.09, 6, mEye, root,  0.1,  2.14, -0.2);
-
-    // ── Horns (2, curving outward) ────────────────────────────────────
-    this.mkCyl(`${n}hornL`, 0.46, 0.04, 0.12, 6, mHorn, root, -0.16, 2.5, 0, 0, 0,  0.55);
-    this.mkCyl(`${n}hornR`, 0.46, 0.04, 0.12, 6, mHorn, root,  0.16, 2.5, 0, 0, 0, -0.55);
 
     return root;
   }
@@ -660,7 +777,23 @@ export class World {
       case ProjectileType.Arrow:        color = new Color3(0.8, 0.7, 0.3); emissive = new Color3(0.3, 0.25, 0.1); break;
       case ProjectileType.FireArrow:    color = new Color3(1, 0.4, 0.1);   emissive = new Color3(0.8, 0.3, 0);    size = 0.2; break;
       case ProjectileType.ShockwaveArrow: color = new Color3(0.3, 0.5, 1); emissive = new Color3(0.2, 0.3, 0.8); size = 0.25; break;
+      // Special arrows
+      case 5: // VayuAstra (air)
+        color = new Color3(0.7, 0.9, 1.0); emissive = new Color3(0.5, 0.7, 0.9); size = 0.22; break;
+      case 6: // VarunaAstra (water)
+        color = new Color3(0.2, 0.6, 1.0); emissive = new Color3(0.1, 0.4, 0.8); size = 0.24; break;
+      case 7: // NagaAstra (serpent)
+        color = new Color3(0.3, 0.8, 0.2); emissive = new Color3(0.2, 0.6, 0.1); size = 0.20; break;
+      case 8: // BrahmaAstra (divine)
+        color = new Color3(1.0, 0.8, 0.2); emissive = new Color3(0.9, 0.6, 0.0); size = 0.28; break;
+      // Enemy special projectiles
       case ProjectileType.EnemyProjectile: color = new Color3(0.8, 0.2, 0.1); emissive = new Color3(0.6, 0.1, 0); break;
+      case 9: // EnemyAgniAstra (enemy fire)
+        color = new Color3(1, 0.3, 0.0); emissive = new Color3(0.8, 0.2, 0); size = 0.22; break;
+      case 10: // EnemyVayuAstra (enemy air)
+        color = new Color3(0.6, 0.7, 0.9); emissive = new Color3(0.4, 0.5, 0.7); size = 0.20; break;
+      case 11: // EnemyNagaAstra (enemy serpent)
+        color = new Color3(0.5, 0.9, 0.3); emissive = new Color3(0.3, 0.7, 0.1); size = 0.21; break;
       case ProjectileType.BossProjectile:  color = new Color3(0.7, 0.1, 0.5); emissive = new Color3(0.5, 0.05, 0.3); size = 0.3; break;
       default: color = new Color3(1, 1, 1); emissive = new Color3(0.5, 0.5, 0.5);
     }

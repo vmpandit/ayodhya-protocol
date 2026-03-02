@@ -14,7 +14,7 @@ import { HapticsManager, HapticMotif } from './HapticsManager';
 import { PerformanceManager } from './PerformanceManager';
 import { AudioManager, SFX } from './AudioManager';
 // import { TextureLoader } from './TextureLoader';  // disabled — PBR textures cause white screen
-import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag } from '@shared/types';
+import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 
 export class Game {
@@ -68,7 +68,7 @@ export class Game {
     //   console.warn('[Game] Texture loading failed, using flat-colour fallback:', e);
     // }
 
-    this.world.build();
+    await this.world.build();
 
     this.hud = new HUD();
     this.interpolation = new Interpolation();
@@ -220,6 +220,11 @@ export class Game {
       }
     };
 
+    this.localSim.onEnemySpecialArrow = (arrowName: string) => {
+      this.hud.showArrowAlert(arrowName);
+      this.audio.play(SFX.BowRelease); // audio cue for incoming arrow
+    };
+
     this.hud.showNotification('SINGLE PLAYER MODE');
   }
 
@@ -260,12 +265,13 @@ export class Game {
           const ability = this.controller.consumeAbility();
           if (ability) {
             this.localSim.handleAbility(ability.type, ability.dir);
-            if (ability.type === 0) {
-              this.haptics.play(HapticMotif.FireArrowCast);
-              this.audio.play(SFX.FireArrowCast);
-            } else {
+            if (ability.type === AbilityType.Shockwave) {
               this.haptics.play(HapticMotif.ShockwaveBlast);
               this.audio.play(SFX.ShockwaveBlast);
+            } else {
+              // All arrow-type abilities (FireArrow/Agni, Vayu, Varuna, Naga, Brahma)
+              this.haptics.play(HapticMotif.FireArrowCast);
+              this.audio.play(SFX.FireArrowCast);
             }
           }
 
@@ -287,12 +293,12 @@ export class Game {
           const ability = this.controller.consumeAbility();
           if (ability) {
             this.network.sendAbility(ability.type, ability.dir);
-            if (ability.type === 0) {
-              this.haptics.play(HapticMotif.FireArrowCast);
-              this.audio.play(SFX.FireArrowCast);
-            } else {
+            if (ability.type === AbilityType.Shockwave) {
               this.haptics.play(HapticMotif.ShockwaveBlast);
               this.audio.play(SFX.ShockwaveBlast);
+            } else {
+              this.haptics.play(HapticMotif.FireArrowCast);
+              this.audio.play(SFX.FireArrowCast);
             }
           }
 
@@ -369,7 +375,13 @@ export class Game {
     }
     this.hud.updateTeamBars(snap.players, this.localPlayerId);
     if (snap.boss && snap.boss.phase !== BossPhase.Idle) this.hud.updateBossBar(snap.boss);
-    if (this.controller) this.hud.updateCooldowns(this.controller.getFireArrowCd(), this.controller.getShockwaveCd());
+    if (this.controller) {
+      this.hud.updateCooldowns(this.controller.getFireArrowCd(), this.controller.getShockwaveCd());
+      // Update special arrow selector
+      const selected = this.controller.getSelectedSpecialArrow();
+      const cooldowns = [0, 1, 2, 3, 4].map(i => this.controller.getSpecialCooldown(i as SpecialArrowType));
+      this.hud.updateArrowSelector(selected, cooldowns);
+    }
   }
 
   private findNearestDowned(): number {

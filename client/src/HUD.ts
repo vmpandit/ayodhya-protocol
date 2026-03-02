@@ -1,4 +1,5 @@
 // ── Ayodhya Protocol: Lanka Reforged ── HUD Manager ──
+// Polish pass: kill feed, combo counter, screen transitions, settings panel.
 
 import { PlayerState, BossState, BossPhase, PlayerStatus } from '@shared/types';
 
@@ -17,7 +18,15 @@ export class HUD {
   private gameOverScreen: HTMLElement;
   private gameOverTitle: HTMLElement;
   private notifications: HTMLElement;
-  private damageFlashTimeout = 0;
+  private damageVignette: HTMLElement;
+  private killFeed: HTMLElement;
+  private comboEl: HTMLElement;
+  private comboCountEl: HTMLElement;
+
+  // ── Combo tracking ────────────────────────────────────────
+  private comboCount = 0;
+  private comboTimer = 0;
+  private readonly COMBO_WINDOW = 3.0; // seconds to maintain combo
 
   constructor() {
     this.hpBar = document.getElementById('hpBar')!;
@@ -34,12 +43,34 @@ export class HUD {
     this.gameOverScreen = document.getElementById('gameOverScreen')!;
     this.gameOverTitle = document.getElementById('gameOverTitle')!;
     this.notifications = document.getElementById('notifications')!;
+    this.damageVignette = document.getElementById('damageVignette')!;
+    this.killFeed = document.getElementById('killFeed')!;
+    this.comboEl = document.getElementById('comboDisplay')!;
+    this.comboCountEl = document.getElementById('comboCount')!;
+  }
+
+  /** Call every frame to decay combo timer */
+  update(dt: number): void {
+    if (this.comboCount > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) {
+        this.comboCount = 0;
+        this.comboEl.classList.remove('visible');
+      }
+    }
   }
 
   updatePlayerBars(hp: number, maxHp: number, stamina: number): void {
     const hpPct = Math.max(0, (hp / maxHp) * 100);
     this.hpBar.style.width = `${hpPct}%`;
     this.hpLabel.textContent = `${Math.round(hp)} / ${Math.round(maxHp)}`;
+
+    // Low health pulse
+    if (hpPct <= 25) {
+      this.hpBar.style.animation = 'lowHpPulse 0.6s infinite';
+    } else {
+      this.hpBar.style.animation = '';
+    }
 
     const stPct = Math.max(0, (stamina / 100) * 100);
     this.staminaBar.style.width = `${stPct}%`;
@@ -49,7 +80,6 @@ export class HUD {
   updateTeamBars(players: PlayerState[], localId: number): void {
     const others = players.filter(p => p.id !== localId);
 
-    // Create/update team bars
     while (this.teamBarsContainer.children.length < others.length) {
       const bar = document.createElement('div');
       bar.className = 'team-bar';
@@ -71,12 +101,7 @@ export class HUD {
       name.textContent = `P${p.id}`;
       const pct = Math.max(0, (p.hp / p.maxHp) * 100);
       fill.style.width = `${pct}%`;
-
-      if (p.status === PlayerStatus.Downed) {
-        fill.style.background = '#ff4444';
-      } else {
-        fill.style.background = '#2ecc71';
-      }
+      fill.style.background = p.status === PlayerStatus.Downed ? '#ff4444' : '#2ecc71';
     }
   }
 
@@ -116,12 +141,39 @@ export class HUD {
   }
 
   flashDamage(): void {
-    const canvas = document.getElementById('renderCanvas')!;
-    canvas.style.boxShadow = 'inset 0 0 80px rgba(255,0,0,0.4)';
-    clearTimeout(this.damageFlashTimeout);
-    this.damageFlashTimeout = window.setTimeout(() => {
-      canvas.style.boxShadow = 'none';
-    }, 200);
+    this.damageVignette.classList.remove('flash');
+    void this.damageVignette.offsetWidth;
+    this.damageVignette.classList.add('flash');
+  }
+
+  /** Increment combo counter (call when player lands a hit on enemy/boss). */
+  registerHit(): void {
+    this.comboCount++;
+    this.comboTimer = this.COMBO_WINDOW;
+    this.comboCountEl.textContent = `${this.comboCount}`;
+    this.comboEl.classList.add('visible');
+
+    // Pulse animation
+    this.comboCountEl.classList.remove('pop');
+    void this.comboCountEl.offsetWidth;
+    this.comboCountEl.classList.add('pop');
+  }
+
+  /** Add a message to the kill feed. */
+  addKillFeedEntry(text: string, color = '#ffd700'): void {
+    const entry = document.createElement('div');
+    entry.className = 'kill-feed-entry';
+    entry.textContent = text;
+    entry.style.color = color;
+    this.killFeed.appendChild(entry);
+
+    // Remove after animation ends
+    setTimeout(() => entry.remove(), 4000);
+
+    // Max 5 entries visible
+    while (this.killFeed.children.length > 5) {
+      this.killFeed.removeChild(this.killFeed.firstChild!);
+    }
   }
 
   showNotification(text: string): void {
@@ -137,4 +189,7 @@ export class HUD {
     this.gameOverTitle.textContent = won ? 'VICTORY' : 'DEFEAT';
     this.gameOverTitle.className = won ? 'victory' : 'defeat';
   }
+
+  /** Get current combo count for scoring/feedback. */
+  getComboCount(): number { return this.comboCount; }
 }

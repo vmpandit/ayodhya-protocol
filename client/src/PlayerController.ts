@@ -31,6 +31,18 @@ export class PlayerController {
   private shockwaveCdEnd = 0;
   private reviving = false;
 
+  // ── Soft-lock targeting ──
+  private targetLockPos: Vec3 | null = null;
+  private localPlayerPos: Vec3 = { x: 0, y: 0, z: 0 };
+
+  // ── Smooth movement velocity (used for client-side prediction feel) ──
+  private moveVelX = 0;
+  private moveVelZ = 0;
+
+  // ── Camera shake ──
+  private shakeAmount = 0;
+  private readonly SHAKE_DECAY = 9;
+
   // ── Camera ──
   private cameraDistance = 12;
   private cameraHeight = 5;
@@ -264,30 +276,47 @@ export class PlayerController {
     const sinY = Math.sin(input.yaw);
     const cosY = Math.cos(input.yaw);
 
-    let moveX = 0, moveZ = 0;
+    let targetX = 0, targetZ = 0;
     if (this.isTouch && this.joystickActive) {
-      moveX = -this.joystickDx * cosY - this.joystickDy * sinY;
-      moveZ = this.joystickDx * sinY - this.joystickDy * cosY;
+      targetX = -this.joystickDx * cosY - this.joystickDy * sinY;
+      targetZ = this.joystickDx * sinY - this.joystickDy * cosY;
     } else {
-      if (flags & InputFlag.Forward) { moveX -= sinY; moveZ -= cosY; }
-      if (flags & InputFlag.Backward) { moveX += sinY; moveZ += cosY; }
-      if (flags & InputFlag.Left) { moveX -= cosY; moveZ += sinY; }
-      if (flags & InputFlag.Right) { moveX += cosY; moveZ -= sinY; }
-      const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
-      if (len > 0) { moveX /= len; moveZ /= len; }
+      if (flags & InputFlag.Forward)  { targetX -= sinY; targetZ -= cosY; }
+      if (flags & InputFlag.Backward) { targetX += sinY; targetZ += cosY; }
+      if (flags & InputFlag.Left)     { targetX -= cosY; targetZ += sinY; }
+      if (flags & InputFlag.Right)    { targetX += cosY; targetZ -= sinY; }
+      const len = Math.sqrt(targetX * targetX + targetZ * targetZ);
+      if (len > 0) { targetX /= len; targetZ /= len; }
     }
 
     let speed = C.PLAYER_SPEED;
     if (flags & InputFlag.Sprint) speed *= C.SPRINT_MULTIPLIER;
-    this.predictedPos.x += moveX * speed * input.dt;
-    this.predictedPos.z += moveZ * speed * input.dt;
+
+    // Smooth acceleration / deceleration — gives movement a physical weight
+    const accel  = flags & InputFlag.Sprint ? 16 : 13;
+    const decel  = 11;
+    const hasInput = targetX !== 0 || targetZ !== 0;
+    const lf = Math.min(1, input.dt * (hasInput ? accel : decel));
+    this.moveVelX += (targetX * speed - this.moveVelX) * lf;
+    this.moveVelZ += (targetZ * speed - this.moveVelZ) * lf;
+
+    this.predictedPos.x += this.moveVelX * input.dt;
+    this.predictedPos.z += this.moveVelZ * input.dt;
   }
 
   reconcile(serverState: PlayerState): void {
     this.pendingInputs = this.pendingInputs.filter(i => i.seq > serverState.lastProcessedSeq);
     this.predictedPos = { ...serverState.pos };
     this.predictedVelY = serverState.vel.y;
+    // Reset smoothed velocity so re-replayed inputs build it from scratch
+    this.moveVelX = 0;
+    this.moveVelZ = 0;
     for (const input of this.pendingInputs) this.predict(input);
+  }
+
+  /** Trigger a camera shake of the given intensity (world units). */
+  triggerShake(intensity: number): void {
+    this.shakeAmount = Math.max(this.shakeAmount, intensity);
   }
 
   updateCamera(playerState: PlayerState, dt: number): void {
@@ -307,6 +336,20 @@ export class PlayerController {
     this.cameraSmoothPos.z += (camZ - this.cameraSmoothPos.z) * smoothing;
 
     this.camera.position.copyFrom(this.cameraSmoothPos);
+
+    // ── Camera shake (decays exponentially) ──────────────────────────
+    if (this.shakeAmount > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shakeAmount;
+      this.camera.position.y += (Math.random() - 0.5) * this.shakeAmount * 0.4;
+      this.camera.position.z += (Math.random() - 0.5) * this.shakeAmount;
+      this.shakeAmount *= Math.max(0, 1 - dt * this.SHAKE_DECAY);
+      if (this.shakeAmount < 0.002) this.shakeAmount = 0;
+    }
+
+    // ── FOV: narrow when target-locked (aim-down-sight feel) ─────────
+    const targetFov = this.targetLockPos ? 0.88 : 1.05;
+    this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 5);
+
     this.camera.setTarget(new Vector3(targetX, targetY, targetZ));
 
     // Charge ring (desktop only)
@@ -322,7 +365,23 @@ export class PlayerController {
     }
   }
 
+  /** Called each frame by Game.ts with the current target world position. */
+  setTargetLock(worldPos: Vec3 | null, playerPos: Vec3): void {
+    this.targetLockPos = worldPos;
+    this.localPlayerPos = playerPos;
+  }
+
   private getAimDirection(): Vec3 {
+    if (this.targetLockPos) {
+      // Aim toward locked target from player eye height
+      const eyeY = this.localPlayerPos.y + 1.35;
+      const dx = this.targetLockPos.x - this.localPlayerPos.x;
+      const dy = this.targetLockPos.y - eyeY;
+      const dz = this.targetLockPos.z - this.localPlayerPos.z;
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (len > 0.01) return { x: dx / len, y: dy / len, z: dz / len };
+    }
+    // No lock — use yaw/pitch from mouse/touch
     return {
       x: -Math.sin(this.yaw) * Math.cos(this.pitch),
       y: Math.sin(this.pitch),

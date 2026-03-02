@@ -1,9 +1,11 @@
 // ── Ayodhya Protocol: Lanka Reforged ── Babylon.js WebGPU Renderer ──
+// Lighting target: "eternal blood dusk" — low orange sun, indigo fill, rich fog.
 
 import {
-  Engine, WebGPUEngine, Scene, ArcRotateCamera, Vector3, HemisphericLight,
+  Engine, WebGPUEngine, Scene, Vector3, HemisphericLight,
   DirectionalLight, ShadowGenerator, Color3, Color4, FreeCamera,
-  DefaultRenderingPipeline, ImageProcessingConfiguration, AbstractEngine,
+  DefaultRenderingPipeline, ImageProcessingConfiguration,
+  ColorCurves, AbstractEngine,
 } from '@babylonjs/core';
 
 export class Renderer {
@@ -11,6 +13,7 @@ export class Renderer {
   public scene!: Scene;
   public camera!: FreeCamera;
   public shadowGenerator!: ShadowGenerator;
+  public pipeline!: DefaultRenderingPipeline;
   private canvas: HTMLCanvasElement;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -18,73 +21,113 @@ export class Renderer {
   }
 
   async init(): Promise<void> {
-    // Try WebGPU first, fallback to WebGL
+    // ── Engine ──────────────────────────────────────────────────────
     let engine: AbstractEngine;
     try {
-      const webgpuEngine = new WebGPUEngine(this.canvas, {
-        adaptToDeviceRatio: true,
-        antialias: true,
-      });
-      await webgpuEngine.initAsync();
-      engine = webgpuEngine;
+      const wgpu = new WebGPUEngine(this.canvas, { adaptToDeviceRatio: true, antialias: true });
+      await wgpu.initAsync();
+      engine = wgpu;
       console.log('[Renderer] WebGPU initialized');
     } catch {
-      console.warn('[Renderer] WebGPU not available, falling back to WebGL');
-      engine = new Engine(this.canvas, true, {
-        adaptToDeviceRatio: true,
-      });
+      console.warn('[Renderer] Falling back to WebGL');
+      engine = new Engine(this.canvas, true, { adaptToDeviceRatio: true });
     }
     this.engine = engine;
 
+    // ── Scene ───────────────────────────────────────────────────────
     this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.05, 0.05, 0.1, 1);
-    this.scene.ambientColor = new Color3(0.15, 0.12, 0.1);
-    this.scene.fogMode = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.008;
-    this.scene.fogColor = new Color3(0.15, 0.1, 0.08);
+    // Deep blood-orange sky at the horizon, dark canopy overhead
+    this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
+    this.scene.ambientColor = new Color3(0.18, 0.1, 0.08);
 
-    // Camera — will be controlled by PlayerController
-    this.camera = new FreeCamera('camera', new Vector3(0, 8, -12), this.scene);
-    this.camera.minZ = 0.1;
-    this.camera.maxZ = 300;
-    this.camera.fov = 1.0;
-    // Detach default inputs — we control camera manually
+    // Layered exponential fog — near mist + far haze
+    this.scene.fogMode    = Scene.FOGMODE_EXP2;
+    this.scene.fogDensity = 0.012;
+    this.scene.fogColor   = new Color3(0.22, 0.1, 0.06); // warm ember haze
+
+    // ── Camera ──────────────────────────────────────────────────────
+    this.camera       = new FreeCamera('camera', new Vector3(0, 8, -12), this.scene);
+    this.camera.minZ  = 0.1;
+    this.camera.maxZ  = 280;
+    this.camera.fov   = 1.05; // ~60°; PlayerController lerps this per-frame
     this.camera.detachControl();
 
-    // Ambient light
+    // ── Lighting ────────────────────────────────────────────────────
+    // Hemisphere — very dim, cool ground bounce
     const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), this.scene);
-    ambient.intensity = 0.4;
-    ambient.diffuse = new Color3(0.6, 0.55, 0.5);
-    ambient.groundColor = new Color3(0.15, 0.1, 0.08);
+    ambient.intensity   = 0.28;
+    ambient.diffuse     = new Color3(0.55, 0.45, 0.35);   // warm upper sky
+    ambient.groundColor = new Color3(0.08, 0.06, 0.12);   // cool purple bounce
 
-    // Directional (sun) light with shadows
-    const sun = new DirectionalLight('sun', new Vector3(-0.5, -1, 0.3).normalize(), this.scene);
-    sun.intensity = 1.2;
-    sun.diffuse = new Color3(1, 0.9, 0.7);
-    sun.position = new Vector3(30, 50, -30);
+    // Key light — low-angle blood-orange sun (22° elevation, NW)
+    const sun = new DirectionalLight('sun',
+      new Vector3(-0.65, -0.38, 0.65).normalize(), this.scene);
+    sun.intensity = 2.0;
+    sun.diffuse   = new Color3(1.0, 0.52, 0.18);          // deep orange
+    sun.specular  = new Color3(1.0, 0.55, 0.2);
+    sun.position  = new Vector3(40, 60, -40);
 
+    // Fill light — indigo/purple from opposite side (sky fill)
+    const fill = new DirectionalLight('fill',
+      new Vector3(0.5, -0.5, -0.5).normalize(), this.scene);
+    fill.intensity = 0.55;
+    fill.diffuse   = new Color3(0.25, 0.2, 0.55);         // indigo fill
+    fill.specular  = new Color3(0.0, 0.0, 0.0);           // no specular contribution
+
+    // ── Shadows (key light only) ─────────────────────────────────────
     this.shadowGenerator = new ShadowGenerator(2048, sun);
     this.shadowGenerator.useBlurExponentialShadowMap = true;
-    this.shadowGenerator.blurKernel = 16;
-    this.shadowGenerator.darkness = 0.3;
+    this.shadowGenerator.blurKernel = 20;
+    this.shadowGenerator.darkness   = 0.45;               // more contrast
 
-    // Post-processing pipeline
-    const pipeline = new DefaultRenderingPipeline('defaultPipeline', true, this.scene, [this.camera]);
-    pipeline.bloomEnabled = true;
-    pipeline.bloomThreshold = 0.7;
-    pipeline.bloomWeight = 0.3;
-    pipeline.bloomKernel = 64;
-    pipeline.bloomScale = 0.5;
-    pipeline.imageProcessingEnabled = true;
-    pipeline.imageProcessing.toneMappingEnabled = true;
-    pipeline.imageProcessing.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
-    pipeline.imageProcessing.vignetteEnabled = true;
-    pipeline.imageProcessing.vignetteWeight = 1.5;
-    pipeline.imageProcessing.exposure = 1.1;
+    // ── Post-Processing Pipeline ─────────────────────────────────────
+    const pipe = new DefaultRenderingPipeline('pipe', true, this.scene, [this.camera]);
+    this.pipeline = pipe;
 
-    // Handle resize
-    window.addEventListener('resize', () => {
-      this.engine.resize();
-    });
+    // FXAA
+    pipe.fxaaEnabled = true;
+
+    // Bloom — emissives punch through
+    pipe.bloomEnabled    = true;
+    pipe.bloomThreshold  = 0.62;
+    pipe.bloomWeight     = 0.45;
+    pipe.bloomKernel     = 80;
+    pipe.bloomScale      = 0.6;
+
+    // Sharpening
+    pipe.sharpenEnabled  = true;
+    pipe.sharpen.edgeAmount = 0.4;
+
+    // Chromatic aberration — very subtle lens distortion at edges
+    pipe.chromaticAberrationEnabled = true;
+    pipe.chromaticAberration.aberrationAmount    = 25;
+    pipe.chromaticAberration.radialIntensity     = 0.8;
+
+    // Image processing
+    pipe.imageProcessingEnabled = true;
+    pipe.imageProcessing.toneMappingEnabled = true;
+    pipe.imageProcessing.toneMappingType    = ImageProcessingConfiguration.TONEMAPPING_ACES;
+    pipe.imageProcessing.exposure    = 1.05;
+    pipe.imageProcessing.contrast    = 1.35;              // punchy contrast
+
+    // Dramatic vignette
+    pipe.imageProcessing.vignetteEnabled = true;
+    pipe.imageProcessing.vignetteWeight  = 2.2;
+    pipe.imageProcessing.vignetteColor   = new Color4(0, 0, 0, 0);
+
+    // Color grade — warm highlights, cool shadows, boosted saturation
+    const cc = new ColorCurves();
+    cc.globalSaturation    = 18;                          // +18 % saturation overall
+    cc.highlightsHue       = 28;                          // amber highlights
+    cc.highlightsDensity   = 25;
+    cc.highlightsSaturation = 20;
+    cc.shadowsHue          = 265;                         // purple shadows
+    cc.shadowsDensity      = 35;
+    cc.shadowsSaturation   = 30;
+    pipe.imageProcessing.colorCurvesEnabled = true;
+    pipe.imageProcessing.colorCurves        = cc;
+
+    // ── Resize ──────────────────────────────────────────────────────
+    window.addEventListener('resize', () => this.engine.resize());
   }
 }

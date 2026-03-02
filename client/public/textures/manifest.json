@@ -1,0 +1,498 @@
+[
+  {
+    "filename": "ground_jungle_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "ground_jungle"
+  },
+  {
+    "filename": "ground_jungle_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_jungle"
+  },
+  {
+    "filename": "ground_jungle_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_jungle"
+  },
+  {
+    "filename": "ground_jungle_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_jungle"
+  },
+  {
+    "filename": "ground_arena_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "ground_arena"
+  },
+  {
+    "filename": "ground_arena_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_arena"
+  },
+  {
+    "filename": "ground_arena_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_arena"
+  },
+  {
+    "filename": "ground_arena_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_arena"
+  },
+  {
+    "filename": "pillar_stone_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "pillar_stone"
+  },
+  {
+    "filename": "pillar_stone_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "pillar_stone"
+  },
+  {
+    "filename": "pillar_stone_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "pillar_stone"
+  },
+  {
+    "filename": "pillar_stone_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "pillar_stone"
+  },
+  {
+    "filename": "tree_bark_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "tree_bark"
+  },
+  {
+    "filename": "tree_bark_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "tree_bark"
+  },
+  {
+    "filename": "tree_bark_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "tree_bark"
+  },
+  {
+    "filename": "tree_bark_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "tree_bark"
+  },
+  {
+    "filename": "tree_foliage_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "tree_foliage"
+  },
+  {
+    "filename": "tree_foliage_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "tree_foliage"
+  },
+  {
+    "filename": "tree_foliage_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "tree_foliage"
+  },
+  {
+    "filename": "tree_foliage_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "tree_foliage"
+  },
+  {
+    "filename": "ground_transition_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "ground_transition"
+  },
+  {
+    "filename": "ground_transition_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_transition"
+  },
+  {
+    "filename": "ground_transition_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_transition"
+  },
+  {
+    "filename": "ground_transition_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "ground_transition"
+  },
+  {
+    "filename": "player_armor_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "player_armor"
+  },
+  {
+    "filename": "player_armor_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_armor"
+  },
+  {
+    "filename": "player_armor_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_armor"
+  },
+  {
+    "filename": "player_armor_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_armor"
+  },
+  {
+    "filename": "player_gold_trim_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "player_gold_trim"
+  },
+  {
+    "filename": "player_gold_trim_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_gold_trim"
+  },
+  {
+    "filename": "player_gold_trim_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_gold_trim"
+  },
+  {
+    "filename": "player_gold_trim_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_gold_trim"
+  },
+  {
+    "filename": "player_visor_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "player_visor"
+  },
+  {
+    "filename": "player_visor_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_visor"
+  },
+  {
+    "filename": "player_visor_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_visor"
+  },
+  {
+    "filename": "player_visor_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_visor"
+  },
+  {
+    "filename": "enemy_rakshasa_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "enemy_rakshasa"
+  },
+  {
+    "filename": "enemy_rakshasa_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "enemy_rakshasa"
+  },
+  {
+    "filename": "enemy_rakshasa_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "enemy_rakshasa"
+  },
+  {
+    "filename": "enemy_rakshasa_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "enemy_rakshasa"
+  },
+  {
+    "filename": "enemy_eye_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "enemy_eye"
+  },
+  {
+    "filename": "enemy_eye_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "enemy_eye"
+  },
+  {
+    "filename": "enemy_eye_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "enemy_eye"
+  },
+  {
+    "filename": "enemy_eye_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "enemy_eye"
+  },
+  {
+    "filename": "boss_ravana_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "boss_ravana"
+  },
+  {
+    "filename": "boss_ravana_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "boss_ravana"
+  },
+  {
+    "filename": "boss_ravana_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "boss_ravana"
+  },
+  {
+    "filename": "boss_ravana_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "boss_ravana"
+  },
+  {
+    "filename": "bow_weapon_albedo.png",
+    "resolution": "2048x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": true,
+    "target_mesh_name": "bow_weapon"
+  },
+  {
+    "filename": "bow_weapon_normal.png",
+    "resolution": "2048x2048",
+    "map_type": "normal",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "bow_weapon"
+  },
+  {
+    "filename": "bow_weapon_roughness.png",
+    "resolution": "2048x2048",
+    "map_type": "roughness",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "bow_weapon"
+  },
+  {
+    "filename": "bow_weapon_metallic.png",
+    "resolution": "2048x2048",
+    "map_type": "metallic",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "bow_weapon"
+  },
+  {
+    "filename": "player_visor_emissive.png",
+    "resolution": "2048x2048",
+    "map_type": "emissive",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "player_visor"
+  },
+  {
+    "filename": "enemy_eye_emissive.png",
+    "resolution": "2048x2048",
+    "map_type": "emissive",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "enemy_eye"
+  },
+  {
+    "filename": "boss_ravana_emissive.png",
+    "resolution": "2048x2048",
+    "map_type": "emissive",
+    "color_space": "linear",
+    "tiling": true,
+    "target_mesh_name": "boss_ravana"
+  },
+  {
+    "filename": "skybox_dusk_albedo.png",
+    "resolution": "4096x2048",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "skybox_dusk"
+  },
+  {
+    "filename": "projectile_arrow_trail_albedo.png",
+    "resolution": "256x256",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "projectile_arrow_trail"
+  },
+  {
+    "filename": "projectile_fire_arrow_trail_albedo.png",
+    "resolution": "256x256",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "projectile_fire_arrow_trail"
+  },
+  {
+    "filename": "particle_ember_albedo.png",
+    "resolution": "64x64",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "particle_ember"
+  },
+  {
+    "filename": "ui_crosshair_albedo.png",
+    "resolution": "128x128",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "ui_crosshair"
+  },
+  {
+    "filename": "ui_target_reticle_albedo.png",
+    "resolution": "128x128",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "ui_target_reticle"
+  },
+  {
+    "filename": "ui_damage_vignette_albedo.png",
+    "resolution": "1920x1080",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "ui_damage_vignette"
+  }
+]

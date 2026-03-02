@@ -1,5 +1,6 @@
 // ── Ayodhya Protocol: Lanka Reforged ── Main Game Class ──
 // Supports single-player (LocalSim) and multiplayer (Network).
+// Wires HapticsManager, PerformanceManager, and AudioManager.
 
 import { Renderer } from './Renderer';
 import { Network } from './Network';
@@ -8,7 +9,13 @@ import { PlayerController } from './PlayerController';
 import { World } from './World';
 import { HUD } from './HUD';
 import { Interpolation } from './Interpolation';
-import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase } from '@shared/types';
+import { Targeting } from './Targeting';
+import { HapticsManager, HapticMotif } from './HapticsManager';
+import { PerformanceManager } from './PerformanceManager';
+import { AudioManager, SFX } from './AudioManager';
+import { TextureLoader } from './TextureLoader';
+import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag } from '@shared/types';
+import { DamageTargetType } from '@shared/protocol';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -19,10 +26,25 @@ export class Game {
   private world!: World;
   private hud!: HUD;
   private interpolation!: Interpolation;
+  private targeting!: Targeting;
+  private haptics!: HapticsManager;
+  private perfManager!: PerformanceManager;
+  private audio!: AudioManager;
   private localPlayerId = -1;
   private lastSnapshot: GameSnapshot | null = null;
   private running = false;
   private useSinglePlayer = false;
+  private frameIndex = 0;
+
+  // ── Hit-stop: freeze the sim briefly on a successful enemy hit ──────
+  private hitStopEnd = 0;
+
+  // ── Boss phase tracking for phase-shift events ─────────────────────
+  private lastBossPhase: BossPhase | null = null;
+
+  private triggerHitStop(ms = 70): void {
+    this.hitStopEnd = performance.now() + ms;
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -33,15 +55,34 @@ export class Game {
     await this.renderer.init();
 
     this.world = new World(this.renderer);
+
+    // Load PBR textures from manifest before building the world
+    try {
+      const loader = new TextureLoader(this.renderer.scene);
+      const assets = await loader.loadAll();
+      this.world.setAssets(assets);
+      console.log('[Game] PBR textures loaded');
+    } catch (e) {
+      console.warn('[Game] Texture loading failed, using flat-colour fallback:', e);
+    }
+
     this.world.build();
 
     this.hud = new HUD();
     this.interpolation = new Interpolation();
+    this.targeting = new Targeting(this.renderer.scene, this.canvas);
+    this.haptics = new HapticsManager();
+    this.perfManager = new PerformanceManager(this.renderer.scene);
+    this.audio = new AudioManager();
+
+    // Attach pipeline for dynamic quality scaling
+    this.perfManager.attachPipeline(this.renderer.pipeline, this.renderer.shadowGenerator);
   }
 
   /** Called after the user clicks "BEGIN OPERATION" on the instructions screen */
   start(): void {
     this.controller = new PlayerController(this.canvas, this.renderer.camera);
+    this.audio.play(SFX.UIStart);
 
     // Try connecting to server; fall back to single-player
     this.tryConnect();
@@ -52,13 +93,11 @@ export class Game {
   }
 
   private tryConnect(): void {
-    // Attempt multiplayer — if it fails, auto-fallback to local sim
     try {
       const ws = new WebSocket(`ws://${window.location.hostname || 'localhost'}:9001`);
       ws.binaryType = 'arraybuffer';
 
       const timeout = setTimeout(() => {
-        // No connection within 2 s — go single-player
         ws.close();
         this.startSinglePlayer();
       }, 2000);
@@ -83,7 +122,6 @@ export class Game {
         }
       };
 
-      // Stash ws temporarily for setupMultiplayer
       (this as any)._pendingWs = ws;
     } catch {
       this.startSinglePlayer();
@@ -104,11 +142,30 @@ export class Game {
       this.interpolation.pushSnapshot(snap);
     };
     this.network.onProjectileSpawn = (proj: ProjectileState) => this.world.spawnProjectile(proj);
-    this.network.onDamage = (targetType, targetId, damage) => {
+    this.network.onDamage = (targetType: DamageTargetType, targetId: number, damage: number) => {
       this.world.showDamageNumber(targetType, targetId, damage);
-      if (targetType === 0 && targetId === this.localPlayerId) this.hud.flashDamage();
+      if (targetType === DamageTargetType.Player && targetId === this.localPlayerId) {
+        this.hud.flashDamage();
+        this.controller?.triggerShake(0.22);
+        this.haptics.play(HapticMotif.PlayerDamaged);
+        this.audio.play(SFX.PlayerDamaged);
+      } else {
+        this.triggerHitStop(68);
+        this.controller?.triggerShake(0.06);
+        this.hud.registerHit();
+        if (targetType === DamageTargetType.Boss) {
+          this.haptics.play(HapticMotif.ArrowHitBoss);
+        } else {
+          this.haptics.play(HapticMotif.ArrowHitEnemy);
+        }
+        this.audio.play(SFX.ArrowHit);
+      }
     };
-    this.network.onGameOver = (won: boolean) => this.hud.showGameOver(won);
+    this.network.onGameOver = (won: boolean) => {
+      this.hud.showGameOver(won);
+      this.haptics.play(HapticMotif.GameOver);
+      this.audio.play(won ? SFX.Victory : SFX.Defeat);
+    };
 
     this.network.connect();
   }
@@ -120,14 +177,46 @@ export class Game {
     this.localPlayerId = this.localSim.playerId;
     this.world.addPlayerMesh(this.localPlayerId, true);
 
-    this.localSim.onDamage = (targetType, targetId, damage) => {
+    this.localSim.onDamage = (targetType: DamageTargetType, targetId: number, damage: number) => {
       this.world.showDamageNumber(targetType, targetId, damage);
-      if (targetType === 0 && targetId === this.localPlayerId) this.hud.flashDamage();
+      if (targetType === DamageTargetType.Player && targetId === this.localPlayerId) {
+        this.hud.flashDamage();
+        this.controller?.triggerShake(0.22);
+        this.haptics.play(HapticMotif.PlayerDamaged);
+        this.audio.play(SFX.PlayerDamaged);
+      } else {
+        this.triggerHitStop(68);
+        this.controller?.triggerShake(0.06);
+        this.hud.registerHit();
+        if (targetType === DamageTargetType.Boss) {
+          this.haptics.play(HapticMotif.ArrowHitBoss);
+          this.audio.play(SFX.ArrowHit);
+        } else if (targetType === DamageTargetType.Enemy) {
+          this.haptics.play(HapticMotif.ArrowHitEnemy);
+          this.audio.play(SFX.ArrowHit);
+          // Check for enemy kill → kill feed
+          const snap = this.lastSnapshot;
+          if (snap) {
+            const enemy = snap.enemies.find(e => e.id === targetId);
+            if (enemy && enemy.hp - damage <= 0) {
+              this.hud.addKillFeedEntry(`Sentinel #${targetId} eliminated`, '#ff6633');
+              this.audio.play(SFX.EnemyDeath);
+            }
+          }
+        }
+      }
     };
     this.localSim.onProjectileSpawn = (proj: ProjectileState) => {
       this.world.spawnProjectile(proj);
     };
-    this.localSim.onGameOver = (won: boolean) => this.hud.showGameOver(won);
+    this.localSim.onGameOver = (won: boolean) => {
+      this.hud.showGameOver(won);
+      this.haptics.play(HapticMotif.GameOver);
+      this.audio.play(won ? SFX.Victory : SFX.Defeat);
+      if (won) {
+        this.hud.addKillFeedEntry('RAVANA PROTOCOL DESTROYED', '#ffd700');
+      }
+    };
 
     this.hud.showNotification('SINGLE PLAYER MODE');
   }
@@ -135,29 +224,80 @@ export class Game {
   private gameLoop(): void {
     if (!this.running) return;
     const dt = this.renderer.engine.getDeltaTime() / 1000;
+    this.frameIndex++;
+
+    // ── Performance monitoring ─────────────────────────────────
+    this.perfManager.update(dt);
+
+    // ── HUD update (combo timer decay) ─────────────────────────
+    this.hud.update(dt);
 
     if (this.controller && this.localPlayerId >= 0) {
       const input = this.controller.getInput(dt);
 
       if (input) {
+        // ── Haptics: movement feedback ─────────────────────────
+        const isMoving = (input.flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right)) !== 0;
+        const isSprinting = (input.flags & InputFlag.Sprint) !== 0;
+        this.haptics.update(dt, isMoving, isSprinting);
+
+        // ── Haptics: dodge ────────────────────────────────────
+        if (input.flags & InputFlag.Dodge) {
+          this.haptics.play(HapticMotif.PlayerDodge);
+          this.audio.play(SFX.Dodge);
+        }
+
+        // ── Haptics: jump ─────────────────────────────────────
+        if (input.flags & InputFlag.Jump) {
+          this.audio.play(SFX.Jump);
+        }
+
         if (this.useSinglePlayer && this.localSim) {
-          // Feed input directly to local sim
           this.localSim.processInput(input);
 
-          // Abilities
           const ability = this.controller.consumeAbility();
-          if (ability) this.localSim.handleAbility(ability.type, ability.dir);
+          if (ability) {
+            this.localSim.handleAbility(ability.type, ability.dir);
+            if (ability.type === 0) {
+              this.haptics.play(HapticMotif.FireArrowCast);
+              this.audio.play(SFX.FireArrowCast);
+            } else {
+              this.haptics.play(HapticMotif.ShockwaveBlast);
+              this.audio.play(SFX.ShockwaveBlast);
+            }
+          }
 
-          // Step sim and push as snapshot
-          const snap = this.localSim.update(dt);
-          this.lastSnapshot = snap;
-          this.interpolation.pushSnapshot(snap);
+          if (input.flags & InputFlag.Shoot) {
+            this.haptics.play(HapticMotif.BowRelease);
+            this.audio.play(SFX.BowRelease);
+          }
+
+          // Step sim — skip during hit-stop
+          if (performance.now() >= this.hitStopEnd) {
+            const snap = this.localSim.update(dt);
+            this.lastSnapshot = snap;
+            this.interpolation.pushSnapshot(snap);
+          }
         } else if (this.network) {
           this.network.sendInput(input);
           this.controller.predict(input);
 
           const ability = this.controller.consumeAbility();
-          if (ability) this.network.sendAbility(ability.type, ability.dir);
+          if (ability) {
+            this.network.sendAbility(ability.type, ability.dir);
+            if (ability.type === 0) {
+              this.haptics.play(HapticMotif.FireArrowCast);
+              this.audio.play(SFX.FireArrowCast);
+            } else {
+              this.haptics.play(HapticMotif.ShockwaveBlast);
+              this.audio.play(SFX.ShockwaveBlast);
+            }
+          }
+
+          if (input.flags & InputFlag.Shoot) {
+            this.haptics.play(HapticMotif.BowRelease);
+            this.audio.play(SFX.BowRelease);
+          }
 
           if (this.controller.isReviving()) {
             const nearest = this.findNearestDowned();
@@ -171,11 +311,41 @@ export class Game {
     const interpState = this.interpolation.getInterpolated(performance.now());
     if (interpState) this.updateWorld(interpState, dt);
 
+    // Soft-lock targeting
+    if (interpState && this.controller) {
+      const localPlayer = interpState.players.find(p => p.id === this.localPlayerId);
+      const aimInfo = this.targeting.update(interpState.enemies, interpState.boss ?? null, dt);
+      this.controller.setTargetLock(
+        aimInfo ? aimInfo.worldPos : null,
+        localPlayer?.pos ?? { x: 0, y: 0, z: 0 },
+      );
+    }
+
     this.world.updateProjectiles(dt);
 
     if (this.controller) {
       const localState = interpState?.players.find(p => p.id === this.localPlayerId);
       if (localState) this.controller.updateCamera(localState, dt);
+    }
+
+    // ── Boss phase-shift events ────────────────────────────────
+    if (interpState?.boss) {
+      const bp = interpState.boss.phase;
+      if (this.lastBossPhase !== null && bp !== this.lastBossPhase) {
+        if (bp === BossPhase.Phase2) {
+          this.haptics.play(HapticMotif.BossPhaseShift);
+          this.audio.play(SFX.BossRoar);
+          this.hud.showNotification('BOSS PHASE II — ASCENDED');
+        } else if (bp === BossPhase.Phase3Enrage) {
+          this.haptics.play(HapticMotif.BossPhaseShift);
+          this.audio.play(SFX.BossRoar);
+          this.hud.showNotification('BOSS ENRAGED');
+        } else if (bp === BossPhase.Dead) {
+          this.haptics.play(HapticMotif.BossDefeated);
+          this.audio.play(SFX.BossDefeated);
+        }
+      }
+      this.lastBossPhase = bp;
     }
 
     this.renderer.scene.render();

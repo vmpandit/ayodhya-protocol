@@ -40,11 +40,26 @@
     #bossHpFill { height: 100%; background: linear-gradient(90deg, #8b0000, #ff4444); transition: width 0.2s; }
     #bossPhaseLabel { color: #ff8888; font-size: 11px; }
 
-    /* Crosshair */
-    #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px; }
-    #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,200,50,0.8); }
+    /* Crosshair — position is controlled by Targeting.ts via style.left / style.top */
+    #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px; pointer-events: none; }
+    #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,200,50,0.85); }
     #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
-    #crosshair::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+    #crosshair::after  { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+
+    /* Target reticle — spinning diamond that tracks the locked enemy */
+    #targetReticle {
+      position: absolute; display: none; pointer-events: none;
+      width: 30px; height: 30px;
+      border: 2px solid #ff3030;
+      box-shadow: 0 0 8px rgba(255,48,48,0.6), inset 0 0 6px rgba(255,48,48,0.2);
+      /* JS sets left/top and adds rotate() to this transform */
+    }
+    /* Corner tick-marks to reinforce the diamond lock feel */
+    #targetReticle::before, #targetReticle::after {
+      content: ''; position: absolute; background: #ff4444;
+    }
+    #targetReticle::before { width: 8px; height: 2px; top: -5px; left: 50%; transform: translateX(-50%); }
+    #targetReticle::after  { width: 2px; height: 8px; left: -5px; top: 50%; transform: translateY(-50%); }
 
     /* Charge indicator */
     #chargeRing { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border: 2px solid transparent; border-radius: 50%; border-top-color: #ffd700; transition: transform 0.05s; display: none; }
@@ -54,6 +69,74 @@
     #notifications { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -80%); text-align: center; }
     .notif { color: #ffd700; font-size: 18px; font-weight: bold; text-shadow: 0 0 10px rgba(255,215,0,0.5); animation: notifFade 2s forwards; }
     @keyframes notifFade { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-30px); } }
+
+    /* Damage vignette — full-screen radial flash on player hit */
+    #damageVignette {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 20; opacity: 0;
+      background: radial-gradient(ellipse at center,
+        transparent 28%,
+        rgba(200, 10, 10, 0.55) 100%);
+    }
+    @keyframes dmgFlash {
+      0%   { opacity: 1; }
+      15%  { opacity: 0.85; }
+      100% { opacity: 0; }
+    }
+    #damageVignette.flash { animation: dmgFlash 0.55s ease-out forwards; }
+
+    /* FPS counter */
+    #fpsCounter {
+      position: absolute; top: 20px; right: 20px;
+      color: #4eff4e; font-size: 12px; font-family: monospace;
+      text-shadow: 0 0 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+
+    /* Kill feed */
+    #killFeed {
+      position: absolute; top: 60px; right: 20px;
+      display: flex; flex-direction: column; gap: 4px;
+      pointer-events: none;
+    }
+    .kill-feed-entry {
+      font-size: 11px; font-weight: bold; letter-spacing: 1px;
+      text-shadow: 0 0 6px rgba(0,0,0,0.8);
+      animation: killFeedSlide 4s forwards;
+    }
+    @keyframes killFeedSlide {
+      0% { opacity: 0; transform: translateX(30px); }
+      10% { opacity: 1; transform: translateX(0); }
+      75% { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-10px); }
+    }
+
+    /* Combo counter */
+    #comboDisplay {
+      position: absolute; right: 20px; bottom: 140px;
+      display: none; flex-direction: column; align-items: center;
+      pointer-events: none;
+    }
+    #comboDisplay.visible { display: flex; }
+    #comboCount {
+      color: #ffd700; font-size: 36px; font-weight: bold;
+      text-shadow: 0 0 12px rgba(255,215,0,0.5);
+    }
+    #comboCount.pop { animation: comboPop 0.2s ease-out; }
+    @keyframes comboPop {
+      0% { transform: scale(1.5); }
+      100% { transform: scale(1); }
+    }
+    #comboLabel {
+      color: #d4a017; font-size: 10px; font-weight: bold;
+      letter-spacing: 3px; text-transform: uppercase;
+    }
+
+    /* Low HP pulse animation */
+    @keyframes lowHpPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
 
     /* Downed overlay */
     #downedOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(139,0,0,0.3); display: none; justify-content: center; align-items: center; }
@@ -208,9 +291,14 @@
   <canvas id="renderCanvas"></canvas>
 
   <div id="hud">
+    <div id="damageVignette"></div>
     <div id="crosshair"></div>
+    <div id="targetReticle"></div>
     <div id="chargeRing"></div>
 
+    <div id="fpsCounter">60 FPS</div>
+    <div id="killFeed"></div>
+    <div id="comboDisplay"><div id="comboCount">0</div><div id="comboLabel">COMBO</div></div>
     <div id="teamBars"></div>
 
     <div id="bossBar">

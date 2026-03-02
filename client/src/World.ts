@@ -58,20 +58,55 @@ export class World {
     this.assets = assets;
   }
 
-  /** Attempt to load sprite PNGs once. Uses HEAD requests to check existence first. */
+  /**
+   * Load a sprite PNG and strip its white background via canvas colour-keying.
+   * Returns a data:image/png URL with white pixels made transparent.
+   * Works on Gemini-generated sprites that have no alpha channel.
+   */
+  private removeWhiteBg(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width  = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d  = id.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const min = Math.min(d[i], d[i + 1], d[i + 2]);
+          if (min > 235) {
+            // Pure background → fully transparent
+            d[i + 3] = 0;
+          } else if (min > 210) {
+            // Anti-aliasing fringe → smooth fade
+            d[i + 3] = Math.round(255 * (235 - min) / 25);
+          }
+          // else: keep original alpha (character pixels)
+        }
+        ctx.putImageData(id, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  /** Attempt to load sprite PNGs once, stripping white backgrounds via canvas. */
   private loadSpritesIfNeeded(): void {
     if (this.spritesChecked) return;
     this.spritesChecked = true;
 
     const tryLoad = (path: string, setter: (t: Texture) => void): void => {
-      fetch(path, { method: 'HEAD' })
-        .then(r => {
-          if (!r.ok) return;
-          const t = new Texture(path, this.scene, false, true);
+      this.removeWhiteBg(path)
+        .then(dataUrl => {
+          const t = new Texture(dataUrl, this.scene, false, true);
           t.hasAlpha = true;
           setter(t);
         })
-        .catch(() => { /* file not present — use primitive fallback */ });
+        .catch(() => { /* file not present or can't load — use primitive fallback */ });
     };
 
     tryLoad('textures/sprite_player.png', t => {

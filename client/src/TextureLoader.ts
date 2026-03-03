@@ -5,7 +5,7 @@
 
 import {
   Scene, PBRMaterial, Texture, Color3,
-  StandardMaterial, MeshBuilder, EquiRectangularCubeTexture,
+  StandardMaterial, MeshBuilder,
 } from '@babylonjs/core';
 
 interface ManifestEntry {
@@ -159,7 +159,9 @@ export class TextureLoader {
   }
 
   private _buildSkybox(): void {
-    const skybox = MeshBuilder.CreateBox('skyBox', { size: 1000 }, this.scene);
+    // Use a sphere instead of cube + EquiRectangularCubeTexture to avoid
+    // WebGPU mip-level validation errors with cube textures.
+    const skybox = MeshBuilder.CreateSphere('skyBox', { diameter: 1000, segments: 32 }, this.scene);
     const skyMat = new StandardMaterial('skyBoxMat', this.scene);
     skyMat.backFaceCulling = false;
     skyMat.disableLighting = true;
@@ -167,13 +169,11 @@ export class TextureLoader {
     skyMat.specularColor = new Color3(0, 0, 0);
 
     try {
-      skyMat.reflectionTexture = new EquiRectangularCubeTexture(
-        `${TEXTURE_BASE}skybox_dusk_albedo.png`, this.scene, 512,
-      );
-      skyMat.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
+      const tex = new Texture(`${TEXTURE_BASE}skybox_dusk_albedo.png`, this.scene);
+      tex.vScale = -1; // Flip vertically so panorama renders correctly on inside of sphere
+      skyMat.emissiveTexture = tex;
     } catch (e) {
-      // Fallback: dark emissive skybox
-      console.warn('[TextureLoader] Equirectangular skybox failed, using fallback:', e);
+      console.warn('[TextureLoader] Skybox texture failed, using fallback:', e);
       skyMat.emissiveColor = new Color3(0.02, 0.02, 0.06);
     }
 

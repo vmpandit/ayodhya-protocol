@@ -186,8 +186,11 @@
     #gameOverTitle.defeat { color: #ff4444; }
 
     /* Loading */
-    #loadingScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0f; display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 20px; z-index: 100; }
+    #loadingScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0f; display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 20px; z-index: 100; overflow: hidden; }
     #loadingScreen.hidden { display: none; }
+    .bg-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; opacity: 0.4; }
+    #instructionsScreen .bg-video { opacity: 0.25; }
+    #gameOverScreen .bg-video { opacity: 0.5; }
     #loadingTitle { color: #d4a017; font-size: 32px; font-weight: bold; letter-spacing: 4px; }
     #loadingSubtitle { color: #888; font-size: 14px; }
     .loader { width: 40px; height: 40px; border: 3px solid rgba(212,160,23,0.2); border-top-color: #d4a017; border-radius: 50%; animation: spin 1s linear infinite; }
@@ -363,7 +366,7 @@
 
     <div id="notifications"></div>
     <div id="downedOverlay"><div id="downedText">DOWNED — Waiting for revive</div></div>
-    <div id="gameOverScreen"><div id="gameOverTitle"></div></div>
+    <div id="gameOverScreen"><video class="bg-video" id="gameOverVideo" muted loop playsinline></video><div id="gameOverTitle"></div></div>
   </div>
 
   <!-- TOUCH CONTROLS (mobile only) -->
@@ -379,6 +382,7 @@
 
   <!-- HOW TO PLAY SCREEN -->
   <div id="instructionsScreen">
+    <video class="bg-video" autoplay muted loop playsinline src="video/menu_bg.mp4"></video>
     <div class="instr-inner">
       <div class="instr-header">
         <div class="instr-title">AYODHYA PROTOCOL</div>
@@ -458,6 +462,7 @@
   </div>
 
   <div id="loadingScreen">
+    <video class="bg-video" autoplay muted loop playsinline src="video/loading_bg.mp4"></video>
     <div id="loadingTitle">AYODHYA PROTOCOL</div>
     <div id="loadingSubtitle">Lanka Reforged</div>
     <div class="loader"></div>

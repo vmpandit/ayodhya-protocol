@@ -1,7 +1,7 @@
-// ── Ayodhya Protocol: Lanka Reforged ── PBR Texture Loader ──
+// ── Ayodhya Protocol: Lanka Reforged ── Safe PBR Texture Loader ──
 // Reads textures/manifest.json and builds PBRMaterial instances keyed by
-// target_mesh_name. Environment textures (skybox, particles, UI) are
-// stored separately for manual wiring.
+// target_mesh_name. Each texture loads independently — failures fall back
+// gracefully instead of white-screening the entire game.
 
 import {
   Scene, PBRMaterial, Texture, Color3,
@@ -30,6 +30,23 @@ export interface LoadedAssets {
 
 const TEXTURE_BASE = 'textures/';
 
+/** Default dark colours for each mesh — used when albedo texture is missing. */
+const FALLBACK_COLORS: Record<string, [number, number, number]> = {
+  ground_jungle:       [0.12, 0.10, 0.06],
+  ground_arena:        [0.18, 0.14, 0.10],
+  ground_transition:   [0.14, 0.11, 0.08],
+  pillar_stone:        [0.22, 0.18, 0.14],
+  tree_bark:           [0.16, 0.10, 0.06],
+  tree_foliage:        [0.06, 0.14, 0.04],
+  player_armor:        [0.15, 0.20, 0.35],
+  player_gold_trim:    [0.55, 0.40, 0.10],
+  player_visor:        [0.05, 0.15, 0.30],
+  enemy_rakshasa:      [0.30, 0.08, 0.08],
+  enemy_eye:           [0.60, 0.10, 0.05],
+  boss_ravana:         [0.25, 0.05, 0.05],
+  bow_weapon:          [0.35, 0.25, 0.10],
+};
+
 export class TextureLoader {
   private scene: Scene;
 
@@ -38,12 +55,32 @@ export class TextureLoader {
   }
 
   /**
-   * Fetch manifest.json, create all PBR materials, and return them.
-   * Also applies the skybox equirectangular dome.
+   * Load a single texture, returning null on failure instead of throwing.
+   */
+  private _loadTextureSafe(path: string, tiling: boolean, isSRGB: boolean): Texture | null {
+    try {
+      const tex = new Texture(path, this.scene, !tiling);
+      tex.gammaSpace = isSRGB;
+      return tex;
+    } catch (e) {
+      console.warn(`[TextureLoader] Failed to load ${path}:`, e);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch manifest.json, create all PBR materials with graceful per-texture
+   * fallback, and return them. Also applies the skybox.
    */
   async loadAll(): Promise<LoadedAssets> {
-    const resp = await fetch(`${TEXTURE_BASE}manifest.json`);
-    const manifest: ManifestEntry[] = await resp.json();
+    let manifest: ManifestEntry[];
+    try {
+      const resp = await fetch(`${TEXTURE_BASE}manifest.json`);
+      manifest = await resp.json();
+    } catch (e) {
+      console.warn('[TextureLoader] Failed to fetch manifest.json:', e);
+      return { materials: new Map(), textures: new Map() };
+    }
 
     const materials = new Map<string, PBRMaterial>();
     const textures = new Map<string, Texture>();
@@ -54,35 +91,50 @@ export class TextureLoader {
       'particle_ember', 'ui_crosshair', 'ui_target_reticle', 'ui_damage_vignette',
     ]);
 
+    let loaded = 0;
+    let failed = 0;
+
     for (const entry of manifest) {
       const path = `${TEXTURE_BASE}${entry.filename}`;
 
       // ── Standalone textures (particles, UI, skybox) ─────────
       if (standaloneNames.has(entry.target_mesh_name)) {
-        const tex = new Texture(path, this.scene, !entry.tiling);
-        tex.gammaSpace = entry.color_space === 'sRGB';
-        textures.set(entry.filename.replace('.png', ''), tex);
+        const tex = this._loadTextureSafe(path, entry.tiling, entry.color_space === 'sRGB');
+        if (tex) {
+          textures.set(entry.filename.replace('.png', ''), tex);
+          loaded++;
+        } else {
+          failed++;
+        }
         continue;
       }
 
       // ── PBR material assembly ──────────────────────────────
       if (!materials.has(entry.target_mesh_name)) {
         const mat = new PBRMaterial(`tex_${entry.target_mesh_name}`, this.scene);
-        // Default: leave albedoColor at white so texture drives it fully
-        mat.albedoColor = new Color3(1, 1, 1);
+        // CRITICAL: Use dark fallback colour instead of white — prevents white-screen
+        const fb = FALLBACK_COLORS[entry.target_mesh_name] || [0.15, 0.12, 0.10];
+        mat.albedoColor = new Color3(fb[0], fb[1], fb[2]);
         materials.set(entry.target_mesh_name, mat);
       }
       const pbr = materials.get(entry.target_mesh_name)!;
-      const tex = new Texture(path, this.scene, !entry.tiling);
-      tex.gammaSpace = entry.color_space === 'sRGB';
+      const tex = this._loadTextureSafe(path, entry.tiling, entry.color_space === 'sRGB');
+
+      if (!tex) {
+        failed++;
+        continue;
+      }
+      loaded++;
 
       switch (entry.map_type) {
         case 'albedo':
           pbr.albedoTexture = tex;
+          // If albedo loaded successfully, set color to white so texture drives it
+          pbr.albedoColor = new Color3(1, 1, 1);
           break;
         case 'normal':
           pbr.bumpTexture = tex;
-          pbr.forceNormalForward = true; // OpenGL tangent-space
+          pbr.forceNormalForward = true;
           break;
         case 'roughness':
           pbr.microSurfaceTexture = tex;
@@ -101,7 +153,7 @@ export class TextureLoader {
     // ── Skybox — equirectangular dome ──────────────────────────
     this._buildSkybox();
 
-    console.log(`[TextureLoader] Loaded ${materials.size} materials, ${textures.size} standalone textures`);
+    console.log(`[TextureLoader] ${loaded} textures loaded, ${failed} failed (graceful fallback)`);
     return { materials, textures };
   }
 
@@ -119,7 +171,7 @@ export class TextureLoader {
       );
       skyMat.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
     } catch (e) {
-      // Fallback: dark emissive skybox if equirectangular fails
+      // Fallback: dark emissive skybox
       console.warn('[TextureLoader] Equirectangular skybox failed, using fallback:', e);
       skyMat.emissiveColor = new Color3(0.02, 0.02, 0.06);
     }

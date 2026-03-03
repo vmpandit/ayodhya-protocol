@@ -13,7 +13,7 @@ import { Targeting } from './Targeting';
 import { HapticsManager, HapticMotif } from './HapticsManager';
 import { PerformanceManager } from './PerformanceManager';
 import { AudioManager, SFX } from './AudioManager';
-// import { TextureLoader } from './TextureLoader';  // disabled — PBR textures cause white screen
+import { TextureLoader } from './TextureLoader';
 import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 
@@ -56,17 +56,15 @@ export class Game {
 
     this.world = new World(this.renderer);
 
-    // PBR textures disabled — Gemini-generated PNGs cause white-screen on
-    // GitHub Pages when they fail to load (PBRMaterial defaults to white).
-    // Using flat-colour fallback materials instead.
-    // try {
-    //   const loader = new TextureLoader(this.renderer.scene);
-    //   const assets = await loader.loadAll();
-    //   this.world.setAssets(assets);
-    //   console.log('[Game] PBR textures loaded');
-    // } catch (e) {
-    //   console.warn('[Game] Texture loading failed, using flat-colour fallback:', e);
-    // }
+    // PBR texture loading — safe per-texture fallback (no more white-screen)
+    try {
+      const loader = new TextureLoader(this.renderer.scene);
+      const assets = await loader.loadAll();
+      this.world.setAssets(assets);
+      console.log('[Game] PBR textures loaded (safe fallback enabled)');
+    } catch (e) {
+      console.warn('[Game] Texture loading failed, using flat-colour fallback:', e);
+    }
 
     await this.world.build();
 

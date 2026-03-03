@@ -209,6 +209,12 @@ export class HUD {
     this.gameOverScreen.classList.add('visible');
     this.gameOverTitle.textContent = won ? 'VICTORY' : 'DEFEAT';
     this.gameOverTitle.className = won ? 'victory' : 'defeat';
+    // Play background video if available
+    const vid = document.getElementById('gameOverVideo') as HTMLVideoElement;
+    if (vid) {
+      vid.src = won ? 'video/victory_bg.mp4' : 'video/defeat_bg.mp4';
+      vid.play().catch(() => {}); // Silently fail if video not found
+    }
   }
 
   /** Get current combo count for scoring/feedback. */

@@ -7,6 +7,7 @@ import {
   MeshBuilder, StandardMaterial, PBRMaterial, Color3, Vector3, Mesh,
   Scene, TransformNode, InstancedMesh,
   Texture, Color4, GlowLayer, ParticleSystem, PointLight, DynamicTexture,
+  Engine,
 } from '@babylonjs/core';
 import { Renderer } from './Renderer';
 import { LoadedAssets } from './TextureLoader';
@@ -47,6 +48,12 @@ export class World {
     sprite2: null as Texture | null,  // sprite_enemy2.png (even IDs)
   };
 
+  private playerSpriteTexture: Texture | null = null;
+  private bossSpriteTexture: Texture | null = null;
+
+  /** Cached VFX trail textures for special arrow projectiles */
+  private vfxTextures = new Map<string, Texture>();
+
   constructor(renderer: Renderer) {
     this.renderer = renderer;
     this.scene = renderer.scene;
@@ -73,25 +80,66 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Asynchronously load enemy sprite PNGs and process them to remove white backgrounds.
-   * Uses canvas-based processing to convert near-white pixels to transparent.
+   * Asynchronously load all sprite PNGs (enemies, player, boss, VFX) and process them
+   * to remove white backgrounds. Uses canvas-based processing to convert near-white
+   * pixels to transparent. Each load is independent — failures don't break others.
    */
   private async loadEnemySprites(): Promise<void> {
+    // Load enemy sprites (with individual error handling)
     try {
-      // Load sprite_enemy.png (for odd enemy IDs)
       this.enemySpriteTextures.sprite1 = await this.loadAndProcessSprite('sprite_enemy.png');
-      // Load sprite_enemy2.png (for even enemy IDs)
+    } catch (err) {
+      console.warn('Failed to load sprite_enemy.png:', err);
+      this.enemySpriteTextures.sprite1 = null;
+    }
+
+    try {
       this.enemySpriteTextures.sprite2 = await this.loadAndProcessSprite('sprite_enemy2.png');
     } catch (err) {
-      console.warn('Failed to load enemy sprites, falling back to primitive meshes:', err);
-      this.enemySpriteTextures.sprite1 = null;
+      console.warn('Failed to load sprite_enemy2.png:', err);
       this.enemySpriteTextures.sprite2 = null;
+    }
+
+    // Load player sprite
+    try {
+      this.playerSpriteTexture = await this.loadAndProcessSprite('sprite_player.png');
+    } catch (err) {
+      console.warn('Failed to load sprite_player.png:', err);
+      this.playerSpriteTexture = null;
+    }
+
+    // Load boss sprite
+    try {
+      this.bossSpriteTexture = await this.loadAndProcessSprite('sprite_boss.png');
+    } catch (err) {
+      console.warn('Failed to load sprite_boss.png:', err);
+      this.bossSpriteTexture = null;
+    }
+
+    // Load VFX trail textures
+    const vfxFiles = [
+      'vfx_agni_trail.png',
+      'vfx_vayu_trail.png',
+      'vfx_varuna_trail.png',
+      'vfx_naga_trail.png',
+      'vfx_brahma_trail.png',
+    ];
+
+    for (const file of vfxFiles) {
+      try {
+        const key = file.replace('.png', '');
+        this.vfxTextures.set(key, await this.loadAndProcessSprite(file));
+      } catch (err) {
+        console.warn(`Failed to load VFX sprite ${file}:`, err);
+      }
     }
   }
 
   /**
    * Load a sprite image and process it to remove white backgrounds.
-   * Pixels where R>230 && G>230 && B>230 are made fully transparent.
+   * Checks if the sprite already has proper RGBA transparency (alpha < 255).
+   * If so, skips white-removal to preserve valid white pixels.
+   * Otherwise, pixels where R>230 && G>230 && B>230 are made fully transparent.
    */
   private loadAndProcessSprite(imagePath: string): Promise<Texture> {
     return new Promise((resolve, reject) => {
@@ -109,19 +157,31 @@ export class World {
 
           ctx.drawImage(img, 0, 0);
 
-          // Get pixel data and process white pixels
+          // Get pixel data
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imageData.data;
 
-          // Iterate through all pixels (RGBA format, 4 bytes per pixel)
-          for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
+          // Check if image already has proper alpha transparency
+          let hasExistingAlpha = false;
+          for (let i = 3; i < data.length; i += 4) {
+            if (data[i] < 255) {
+              hasExistingAlpha = true;
+              break;
+            }
+          }
 
-            // If near-white (R>230 && G>230 && B>230), make transparent
-            if (r > 230 && g > 230 && b > 230) {
-              data[i + 3] = 0; // Set alpha to 0
+          // Only process white removal if no existing alpha channel
+          if (!hasExistingAlpha) {
+            // Iterate through all pixels (RGBA format, 4 bytes per pixel)
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i];
+              const g = data[i + 1];
+              const b = data[i + 2];
+
+              // If near-white (R>230 && G>230 && B>230), make transparent
+              if (r > 230 && g > 230 && b > 230) {
+                data[i + 3] = 0; // Set alpha to 0
+              }
             }
           }
 
@@ -147,7 +207,7 @@ export class World {
         reject(new Error(`Failed to load sprite image: ${imagePath}`));
       };
 
-      img.src = imagePath;
+      img.src = 'textures/' + imagePath;
     });
   }
 
@@ -417,6 +477,24 @@ export class World {
     const n = `p${id}_`;
     const root = new TransformNode(`player_${id}`, this.scene);
 
+    // Check if we have player sprite loaded and can use billboard rendering
+    if (this.playerSpriteTexture !== null) {
+      const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
+      billboardPlane.parent = root;
+      billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
+      // Sprites are 512x912 aspect ratio, scale accordingly
+      billboardPlane.scaling.set(1.4, 2.5, 1);
+
+      const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
+      billboardMat.emissiveTexture = this.playerSpriteTexture;
+      billboardMat.useAlphaFromDiffuseTexture = true;
+      billboardMat.disableLighting = true;
+      billboardMat.backFaceCulling = false;
+      billboardPlane.material = billboardMat;
+
+      return root;
+    }
+
     // ── Palette ──────────────────────────────────────────────────────
     // Local player: deep navy + gold   Remote: teal + silver
     const [ar, ag, ab] = isLocal ? [0.08, 0.18, 0.6] : [0.04, 0.38, 0.28];
@@ -549,7 +627,8 @@ export class World {
         const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
         billboardPlane.parent = root;
         billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
-        billboardPlane.scaling.setAll(2.5); // About 2.5 units tall
+        // Sprites are 512x912 aspect ratio, scale accordingly
+        billboardPlane.scaling.set(1.4, 2.5, 1);
 
         // Create material with processed sprite texture
         const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
@@ -660,6 +739,24 @@ export class World {
   private _buildRavanaParts(): TransformNode {
     const root = new TransformNode('boss', this.scene);
 
+    // Check if we have boss sprite loaded and can use billboard rendering
+    if (this.bossSpriteTexture !== null) {
+      const billboardPlane = MeshBuilder.CreatePlane('boss_billboard', { size: 1 }, this.scene);
+      billboardPlane.parent = root;
+      billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
+      // Scale larger for boss (about 4.0 units), adjust aspect ratio
+      billboardPlane.scaling.set(2.2, 4.0, 1);
+
+      const billboardMat = new StandardMaterial('boss_billboardMat', this.scene);
+      billboardMat.emissiveTexture = this.bossSpriteTexture;
+      billboardMat.useAlphaFromDiffuseTexture = true;
+      billboardMat.disableLighting = true;
+      billboardMat.backFaceCulling = false;
+      billboardPlane.material = billboardMat;
+
+      return root;
+    }
+
     // ── Palette — flat-colour PBR for primitive geometry ─────────────
     const mBody  = this.mkMat('boss_body',  0.18, 0.04, 0.28, 0.5,  0.4);          // dark void-purple
     const mGold  = this.mkMat('boss_gold',  0.65, 0.5,  0.08, 0.8,  0.25);         // gold rune plates
@@ -769,6 +866,39 @@ export class World {
   spawnProjectile(proj: ProjectileState): void {
     if (this.projectileMeshes.has(proj.id)) return;
 
+    // Map special arrow types to VFX textures
+    const vfxMap: Record<number, string> = {
+      [ProjectileType.FireArrow]: 'vfx_agni_trail',
+      5: 'vfx_vayu_trail',  // VayuAstra
+      6: 'vfx_varuna_trail', // VarunaAstra
+      7: 'vfx_naga_trail',   // NagaAstra
+      8: 'vfx_brahma_trail', // BrahmaAstra
+    };
+
+    // Check if this projectile type has a VFX sprite
+    const vfxKey = vfxMap[proj.type];
+    const vfxTexture = vfxKey ? this.vfxTextures.get(vfxKey) : null;
+
+    if (vfxTexture) {
+      // Use billboard plane for VFX sprite
+      const vfxPlane = MeshBuilder.CreatePlane(`proj_${proj.id}`, { size: 1 }, this.scene);
+      vfxPlane.position.set(proj.pos.x, proj.pos.y, proj.pos.z);
+      vfxPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      vfxPlane.scaling.setAll(0.5);
+
+      const vfxMat = new StandardMaterial(`projMat_${proj.id}`, this.scene);
+      vfxMat.emissiveTexture = vfxTexture;
+      vfxMat.useAlphaFromDiffuseTexture = true;
+      vfxMat.disableLighting = true;
+      vfxMat.backFaceCulling = false;
+      vfxMat.alphaMode = Engine.ALPHA_ADD;
+      vfxPlane.material = vfxMat;
+
+      this.projectileMeshes.set(proj.id, { mesh: vfxPlane, vel: { ...proj.vel }, spawnTime: performance.now(), type: proj.type });
+      return;
+    }
+
+    // Fallback to sphere-based projectiles
     let color: Color3;
     let emissive: Color3;
     let size = 0.15;

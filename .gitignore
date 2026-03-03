@@ -1,26 +1,3 @@
-# Dependencies
 node_modules/
-client/node_modules/
-server/node_modules/
-
-# Build output
 client/dist/
 server/dist/
-*.tsbuildinfo
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-npm-debug.log*
-
-# Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db

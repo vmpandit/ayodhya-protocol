@@ -494,5 +494,45 @@
     "color_space": "sRGB",
     "tiling": false,
     "target_mesh_name": "ui_damage_vignette"
+  },
+  {
+    "filename": "vfx_agni_trail.png",
+    "resolution": "256x256",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "vfx_agni_trail"
+  },
+  {
+    "filename": "vfx_vayu_trail.png",
+    "resolution": "256x256",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "vfx_vayu_trail"
+  },
+  {
+    "filename": "vfx_varuna_trail.png",
+    "resolution": "256x256",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "vfx_varuna_trail"
+  },
+  {
+    "filename": "vfx_naga_trail.png",
+    "resolution": "256x256",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "vfx_naga_trail"
+  },
+  {
+    "filename": "vfx_brahma_trail.png",
+    "resolution": "256x256",
+    "map_type": "albedo",
+    "color_space": "sRGB",
+    "tiling": false,
+    "target_mesh_name": "vfx_brahma_trail"
   }
 ]

@@ -89,6 +89,7 @@ export class TextureLoader {
     const standaloneNames = new Set([
       'skybox_dusk', 'projectile_arrow_trail', 'projectile_fire_arrow_trail',
       'particle_ember', 'ui_crosshair', 'ui_target_reticle', 'ui_damage_vignette',
+      'vfx_agni_trail', 'vfx_vayu_trail', 'vfx_varuna_trail', 'vfx_naga_trail', 'vfx_brahma_trail',
     ]);
 
     let loaded = 0;

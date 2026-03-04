@@ -25,6 +25,7 @@ export class PlayerController {
   // ── Keyboard state ──
   private keys = new Set<string>();
   private rightMouseDown = false;
+  private rightMouseDragged = false;
 
   // ── Shared state ──
   private yaw = 0;
@@ -64,6 +65,10 @@ export class PlayerController {
   private cameraDistance = 12;
   private cameraHeight = 5;
   private cameraSmoothPos = new Vector3(0, 5, -12);
+
+  // ── Mouse position tracking for free-cursor aiming ──
+  private mouseScreenX = 0;
+  private mouseScreenY = 0;
 
   // ── Touch state ──
   public readonly isTouch: boolean;
@@ -126,6 +131,23 @@ export class PlayerController {
       this.keys.delete(e.code);
       if (e.code === 'KeyR') this.reviving = false;
     });
+
+    // Mouse move: track position for free-cursor aiming
+    this.canvas.addEventListener('mousemove', (e) => {
+      this.mouseScreenX = e.clientX;
+      this.mouseScreenY = e.clientY;
+
+      // Right-click drag rotates camera
+      if (this.rightMouseDown) {
+        this.yaw -= e.movementX * 0.003;
+        this.pitch -= e.movementY * 0.003;
+        this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
+        if (Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) {
+          this.rightMouseDragged = true;
+        }
+      }
+    });
+
     this.canvas.addEventListener('mousedown', (e) => {
       if (e.button === 0) this.touchShootTapped = true; // Left-click = basic arrow
       if (e.button === 2) this.rightMouseDown = true; // Right-click for special
@@ -133,7 +155,9 @@ export class PlayerController {
     this.canvas.addEventListener('mouseup', (e) => {
       if (e.button === 2) {
         this.rightMouseDown = false;
-        this.trySpecialArrow();
+        // Only fire special if we didn't drag much
+        if (!this.rightMouseDragged) this.trySpecialArrow();
+        this.rightMouseDragged = false;
       }
     });
     this.canvas.addEventListener('wheel', (e) => {
@@ -143,21 +167,7 @@ export class PlayerController {
       this.selectSpecialArrow(newSelect as SpecialArrowType);
     });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    document.addEventListener('pointerlockchange', () => {
-      if (document.pointerLockElement === this.canvas) {
-        document.addEventListener('mousemove', this.onMouseMove);
-      } else {
-        document.removeEventListener('mousemove', this.onMouseMove);
-      }
-    });
   }
-
-  private onMouseMove = (e: MouseEvent): void => {
-    const sensitivity = 0.002;
-    this.yaw -= e.movementX * sensitivity;
-    this.pitch -= e.movementY * sensitivity;
-    this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
-  };
 
   // ══════════════════════════════════════════════
   //  TOUCH
@@ -473,6 +483,13 @@ export class PlayerController {
 
     // ── Update visual yaw (character facing — decoupled from camera) ──
     this.updateVisualYaw(dt);
+
+    // ── Update crosshair position (free cursor, not locked to center) ──
+    const crosshair = document.getElementById('crosshair');
+    if (crosshair && !this.isTouch) {
+      crosshair.style.left = `${this.mouseScreenX}px`;
+      crosshair.style.top = `${this.mouseScreenY}px`;
+    }
   }
 
   /** Called each frame by Game.ts with the current target world position. */
@@ -497,12 +514,8 @@ export class PlayerController {
       const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (len > 0.01) return { x: dx / len, y: dy / len, z: dz / len };
     }
-    // No lock — use yaw/pitch from mouse/touch
-    return {
-      x: -Math.sin(this.yaw) * Math.cos(this.pitch),
-      y: Math.sin(this.pitch),
-      z: -Math.cos(this.yaw) * Math.cos(this.pitch),
-    };
+    // Free-cursor aim: compute direction from screen mouse position
+    return this.screenPointToAimDir(this.mouseScreenX, this.mouseScreenY);
   }
 
   consumeAbility(): PendingAbility | null { const a = this.pendingAbility; this.pendingAbility = null; return a; }

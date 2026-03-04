@@ -25,13 +25,6 @@ game.init().then(() => {
   document.getElementById('startBtn')!.addEventListener('click', () => {
     document.getElementById('instructionsScreen')!.classList.remove('visible');
     canvas.focus();
-
-    // On desktop, request pointer lock
-    if (!isTouch) {
-      canvas.addEventListener('click', () => canvas.requestPointerLock(), { once: false });
-      canvas.requestPointerLock();
-    }
-
     game.start();
   });
 

@@ -136,75 +136,17 @@ export class World {
   }
 
   /**
-   * Load a sprite image and process it for use as a billboard texture.
-   * For sprites with existing RGBA alpha, loads directly as Texture (preserves alpha).
-   * For sprites without alpha, uses canvas processing to remove white backgrounds.
+   * Load a sprite image directly as a Texture (preserves native RGBA alpha).
+   * Skips canvas processing which was corrupting transparent edge pixels via premultiplied alpha.
    */
   private loadAndProcessSprite(imagePath: string): Promise<Texture> {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-
-      img.onload = () => {
-        try {
-          // Create a canvas and draw the image
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('Failed to get canvas context');
-
-          ctx.drawImage(img, 0, 0);
-
-          // Get pixel data
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imageData.data;
-
-          // Check if image already has proper alpha transparency
-          let hasExistingAlpha = false;
-          for (let i = 3; i < data.length; i += 4) {
-            if (data[i] < 255) {
-              hasExistingAlpha = true;
-              break;
-            }
-          }
-
-          // Only process white removal if no existing alpha channel
-          if (!hasExistingAlpha) {
-            for (let i = 0; i < data.length; i += 4) {
-              const r = data[i];
-              const g = data[i + 1];
-              const b = data[i + 2];
-              if (r > 230 && g > 230 && b > 230) {
-                data[i + 3] = 0;
-              }
-            }
-            ctx.putImageData(imageData, 0, 0);
-          }
-
-          // Create DynamicTexture from the canvas (pass canvas directly to preserve dimensions)
-          const dynamicTexture = new DynamicTexture(
-            `sprite_${imagePath}`,
-            { width: canvas.width, height: canvas.height },
-            this.scene,
-            false, // no mipmaps
-          );
-          dynamicTexture.hasAlpha = true;
-          const ctx2 = dynamicTexture.getContext();
-          ctx2.drawImage(canvas, 0, 0);
-          dynamicTexture.update(false); // don't invert Y
-
-          resolve(dynamicTexture);
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      img.onerror = () => {
-        reject(new Error(`Failed to load sprite image: ${imagePath}`));
-      };
-
-      img.src = 'textures/' + imagePath;
+      const url = 'textures/' + imagePath;
+      const tex = new Texture(url, this.scene, false, true, Texture.BILINEAR_SAMPLINGMODE,
+        () => resolve(tex),   // onLoad
+        (_msg, err) => reject(err || new Error(`Failed to load sprite: ${imagePath}`)),  // onError
+      );
+      tex.hasAlpha = true;
     });
   }
 
@@ -485,10 +427,10 @@ export class World {
       billboardPlane.position.y = 1.25;
 
       const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
-      billboardMat.diffuseTexture = this.playerSpriteTexture;   // alpha source
-      billboardMat.emissiveTexture = this.playerSpriteTexture;  // color source
+      billboardMat.diffuseTexture = this.playerSpriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.disableLighting = true;
+      billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1); // subtle self-illumination
+      billboardMat.specularColor = new Color3(0, 0, 0); // no specular shine
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
 
@@ -630,10 +572,10 @@ export class World {
         billboardPlane.position.y = 1.25; // offset so feet sit at root position
 
         const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
-        billboardMat.diffuseTexture = spriteTexture;   // alpha source
-        billboardMat.emissiveTexture = spriteTexture;   // color source
+        billboardMat.diffuseTexture = spriteTexture;
         billboardMat.useAlphaFromDiffuseTexture = true;
-        billboardMat.disableLighting = true;
+        billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1); // subtle self-illumination
+        billboardMat.specularColor = new Color3(0, 0, 0); // no specular shine
         billboardMat.backFaceCulling = false;
         billboardPlane.material = billboardMat;
       }
@@ -747,10 +689,10 @@ export class World {
       billboardPlane.position.y = 2.0; // offset so feet sit at root position
 
       const billboardMat = new StandardMaterial('boss_billboardMat', this.scene);
-      billboardMat.diffuseTexture = this.bossSpriteTexture;   // alpha source
-      billboardMat.emissiveTexture = this.bossSpriteTexture;   // color source
+      billboardMat.diffuseTexture = this.bossSpriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.disableLighting = true;
+      billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1); // subtle self-illumination
+      billboardMat.specularColor = new Color3(0, 0, 0); // no specular shine
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
 
@@ -884,22 +826,24 @@ export class World {
       const vfxPlane = MeshBuilder.CreatePlane(`proj_${proj.id}`, { size: 1 }, this.scene);
       vfxPlane.position.set(proj.pos.x, proj.pos.y, proj.pos.z);
       vfxPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-      vfxPlane.scaling.setAll(0.5);
+      vfxPlane.scaling.setAll(0.8); // larger VFX visibility
 
       const vfxMat = new StandardMaterial(`projMat_${proj.id}`, this.scene);
-      vfxMat.diffuseTexture = vfxTexture;    // alpha source
-      vfxMat.emissiveTexture = vfxTexture;   // color source
+      vfxMat.diffuseTexture = vfxTexture;
       vfxMat.useAlphaFromDiffuseTexture = true;
+      vfxMat.emissiveColor = new Color3(0.8, 0.6, 0.2); // bright self-illumination for glow
       vfxMat.disableLighting = true;
       vfxMat.backFaceCulling = false;
       vfxMat.alphaMode = Engine.ALPHA_ADD;
       vfxPlane.material = vfxMat;
 
+      console.log(`[World] spawnProjectile type=${proj.type}, vfxKey=${vfxKey}, hasVfx=true, vfxCount=${this.vfxTextures.size}`);
       this.projectileMeshes.set(proj.id, { mesh: vfxPlane, vel: { ...proj.vel }, spawnTime: performance.now(), type: proj.type });
       return;
     }
 
     // Fallback to sphere-based projectiles
+    console.log(`[World] spawnProjectile type=${proj.type}, vfxKey=${vfxKey}, hasVfx=false, vfxCount=${this.vfxTextures.size}`);
     let color: Color3;
     let emissive: Color3;
     let size = 0.15;

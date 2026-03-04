@@ -135,6 +135,8 @@ export class LocalSim {
   public onMeditationStateChanged: (active: boolean) => void = () => {};
   public onLakshmanChoice: () => void = () => {};
   public onAllyNPCSpawned: (id: string, name: string, pos: Vec3) => void = () => {};
+  /** Multi-line dialogue sequence for richer story moments */
+  public onDialogueSequence: (lines: { name: string; message: string }[]) => void = () => {};
 
   constructor() {
     this.player = {
@@ -198,6 +200,15 @@ export class LocalSim {
     this.player.maxHp += 20;
     this.player.hp = Math.min(this.player.hp + 20, this.player.maxHp);
     this.onCompanionJoined('lakshman', 'Lakshman', pos);
+
+    // Lakshman's Dharma dialogue on joining
+    setTimeout(() => {
+      this.onDialogueSequence([
+        { name: 'Lakshman', message: "Brother, where you walk, I walk. When you left Ayodhya for the forest, I chose exile by your side — for what is Dharma if not standing with the righteous?" },
+        { name: 'Lakshman', message: "Sita Mata awaits deliverance. Together we shall end this Adharma — as we have faced every trial, side by side." },
+      ]);
+    }, 1500);
+
     // Enable meditation before final chapter
     this.canMeditate = true;
   }
@@ -206,6 +217,15 @@ export class LocalSim {
     if (this.lakshmanChoice !== 'pending') return;
     this.lakshmanChoice = 'declined';
     this.loneWarriorBuff = true;
+
+    // Dharma dialogue for choosing the lone path
+    setTimeout(() => {
+      this.onDialogueSequence([
+        { name: 'Rama', message: "Lakshman, your devotion honors me beyond words. But I must face Ravana bearing the full weight of my own Dharma. This burden is mine alone." },
+        { name: 'Lakshman', message: "Then I shall guard the army and pray for your victory. Know this, brother — your solitary courage itself is Dharma. The world will speak of this." },
+      ]);
+    }, 1500);
+
     // Enable meditation before final chapter
     this.canMeditate = true;
   }
@@ -562,10 +582,18 @@ export class LocalSim {
 
   private handleAllyMet(allyId: string): void {
     if (allyId === 'sugriv') {
-      // After meeting Sugriv, transition to Chapter 4 after a delay
+      // Sugriv Dharma dialogue sequence — then advance
+      setTimeout(() => {
+        this.onDialogueSequence([
+          { name: 'Sugriv', message: "Dharma binds those who protect the helpless. You stood for me when Vali's tyranny crushed Kishkindha — now the Vanara nation stands for you." },
+          { name: 'Sugriv', message: "Rest here, gather your strength. In stillness the warrior finds clarity. Meditate — let your purpose sharpen like the edge of an arrow. Press M to meditate." },
+        ]);
+      }, 8500);
+
+      // After dialogue finishes, transition to Chapter 4
       setTimeout(() => {
         this.advanceToChapter4();
-      }, 4000);
+      }, 24000);
     }
   }
 
@@ -574,7 +602,7 @@ export class LocalSim {
     this.chapterEnemiesKilled = 0;
     this.canMeditate = false;
     this.onChapterChange(4, "Hanuman's Trial",
-      "With Sugriv's blessing, you venture deeper into Lanka. Demon scouts block the path to Hanuman...");
+      "The path of Dharma is never unguarded. Demon scouts rise to block the righteous — but no shadow endures before the sun...");
 
     // Spawn 5 demon scouts (70 HP, faster)
     const ch4Positions: Vec3[] = [
@@ -755,7 +783,7 @@ export class LocalSim {
     if (this.chapter === 1 && this.chapterEnemiesKilled >= 4) {
       this.chapter = 2;
       this.chapterEnemiesKilled = 0;
-      this.onChapterChange(2, "The Demon Guard", "The alarm is raised! Ravana's elite guard emerges from the shadows...");
+      this.onChapterChange(2, "The Demon Guard", "Adharma breeds in darkness. Ravana's elite guard emerges — those who serve tyranny must face the light...");
 
       // Spawn 4 tougher enemies for chapter 2
       const chapter2Positions: Vec3[] = [
@@ -777,13 +805,13 @@ export class LocalSim {
       this.chapterEnemiesKilled = 0;
       this.canMeditate = true;
       this.onChapterChange(3, "Kishkindha — The Vanara Alliance",
-        "The forest falls silent. A figure emerges from the trees — Sugriv, King of the Vanaras, seeks an audience...");
+        "Dharma answered with Dharma. Sugriv, whose kingdom you once restored, now emerges to honor that sacred bond...");
 
       // Spawn Sugriv as ally NPC
       const sugrivPos: Vec3 = { x: 0, y: 0, z: -15 };
       this.allyNPCs.push({
         id: 'sugriv', name: 'Sugriv', pos: sugrivPos, met: false,
-        message: "Lord Rama! I am Sugriv, King of Kishkindha. My warriors Hanuman and Angad will aid you in your quest against Ravana. But first, you must prove your valor. Rest here — meditate and gather your strength. Press M to meditate.",
+        message: "Lord Rama! I am Sugriv, King of Kishkindha. You who upheld Dharma when you restored my throne — now I repay that bond. My warriors Hanuman and Angad shall aid your righteous cause against Ravana.",
       });
       this.onAllyNPCSpawned('sugriv', 'Sugriv', sugrivPos);
     }
@@ -802,7 +830,15 @@ export class LocalSim {
       this.onCompanionJoined('hanuman', 'Hanuman', hanumanPos);
 
       this.onChapterChange(5, "Angad's Challenge",
-        "Hanuman, the mighty Vanara, joins your side! Now face Ravana's elite demon warriors to earn Angad's loyalty...");
+        "Hanuman, son of Vayu, joins your cause — devotion made flesh. Now prove worthy of Angad's loyalty...");
+
+      // Hanuman Dharma dialogue after chapter banner
+      setTimeout(() => {
+        this.onDialogueSequence([
+          { name: 'Hanuman', message: "Lord Rama, I am but an instrument of your will. Where Dharma walks, I follow — for devotion to the righteous is the highest path." },
+          { name: 'Hanuman', message: "I who leapt across the ocean to find Mother Sita — no force of Ravana's can stay me. Let us deliver Lanka from this Adharma." },
+        ]);
+      }, 5000);
 
       // Spawn 5 elite demon warriors (90 HP)
       const ch5Positions: Vec3[] = [
@@ -835,13 +871,21 @@ export class LocalSim {
       this.onCompanionJoined('angad', 'Angad', angadPos);
 
       this.onChapterChange(6, "Lakshman's Choice",
-        "Angad joins your ranks! Your brother Lakshman offers to fight by your side. Will you accept his aid? Rest and meditate before the final battle...");
+        "Angad, whose foot none could lift from Ravana's court, joins the righteous. Now a brother's bond is tested...");
 
-      // Trigger Lakshman choice after banner fades
+      // Angad Dharma dialogue
+      setTimeout(() => {
+        this.onDialogueSequence([
+          { name: 'Angad', message: "I stood in Ravana's court and planted my foot as a challenge — not one demon could move it. Dharma anchors those who stand for truth." },
+          { name: 'Angad', message: "Ravana had every gift — knowledge, power, devotion to Shiva — yet his pride consumed them all. That is the price of Adharma." },
+        ]);
+      }, 5000);
+
+      // Trigger Lakshman choice after Angad's dialogue
       setTimeout(() => {
         this.lakshmanChoice = 'pending';
         this.onLakshmanChoice();
-      }, 4500);
+      }, 20000);
     }
   }
 
@@ -855,7 +899,15 @@ export class LocalSim {
     this.stopMeditation();
 
     this.onChapterChange(7, "The Demon King Ravana",
-      "With your allies at your side, you march into the heart of Lanka. The ground trembles. Ravana awaits...");
+      "The final test of Dharma. Ravana — scholar, devotee, king — fell to the deepest Adharma through pride alone. End this, not with hatred, but with duty...");
+
+    // Pre-battle Dharma dialogue
+    setTimeout(() => {
+      this.onDialogueSequence([
+        { name: 'Rama', message: "I take no joy in this battle. Ravana was once great — learned in the Vedas, blessed by Brahma. But he chose to steal another's wife and crush the weak beneath his power." },
+        { name: 'Rama', message: "This is Dharma Yuddha — righteous war. I fight not for vengeance, but to restore the balance that Adharma has broken. May the world remember this." },
+      ]);
+    }, 5000);
 
     // Auto-activate boss
     this.boss.state.phase = BossPhase.Phase1;

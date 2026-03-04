@@ -220,7 +220,7 @@ export class Game {
       this.haptics.play(HapticMotif.GameOver);
       this.audio.play(won ? SFX.Victory : SFX.Defeat);
       if (won) {
-        this.hud.addKillFeedEntry('RAVANA PROTOCOL DESTROYED', '#ffd700');
+        this.hud.addKillFeedEntry('DHARMA PREVAILS — RAVANA DEFEATED', '#ffd700');
       }
     };
 
@@ -275,10 +275,23 @@ export class Game {
       this.hud.showLakshmanChoice();
     };
 
+    this.localSim.onDialogueSequence = (lines) => {
+      this.hud.showDialogueSequence(lines);
+    };
+
     // Show Chapter 1 intro after a brief delay
     setTimeout(() => {
-      this.hud.showChapterBanner(1, "The Forest of Lanka", "Lord Rama enters the dark forests of Lanka. Rakshasa sentinels lurk among the ancient trees...");
+      this.hud.showChapterBanner(1, "The Forest of Lanka",
+        "Lord Rama enters the dark forests of Lanka. Every step is Dharma — duty to the innocent, to Sita, to the world's balance...");
     }, 1500);
+
+    // Chapter 1 opening Dharma dialogue
+    setTimeout(() => {
+      this.hud.showDialogueSequence([
+        { name: 'Rama', message: "Fourteen years of exile. Every trial was Dharma's forge — shaping the patience and resolve I would need for this moment." },
+        { name: 'Rama', message: "Ravana believes might is right. But the Vedas teach that true strength serves the helpless. I will show Lanka what Dharma looks like." },
+      ]);
+    }, 6000);
 
     this.hud.showNotification('SINGLE PLAYER MODE');
   }
@@ -446,13 +459,33 @@ export class Game {
           this.haptics.play(HapticMotif.BossPhaseShift);
           this.audio.play(SFX.BossRoar);
           this.hud.showNotification('BOSS PHASE II — ASCENDED');
+          // Ravana Dharma dialogue — Phase 2
+          setTimeout(() => {
+            this.hud.showDialogue('Ravana',
+              "You think yourself righteous, Rama? I conquered the three worlds! The gods themselves trembled before my penance. Who are you to judge my Dharma?", 6000);
+          }, 2000);
         } else if (bp === BossPhase.Phase3Enrage) {
           this.haptics.play(HapticMotif.BossPhaseShift);
           this.audio.play(SFX.BossRoar);
           this.hud.showNotification('BOSS ENRAGED');
+          // Ravana enrage Dharma dialogue
+          setTimeout(() => {
+            this.hud.showDialogueSequence([
+              { name: 'Ravana', message: "ENOUGH! I am Ravana — master of ten heads, conqueror of Indra! No mortal arrow can fell me!" },
+              { name: 'Rama', message: "Your knowledge was vast, Ravana. But knowledge without compassion is a weapon turned upon oneself. This is the fruit of your Adharma." },
+            ]);
+          }, 2000);
         } else if (bp === BossPhase.Dead) {
           this.haptics.play(HapticMotif.BossDefeated);
           this.audio.play(SFX.BossDefeated);
+          // Victory Dharma dialogue
+          setTimeout(() => {
+            this.hud.showDialogueSequence([
+              { name: 'Rama', message: "It is done. Not with hatred did I loose this arrow, but with the weight of Dharma — duty to the innocent, to Sita, to the order of the world." },
+              { name: 'Rama', message: "Let it be known: Ravana fell not because he lacked strength, but because he abandoned Dharma. May even his soul find peace now." },
+              { name: 'Hanuman', message: "Jai Shri Ram! Dharma prevails. Lanka is free — and Mother Sita shall be reunited with her Lord." },
+            ]);
+          }, 3000);
         }
       }
       this.lastBossPhase = bp;

@@ -42,6 +42,10 @@ export class HUD {
   // ── Arrow alert ────────────────────────────────────────────
   private alertTimer = 0;
 
+  // ── Dialogue queue for multi-line conversations ────────────
+  private dialogueQueue: { name: string; message: string }[] = [];
+  private dialogueAutoTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
     this.hpBar = document.getElementById('hpBar')!;
     this.hpLabel = document.getElementById('hpLabel')!;
@@ -281,7 +285,8 @@ export class HUD {
   //  DIALOGUE SYSTEM (ally NPC conversations)
   // ══════════════════════════════════════════════════════════════════════════
 
-  showDialogue(name: string, message: string): void {
+  /** Show a single dialogue line (auto-hides after duration). */
+  showDialogue(name: string, message: string, durationMs = 8000): void {
     if (!this.dialogueOverlay) return;
     const nameEl = this.dialogueOverlay.querySelector('.dialogue-name') as HTMLElement;
     const msgEl = this.dialogueOverlay.querySelector('.dialogue-message') as HTMLElement;
@@ -290,10 +295,34 @@ export class HUD {
     if (msgEl) msgEl.textContent = message;
 
     this.dialogueOverlay.classList.add('visible');
-    // Auto-hide after 8 seconds
-    setTimeout(() => {
+
+    // Clear any pending auto-hide
+    if (this.dialogueAutoTimer) clearTimeout(this.dialogueAutoTimer);
+    this.dialogueAutoTimer = setTimeout(() => {
       this.dialogueOverlay?.classList.remove('visible');
-    }, 8000);
+      // Show next queued dialogue if any
+      this.advanceDialogueQueue();
+    }, durationMs);
+  }
+
+  /**
+   * Queue multiple dialogue lines for a conversation.
+   * Each line is shown sequentially with the given per-line duration.
+   */
+  showDialogueSequence(lines: { name: string; message: string }[], perLineDurationMs = 7000): void {
+    if (lines.length === 0) return;
+    this.dialogueQueue = lines.slice(1); // everything after the first
+    // Show the first line immediately
+    this.showDialogue(lines[0].name, lines[0].message, perLineDurationMs);
+  }
+
+  private advanceDialogueQueue(): void {
+    if (this.dialogueQueue.length === 0) return;
+    const next = this.dialogueQueue.shift()!;
+    // Small delay between lines for cinematic pacing
+    setTimeout(() => {
+      this.showDialogue(next.name, next.message, 7000);
+    }, 600);
   }
 
   // ══════════════════════════════════════════════════════════════════════════

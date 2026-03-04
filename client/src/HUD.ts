@@ -1,5 +1,6 @@
 // ── Ayodhya Protocol: Lanka Reforged ── HUD Manager ──
 // Polish pass: kill feed, combo counter, screen transitions, settings panel.
+// Expanded: dialogue system, meditation bar, Lakshman choice, companion notifications.
 
 import { PlayerState, BossState, BossPhase, PlayerStatus, SpecialArrowType } from '@shared/types';
 
@@ -27,6 +28,11 @@ export class HUD {
   private arrowSlots: HTMLElement[] = [];
   private ammoLabel: HTMLElement | null;
   private chapterOverlay: HTMLElement | null;
+  private dialogueOverlay: HTMLElement | null;
+  private meditationBar: HTMLElement | null;
+  private meditationFill: HTMLElement | null;
+  private meditationHint: HTMLElement | null;
+  private lakshmanChoiceEl: HTMLElement | null;
 
   // ── Combo tracking ────────────────────────────────────────
   private comboCount = 0;
@@ -59,6 +65,11 @@ export class HUD {
     this.arrowSelector = document.getElementById('arrowSelector')!;
     this.ammoLabel = document.getElementById('ammoCount');
     this.chapterOverlay = document.getElementById('chapterOverlay');
+    this.dialogueOverlay = document.getElementById('dialogueOverlay');
+    this.meditationBar = document.getElementById('meditationBar');
+    this.meditationFill = document.getElementById('meditationFill');
+    this.meditationHint = document.getElementById('meditationHint');
+    this.lakshmanChoiceEl = document.getElementById('lakshmanChoice');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
@@ -226,7 +237,7 @@ export class HUD {
 
   /** Flash an enemy special arrow alert on screen. */
   showArrowAlert(arrowName: string): void {
-    this.arrowAlert.textContent = `⚠ ${arrowName} INCOMING!`;
+    this.arrowAlert.textContent = `\u26A0 ${arrowName} INCOMING!`;
     this.arrowAlert.classList.add('visible');
     this.alertTimer = 1.5; // seconds
   }
@@ -245,7 +256,7 @@ export class HUD {
 
   updateAmmo(current: number, max: number): void {
     if (this.ammoLabel) {
-      this.ammoLabel.textContent = `🏹 ${current}/${max}`;
+      this.ammoLabel.textContent = `\uD83C\uDFF9 ${current}/${max}`;
       this.ammoLabel.style.color = current <= 5 ? '#ff4444' : current <= 15 ? '#ffaa00' : '#ffffff';
     }
   }
@@ -264,5 +275,74 @@ export class HUD {
     setTimeout(() => {
       this.chapterOverlay?.classList.remove('visible');
     }, 4000);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  DIALOGUE SYSTEM (ally NPC conversations)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showDialogue(name: string, message: string): void {
+    if (!this.dialogueOverlay) return;
+    const nameEl = this.dialogueOverlay.querySelector('.dialogue-name') as HTMLElement;
+    const msgEl = this.dialogueOverlay.querySelector('.dialogue-message') as HTMLElement;
+
+    if (nameEl) nameEl.textContent = name;
+    if (msgEl) msgEl.textContent = message;
+
+    this.dialogueOverlay.classList.add('visible');
+    // Auto-hide after 8 seconds
+    setTimeout(() => {
+      this.dialogueOverlay?.classList.remove('visible');
+    }, 8000);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  MEDITATION UI
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showMeditationBar(): void {
+    if (this.meditationBar) this.meditationBar.classList.add('visible');
+  }
+
+  hideMeditationBar(): void {
+    if (this.meditationBar) this.meditationBar.classList.remove('visible');
+    if (this.meditationFill) this.meditationFill.style.width = '0%';
+  }
+
+  updateMeditationBar(progress: number): void {
+    if (this.meditationFill) {
+      this.meditationFill.style.width = `${Math.min(100, progress * 100)}%`;
+    }
+  }
+
+  updateMeditationHint(canMeditate: boolean): void {
+    if (this.meditationHint) {
+      if (canMeditate) {
+        this.meditationHint.classList.add('visible');
+      } else {
+        this.meditationHint.classList.remove('visible');
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  LAKSHMAN CHOICE UI
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showLakshmanChoice(): void {
+    if (this.lakshmanChoiceEl) this.lakshmanChoiceEl.classList.add('visible');
+  }
+
+  hideLakshmanChoice(): void {
+    if (this.lakshmanChoiceEl) this.lakshmanChoiceEl.classList.remove('visible');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  COMPANION NOTIFICATIONS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showCompanionJoined(name: string): void {
+    this.addKillFeedEntry(`${name} has joined your quest!`, '#90ee90');
+    this.showNotification(`${name.toUpperCase()} JOINS`);
   }
 }

@@ -42,6 +42,7 @@ export const enum InputFlag {
   FireArrow = 1 << 8,
   Shockwave = 1 << 9,
   Revive = 1 << 10,
+  Meditate = 1 << 11,
 }
 
 export interface PlayerInput {

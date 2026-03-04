@@ -1,5 +1,6 @@
 // ── Ayodhya Protocol: Lanka Reforged ── Local Single-Player Simulation ──
 // Runs the authoritative game logic in the browser so no server is needed.
+// 7-chapter Ramayana storyline with companions, meditation, and Lakshman choice.
 
 import {
   PlayerInput, PlayerState, PlayerStatus, ProjectileState, ProjectileType,
@@ -46,6 +47,25 @@ interface Pickup {
   arrows: number;
 }
 
+export interface Companion {
+  id: string;
+  name: string;
+  pos: Vec3;
+  damage: number;
+  attackInterval: number;
+  range: number;
+  lastAttackTime: number;
+  hpRegenBuff: number;  // HP/s regen buff to player
+}
+
+interface AllyNPC {
+  id: string;
+  name: string;
+  pos: Vec3;
+  met: boolean;
+  message: string;
+}
+
 export class LocalSim {
   private player: PlayerState;
   private projectiles = new Map<number, LocalProjectile>();
@@ -73,11 +93,36 @@ export class LocalSim {
   private pickups: Pickup[] = [];
   private nextPickupId = 1;
 
-  // Chapter tracking
-  private chapter = 1;
+  // Chapter tracking (7 chapters)
+  public chapter = 1;
   private chapterEnemiesKilled = 0;
   private chapterStarted = false;
 
+  // Companion system
+  public companions: Companion[] = [];
+
+  // Ally NPCs (non-combatant story NPCs)
+  public allyNPCs: AllyNPC[] = [];
+
+  // Meditation system
+  public isMeditating = false;
+  public meditationTimer = 0;
+  public readonly maxMeditationTime = 10;
+  public canMeditate = false; // only during rest chapters with no enemies alive
+
+  // Lakshman choice
+  public lakshmanChoice: 'pending' | 'accepted' | 'declined' | null = null;
+
+  // Lone Warrior buff (if Lakshman declined)
+  public loneWarriorBuff = false;
+
+  // Damage multiplier (affected by Lone Warrior)
+  public get damageMultiplier(): number {
+    return this.loneWarrierBuff_internal ? 1.3 : 1.0;
+  }
+  private get loneWarrierBuff_internal(): boolean { return this.loneWarriorBuff; }
+
+  // Callbacks
   public onDamage: (targetType: DamageTargetType, targetId: number, damage: number, sourceId: number) => void = () => {};
   public onProjectileSpawn: (proj: ProjectileState) => void = () => {};
   public onGameOver: (won: boolean) => void = () => {};
@@ -85,6 +130,11 @@ export class LocalSim {
   public onPickupSpawned: (id: number, pos: Vec3, arrows: number) => void = () => {};
   public onPickupCollected: (id: number) => void = () => {};
   public onChapterChange: (chapter: number, title: string, subtitle: string) => void = () => {};
+  public onAllyMet: (id: string, name: string, message: string) => void = () => {};
+  public onCompanionJoined: (id: string, name: string, pos: Vec3) => void = () => {};
+  public onMeditationStateChanged: (active: boolean) => void = () => {};
+  public onLakshmanChoice: () => void = () => {};
+  public onAllyNPCSpawned: (id: string, name: string, pos: Vec3) => void = () => {};
 
   constructor() {
     this.player = {
@@ -107,7 +157,7 @@ export class LocalSim {
       });
     }
 
-    // Spawn boss (stays idle until Chapter 3)
+    // Spawn boss (stays idle until Chapter 7)
     const maxHp = C.BOSS_HP_BASE;
     this.boss = {
       state: { pos: { ...C.BOSS_ARENA_CENTER }, yaw: 0, hp: maxHp, maxHp, phase: BossPhase.Idle, isAoE: false, isBarrage: false },
@@ -118,8 +168,70 @@ export class LocalSim {
 
   get playerId(): number { return 1; }
 
+  // ── Meditation ────────────────────────────────────────────────
+  startMeditation(): void {
+    if (!this.canMeditate || this.isMeditating) return;
+    if (this.player.status !== PlayerStatus.Alive) return;
+    this.isMeditating = true;
+    this.meditationTimer = 0;
+    this.onMeditationStateChanged(true);
+  }
+
+  stopMeditation(): void {
+    if (!this.isMeditating) return;
+    this.isMeditating = false;
+    this.meditationTimer = 0;
+    this.onMeditationStateChanged(false);
+  }
+
+  // ── Lakshman Choice ──────────────────────────────────────────
+  acceptLakshman(): void {
+    if (this.lakshmanChoice !== 'pending') return;
+    this.lakshmanChoice = 'accepted';
+    // Lakshman joins as companion
+    const pos: Vec3 = { x: this.player.pos.x - 4, y: 0, z: this.player.pos.z - 4 };
+    this.companions.push({
+      id: 'lakshman', name: 'Lakshman', pos,
+      damage: 15, attackInterval: 3000, range: 15,
+      lastAttackTime: 0, hpRegenBuff: 0,
+    });
+    this.player.maxHp += 20;
+    this.player.hp = Math.min(this.player.hp + 20, this.player.maxHp);
+    this.onCompanionJoined('lakshman', 'Lakshman', pos);
+    // Enable meditation before final chapter
+    this.canMeditate = true;
+  }
+
+  declineLakshman(): void {
+    if (this.lakshmanChoice !== 'pending') return;
+    this.lakshmanChoice = 'declined';
+    this.loneWarriorBuff = true;
+    // Enable meditation before final chapter
+    this.canMeditate = true;
+  }
+
   processInput(input: PlayerInput): void {
     if (this.player.status !== PlayerStatus.Alive) {
+      this.player.lastProcessedSeq = input.seq;
+      return;
+    }
+
+    // Handle meditation toggle
+    if (input.flags & InputFlag.Meditate) {
+      if (this.isMeditating) {
+        this.stopMeditation();
+      } else {
+        this.startMeditation();
+      }
+    }
+
+    // During meditation, block all movement/combat
+    if (this.isMeditating) {
+      // Any movement key cancels meditation
+      if (input.flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right | InputFlag.Jump | InputFlag.Sprint | InputFlag.Dodge | InputFlag.Shoot)) {
+        this.stopMeditation();
+      }
+      this.player.vel = { x: 0, y: 0, z: 0 };
       this.player.lastProcessedSeq = input.seq;
       return;
     }
@@ -183,7 +295,8 @@ export class LocalSim {
 
     // Shoot (instant fire at moderate damage ~60% charge)
     if (flags & InputFlag.Shoot && this.arrowAmmo > 0) {
-      const damage = C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * 0.6;
+      const baseDamage = C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * 0.6;
+      const damage = baseDamage * this.damageMultiplier;
       const dir: Vec3 = {
         x: -Math.sin(input.yaw) * Math.cos(input.pitch),
         y: Math.sin(input.pitch),
@@ -202,35 +315,40 @@ export class LocalSim {
   handleAbility(ability: AbilityType, dir: Vec3): void {
     const now = performance.now();
     if (this.player.status !== PlayerStatus.Alive) return;
+    if (this.isMeditating) return;
+
+    const mult = this.damageMultiplier;
 
     if (ability === AbilityType.FireArrow && now >= this.fireArrowCd) {
       this.fireArrowCd = now + C.FIRE_ARROW_COOLDOWN_MS;
-      this.spawnProjectile(1, ProjectileType.FireArrow, this.player.pos, dir, C.FIRE_ARROW_DAMAGE);
+      this.spawnProjectile(1, ProjectileType.FireArrow, this.player.pos, dir, C.FIRE_ARROW_DAMAGE * mult);
     } else if (ability === AbilityType.Shockwave && now >= this.shockwaveCd) {
       this.shockwaveCd = now + C.SHOCKWAVE_COOLDOWN_MS;
       this.applyShockwave();
     } else if (ability === AbilityType.VayuAstra && now >= this.vayuAstraCd) {
       this.vayuAstraCd = now + VAYU_ASTRA_COOLDOWN_MS;
-      this.spawnProjectile(1, ProjectileType.VayuAstra, this.player.pos, dir, VAYU_ASTRA_DAMAGE, VAYU_ASTRA_SPEED);
+      this.spawnProjectile(1, ProjectileType.VayuAstra, this.player.pos, dir, VAYU_ASTRA_DAMAGE * mult, VAYU_ASTRA_SPEED);
     } else if (ability === AbilityType.VarunaAstra && now >= this.varunaAstraCd) {
       this.varunaAstraCd = now + VARUNA_ASTRA_COOLDOWN_MS;
-      this.spawnProjectile(1, ProjectileType.VarunaAstra, this.player.pos, dir, VARUNA_ASTRA_DAMAGE);
+      this.spawnProjectile(1, ProjectileType.VarunaAstra, this.player.pos, dir, VARUNA_ASTRA_DAMAGE * mult);
     } else if (ability === AbilityType.NagaAstra && now >= this.nagaAstraCd) {
       this.nagaAstraCd = now + NAGA_ASTRA_COOLDOWN_MS;
-      this.spawnProjectile(1, ProjectileType.NagaAstra, this.player.pos, dir, NAGA_ASTRA_DAMAGE);
+      this.spawnProjectile(1, ProjectileType.NagaAstra, this.player.pos, dir, NAGA_ASTRA_DAMAGE * mult);
     } else if (ability === AbilityType.BrahmaAstra && now >= this.brahmaAstraCd) {
       this.brahmaAstraCd = now + BRAHMA_ASTRA_COOLDOWN_MS;
-      this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE);
+      this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE * mult);
     }
   }
 
   private applyShockwave(): void {
     const origin = this.player.pos;
+    const mult = this.damageMultiplier;
     for (const enemy of this.enemies) {
       if (enemy.state.aiState === EnemyAIState.Dead) continue;
       if (dist3(origin, enemy.state.pos) <= C.SHOCKWAVE_RADIUS) {
-        enemy.state.hp -= C.SHOCKWAVE_DAMAGE;
-        this.onDamage(DamageTargetType.Enemy, enemy.state.id, C.SHOCKWAVE_DAMAGE, 1);
+        const dmg = C.SHOCKWAVE_DAMAGE * mult;
+        enemy.state.hp -= dmg;
+        this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
         if (enemy.state.hp <= 0) {
           enemy.state.hp = 0;
           enemy.state.aiState = EnemyAIState.Dead;
@@ -242,8 +360,9 @@ export class LocalSim {
     }
     if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
       if (dist3(origin, this.boss.state.pos) <= C.SHOCKWAVE_RADIUS) {
-        this.boss.state.hp -= C.SHOCKWAVE_DAMAGE;
-        this.onDamage(DamageTargetType.Boss, 0, C.SHOCKWAVE_DAMAGE, 1);
+        const dmg = C.SHOCKWAVE_DAMAGE * mult;
+        this.boss.state.hp -= dmg;
+        this.onDamage(DamageTargetType.Boss, 0, dmg, 1);
         this.checkBossPhase();
       }
     }
@@ -268,6 +387,34 @@ export class LocalSim {
     const hs = C.WORLD_SIZE - 1;
     this.player.pos.x = Math.max(-hs, Math.min(hs, this.player.pos.x));
     this.player.pos.z = Math.max(-hs, Math.min(hs, this.player.pos.z));
+
+    // ── Meditation healing ──────────────────────────────────────
+    if (this.isMeditating) {
+      this.meditationTimer += dt;
+      // Heal HP, stamina, arrows
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + 10 * dt);
+      this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + 20 * dt);
+      this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + Math.floor(5 * dt));
+      if (this.meditationTimer >= this.maxMeditationTime) {
+        this.stopMeditation();
+      }
+    }
+
+    // ── Companion HP regen buff ─────────────────────────────────
+    for (const comp of this.companions) {
+      if (comp.hpRegenBuff > 0) {
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + comp.hpRegenBuff * dt);
+      }
+    }
+
+    // ── Check ally NPC proximity ────────────────────────────────
+    for (const ally of this.allyNPCs) {
+      if (!ally.met && dist3(this.player.pos, ally.pos) < 5) {
+        ally.met = true;
+        this.onAllyMet(ally.id, ally.name, ally.message);
+        this.handleAllyMet(ally.id);
+      }
+    }
 
     // Update projectiles
     const projToRemove: number[] = [];
@@ -340,6 +487,12 @@ export class LocalSim {
     // Update boss
     this.updateBoss(dt, now);
 
+    // ── Companion AI ────────────────────────────────────────────
+    this.updateCompanions(dt, now);
+
+    // ── Update meditation availability ──────────────────────────
+    this.updateMeditationAvailability();
+
     // Build snapshot
     const projectiles: ProjectileState[] = [];
     for (const p of this.projectiles.values()) projectiles.push({ ...p.state });
@@ -350,6 +503,93 @@ export class LocalSim {
       enemies: this.enemies.map(e => ({ ...e.state })),
       boss: { ...this.boss.state },
     };
+  }
+
+  private updateMeditationAvailability(): void {
+    // Can meditate during rest chapters (3 and 6) when no enemies alive
+    const isRestChapter = (this.chapter === 3 || this.chapter === 6);
+    const allEnemiesDead = this.enemies.every(e => e.state.aiState === EnemyAIState.Dead);
+    this.canMeditate = isRestChapter && allEnemiesDead && this.player.status === PlayerStatus.Alive;
+  }
+
+  private updateCompanions(dt: number, now: number): void {
+    for (const comp of this.companions) {
+      // Follow the player — stay 3-5 units behind
+      const dx = this.player.pos.x - comp.pos.x;
+      const dz = this.player.pos.z - comp.pos.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d > 4) {
+        const speed = 5 * dt;
+        comp.pos.x += (dx / d) * speed;
+        comp.pos.z += (dz / d) * speed;
+      }
+
+      // Auto-attack nearest enemy/boss
+      if (now - comp.lastAttackTime >= comp.attackInterval) {
+        let nearestEnemy: LocalEnemy | null = null;
+        let nearestDist = Infinity;
+        for (const enemy of this.enemies) {
+          if (enemy.state.aiState === EnemyAIState.Dead) continue;
+          const ed = dist3(comp.pos, enemy.state.pos);
+          if (ed < comp.range && ed < nearestDist) {
+            nearestDist = ed;
+            nearestEnemy = enemy;
+          }
+        }
+        if (nearestEnemy) {
+          nearestEnemy.state.hp -= comp.damage;
+          this.onDamage(DamageTargetType.Enemy, nearestEnemy.state.id, comp.damage, 100);
+          if (nearestEnemy.state.hp <= 0) {
+            nearestEnemy.state.hp = 0;
+            nearestEnemy.state.aiState = EnemyAIState.Dead;
+            this.chapterEnemiesKilled++;
+            this.spawnPickup(nearestEnemy.state.pos);
+            this.checkChapterProgress();
+          }
+          comp.lastAttackTime = now;
+        } else if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
+          const bd = dist3(comp.pos, this.boss.state.pos);
+          if (bd < comp.range) {
+            this.boss.state.hp -= comp.damage;
+            this.onDamage(DamageTargetType.Boss, 0, comp.damage, 100);
+            this.checkBossPhase();
+            comp.lastAttackTime = now;
+          }
+        }
+      }
+    }
+  }
+
+  private handleAllyMet(allyId: string): void {
+    if (allyId === 'sugriv') {
+      // After meeting Sugriv, transition to Chapter 4 after a delay
+      setTimeout(() => {
+        this.advanceToChapter4();
+      }, 4000);
+    }
+  }
+
+  private advanceToChapter4(): void {
+    this.chapter = 4;
+    this.chapterEnemiesKilled = 0;
+    this.canMeditate = false;
+    this.onChapterChange(4, "Hanuman's Trial",
+      "With Sugriv's blessing, you venture deeper into Lanka. Demon scouts block the path to Hanuman...");
+
+    // Spawn 5 demon scouts (70 HP, faster)
+    const ch4Positions: Vec3[] = [
+      { x: -15, y: 0, z: -40 }, { x: 25, y: 0, z: -35 },
+      { x: 40, y: 0, z: -10 }, { x: -35, y: 0, z: 20 },
+      { x: 10, y: 0, z: 45 },
+    ];
+    for (const pos of ch4Positions) {
+      const id = this.nextEnemyId++;
+      this.enemies.push({
+        state: { id, pos: { ...pos }, yaw: 0, hp: 70, maxHp: 70, aiState: EnemyAIState.Patrol, targetId: 0 },
+        patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+        meleeCdEnd: 0, rangedCdEnd: 0,
+      });
+    }
   }
 
   private updateEnemies(dt: number, now: number): void {
@@ -425,7 +665,7 @@ export class LocalSim {
     if (b.phase === BossPhase.Dead) return;
 
     if (b.phase === BossPhase.Idle) {
-      // Only activate boss on Chapter 3
+      // Only activate boss on Chapter 7
       return;
     }
 
@@ -511,6 +751,7 @@ export class LocalSim {
   }
 
   private checkChapterProgress(): void {
+    // Chapter 1 → 2: 4 sentinels killed
     if (this.chapter === 1 && this.chapterEnemiesKilled >= 4) {
       this.chapter = 2;
       this.chapterEnemiesKilled = 0;
@@ -529,15 +770,96 @@ export class LocalSim {
           meleeCdEnd: 0, rangedCdEnd: 0,
         });
       }
-    } else if (this.chapter === 2 && this.chapterEnemiesKilled >= 4) {
+    }
+    // Chapter 2 → 3 (Kishkindha — meet Sugriv): 4 elites killed
+    else if (this.chapter === 2 && this.chapterEnemiesKilled >= 4) {
       this.chapter = 3;
       this.chapterEnemiesKilled = 0;
-      this.onChapterChange(3, "The Demon King Ravana", "With his guard vanquished, Ravana himself stirs in the arena. The final battle begins...");
+      this.canMeditate = true;
+      this.onChapterChange(3, "Kishkindha — The Vanara Alliance",
+        "The forest falls silent. A figure emerges from the trees — Sugriv, King of the Vanaras, seeks an audience...");
 
-      // Auto-activate boss
-      this.boss.state.phase = BossPhase.Phase1;
-      this.boss.activated = true;
+      // Spawn Sugriv as ally NPC
+      const sugrivPos: Vec3 = { x: 0, y: 0, z: -15 };
+      this.allyNPCs.push({
+        id: 'sugriv', name: 'Sugriv', pos: sugrivPos, met: false,
+        message: "Lord Rama! I am Sugriv, King of Kishkindha. My warriors Hanuman and Angad will aid you in your quest against Ravana. But first, you must prove your valor. Rest here — meditate and gather your strength. Press M to meditate.",
+      });
+      this.onAllyNPCSpawned('sugriv', 'Sugriv', sugrivPos);
     }
+    // Chapter 4 → 5 (Angad's Challenge): 5 scouts killed → Hanuman joins
+    else if (this.chapter === 4 && this.chapterEnemiesKilled >= 5) {
+      this.chapter = 5;
+      this.chapterEnemiesKilled = 0;
+
+      // Hanuman joins as companion
+      const hanumanPos: Vec3 = { x: this.player.pos.x + 3, y: 0, z: this.player.pos.z + 3 };
+      this.companions.push({
+        id: 'hanuman', name: 'Hanuman', pos: hanumanPos,
+        damage: 10, attackInterval: 2000, range: 8,
+        lastAttackTime: 0, hpRegenBuff: 0,
+      });
+      this.onCompanionJoined('hanuman', 'Hanuman', hanumanPos);
+
+      this.onChapterChange(5, "Angad's Challenge",
+        "Hanuman, the mighty Vanara, joins your side! Now face Ravana's elite demon warriors to earn Angad's loyalty...");
+
+      // Spawn 5 elite demon warriors (90 HP)
+      const ch5Positions: Vec3[] = [
+        { x: -25, y: 0, z: -30 }, { x: 30, y: 0, z: -20 },
+        { x: 40, y: 0, z: 25 }, { x: -20, y: 0, z: 35 },
+        { x: 5, y: 0, z: -45 },
+      ];
+      for (const pos of ch5Positions) {
+        const id = this.nextEnemyId++;
+        this.enemies.push({
+          state: { id, pos: { ...pos }, yaw: 0, hp: 90, maxHp: 90, aiState: EnemyAIState.Patrol, targetId: 0 },
+          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+          meleeCdEnd: 0, rangedCdEnd: 0,
+        });
+      }
+    }
+    // Chapter 5 → 6 (Lakshman's Choice): 5 warriors killed → Angad joins, Lakshman choice
+    else if (this.chapter === 5 && this.chapterEnemiesKilled >= 5) {
+      this.chapter = 6;
+      this.chapterEnemiesKilled = 0;
+      this.canMeditate = true;
+
+      // Angad joins as companion
+      const angadPos: Vec3 = { x: this.player.pos.x - 3, y: 0, z: this.player.pos.z + 3 };
+      this.companions.push({
+        id: 'angad', name: 'Angad', pos: angadPos,
+        damage: 8, attackInterval: 2500, range: 8,
+        lastAttackTime: 0, hpRegenBuff: 2, // passive +2 HP/s
+      });
+      this.onCompanionJoined('angad', 'Angad', angadPos);
+
+      this.onChapterChange(6, "Lakshman's Choice",
+        "Angad joins your ranks! Your brother Lakshman offers to fight by your side. Will you accept his aid? Rest and meditate before the final battle...");
+
+      // Trigger Lakshman choice after banner fades
+      setTimeout(() => {
+        this.lakshmanChoice = 'pending';
+        this.onLakshmanChoice();
+      }, 4500);
+    }
+  }
+
+  /** Called externally (from Game.ts) when Lakshman choice is made and chapter 6 rest is done */
+  advanceToChapter7(): void {
+    if (this.chapter !== 6) return;
+    if (this.lakshmanChoice === 'pending') return; // must choose first
+    this.chapter = 7;
+    this.chapterEnemiesKilled = 0;
+    this.canMeditate = false;
+    this.stopMeditation();
+
+    this.onChapterChange(7, "The Demon King Ravana",
+      "With your allies at your side, you march into the heart of Lanka. The ground trembles. Ravana awaits...");
+
+    // Auto-activate boss
+    this.boss.state.phase = BossPhase.Phase1;
+    this.boss.activated = true;
   }
 }
 

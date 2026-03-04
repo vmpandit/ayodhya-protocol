@@ -172,6 +172,89 @@
       background: radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 60%, transparent 100%);
     }
 
+    /* Dialogue overlay */
+    #dialogueOverlay {
+      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+      width: 500px; max-width: 90vw; padding: 18px 24px;
+      background: rgba(0,0,0,0.85); border: 1px solid rgba(212,160,23,0.4);
+      border-radius: 10px; z-index: 180; pointer-events: none;
+      opacity: 0; transition: opacity 0.6s ease;
+    }
+    #dialogueOverlay.visible { opacity: 1; }
+    .dialogue-name {
+      font-family: 'Cinzel', serif, 'Rajdhani', monospace; font-size: 20px;
+      font-weight: bold; color: #ffd700; margin-bottom: 8px;
+      text-shadow: 0 0 10px rgba(255,165,0,0.5);
+    }
+    .dialogue-message {
+      font-family: 'Rajdhani', monospace; font-size: 15px;
+      color: #ddc88a; line-height: 1.5;
+    }
+
+    /* Meditation bar */
+    #meditationBar {
+      position: fixed; top: 45%; left: 50%; transform: translateX(-50%);
+      width: 300px; display: none; flex-direction: column; align-items: center;
+      gap: 6px; z-index: 170; pointer-events: none;
+    }
+    #meditationBar.visible { display: flex; }
+    .meditation-label {
+      font-family: 'Rajdhani', monospace; font-size: 18px; letter-spacing: 4px;
+      color: #ffd700; text-shadow: 0 0 12px rgba(255,215,0,0.5);
+      animation: meditPulse 2s ease-in-out infinite;
+    }
+    @keyframes meditPulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+    .meditation-bar-bg {
+      width: 100%; height: 8px; background: rgba(255,255,255,0.1);
+      border-radius: 4px; overflow: hidden;
+    }
+    #meditationFill {
+      width: 0%; height: 100%;
+      background: linear-gradient(90deg, #ffd700, #ff8c00);
+      border-radius: 4px; transition: width 0.3s ease;
+    }
+
+    /* Meditation hint */
+    #meditationHint {
+      position: fixed; bottom: 200px; left: 50%; transform: translateX(-50%);
+      font-family: 'Rajdhani', monospace; font-size: 14px; color: #c89b3c;
+      text-shadow: 0 0 8px rgba(200,155,60,0.4); letter-spacing: 2px;
+      pointer-events: none; opacity: 0; transition: opacity 0.5s;
+      z-index: 160;
+    }
+    #meditationHint.visible { opacity: 1; animation: meditPulse 2s ease-in-out infinite; }
+
+    /* Lakshman choice */
+    #lakshmanChoice {
+      position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      display: none; flex-direction: column; align-items: center; gap: 16px;
+      padding: 30px 40px; background: rgba(0,0,0,0.9);
+      border: 2px solid rgba(100,150,255,0.5); border-radius: 12px;
+      z-index: 200;
+    }
+    #lakshmanChoice.visible { display: flex; }
+    .lk-title {
+      font-family: 'Cinzel', serif, 'Rajdhani', monospace; font-size: 22px;
+      font-weight: bold; color: #6ea8ff; text-shadow: 0 0 12px rgba(100,168,255,0.5);
+    }
+    .lk-desc {
+      font-family: 'Rajdhani', monospace; font-size: 15px; color: #aaccff;
+      text-align: center; max-width: 380px; line-height: 1.5;
+    }
+    .lk-options {
+      display: flex; gap: 24px; margin-top: 8px;
+    }
+    .lk-option {
+      font-family: 'Rajdhani', monospace; font-size: 16px; font-weight: bold;
+      padding: 10px 20px; border-radius: 6px; letter-spacing: 2px;
+    }
+    .lk-accept {
+      color: #90ee90; border: 2px solid #90ee90; background: rgba(144,238,144,0.1);
+    }
+    .lk-decline {
+      color: #ff8888; border: 2px solid #ff8888; background: rgba(255,136,136,0.1);
+    }
+
     /* Low HP pulse animation */
     @keyframes lowHpPulse {
       0%, 100% { opacity: 1; }
@@ -375,6 +458,31 @@
     <div id="notifications"></div>
     <div id="downedOverlay"><div id="downedText">DOWNED — Waiting for revive</div></div>
     <div id="gameOverScreen"><video class="bg-video" id="gameOverVideo" muted loop playsinline></video><div id="gameOverTitle"></div></div>
+
+    <!-- Dialogue overlay (ally NPC conversations) -->
+    <div id="dialogueOverlay">
+      <div class="dialogue-name">Sugriv</div>
+      <div class="dialogue-message"></div>
+    </div>
+
+    <!-- Meditation bar -->
+    <div id="meditationBar">
+      <div class="meditation-label">MEDITATING...</div>
+      <div class="meditation-bar-bg"><div id="meditationFill"></div></div>
+    </div>
+
+    <!-- Meditation hint -->
+    <div id="meditationHint">Press M to Meditate</div>
+
+    <!-- Lakshman choice -->
+    <div id="lakshmanChoice">
+      <div class="lk-title">Lakshman's Offer</div>
+      <div class="lk-desc">Your brother Lakshman offers to fight by your side in the final battle against Ravana. Will you accept his aid, or face the demon king as a lone warrior?</div>
+      <div class="lk-options">
+        <div class="lk-option lk-accept">[Y] Accept Lakshman</div>
+        <div class="lk-option lk-decline">[N] Lone Warrior (+30% DMG)</div>
+      </div>
+    </div>
 
     <div id="chapterOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; z-index:200; opacity:0; transition:opacity 0.8s ease;">
       <div class="chapter-num" style="font-family:'Rajdhani',monospace; font-size:16px; letter-spacing:6px; text-transform:uppercase; color:#c89b3c; margin-bottom:8px;">Chapter 1</div>

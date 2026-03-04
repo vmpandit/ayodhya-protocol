@@ -98,6 +98,10 @@ export class PlayerController {
   /** Last frame's input flags for visual yaw logic */
   private lastInputFlags = 0;
 
+  // ── Meditation & Lakshman choice ──
+  private meditatePressed = false;
+  public lakshmanKeyPressed: 'Y' | 'N' | null = null;
+
   constructor(canvas: HTMLCanvasElement, camera: FreeCamera) {
     this.canvas = canvas;
     this.camera = camera;
@@ -126,6 +130,9 @@ export class PlayerController {
       if (e.code === 'Digit3') this.selectSpecialArrow(2); // VarunaAstra
       if (e.code === 'Digit4') this.selectSpecialArrow(3); // NagaAstra
       if (e.code === 'Digit5') this.selectSpecialArrow(4); // BrahmaAstra
+      if (e.code === 'KeyM') this.meditatePressed = true;
+      if (e.code === 'KeyY') this.lakshmanKeyPressed = 'Y';
+      if (e.code === 'KeyN') this.lakshmanKeyPressed = 'N';
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
@@ -391,6 +398,11 @@ export class PlayerController {
       this.touchShootTapped = false;
     }
 
+    if (this.meditatePressed) {
+      flags |= InputFlag.Meditate;
+      this.meditatePressed = false;
+    }
+
     this.lastInputFlags = flags;
     const input: PlayerInput = { seq: ++this.seq, flags, yaw: this.yaw, pitch: this.pitch, chargeMs: 0, dt };
     this.pendingInputs.push(input);
@@ -578,4 +590,11 @@ export class PlayerController {
 
   /** Character facing yaw for local player mesh (decoupled from camera). */
   getVisualYaw(): number { return this.visualYaw; }
+
+  /** Consume Lakshman choice keypress (Y/N). Returns null if no key pressed. */
+  consumeLakshmanKey(): 'Y' | 'N' | null {
+    const k = this.lakshmanKeyPressed;
+    this.lakshmanKeyPressed = null;
+    return k;
+  }
 }

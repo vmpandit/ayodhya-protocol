@@ -42,6 +42,12 @@ export class Game {
   // ── Boss phase tracking for phase-shift events ─────────────────────
   private lastBossPhase: BossPhase | null = null;
 
+  // ── Lakshman choice UI state ──────────────────────────────────────
+  private lakshmanChoiceActive = false;
+
+  // ── Chapter 6 → 7 advance tracking ───────────────────────────────
+  private chapter6ReadyToAdvance = false;
+
   private triggerHitStop(ms = 70): void {
     this.hitStopEnd = performance.now() + ms;
   }
@@ -237,6 +243,38 @@ export class Game {
       this.audio.play(SFX.BossRoar); // dramatic chapter transition sound
     };
 
+    // ── New story callbacks ──────────────────────────────────────
+
+    this.localSim.onAllyNPCSpawned = (id, name, pos) => {
+      this.world.spawnAllyNPC(id, name, pos);
+    };
+
+    this.localSim.onAllyMet = (id, name, message) => {
+      this.hud.showDialogue(name, message);
+      this.audio.play(SFX.BossRoar); // reuse for dramatic effect
+    };
+
+    this.localSim.onCompanionJoined = (id, name, pos) => {
+      this.world.spawnCompanion(id, name, pos);
+      this.hud.showCompanionJoined(name);
+      this.audio.play(SFX.UIStart);
+    };
+
+    this.localSim.onMeditationStateChanged = (active) => {
+      if (active) {
+        this.world.startMeditationEffect();
+        this.hud.showMeditationBar();
+      } else {
+        this.world.stopMeditationEffect();
+        this.hud.hideMeditationBar();
+      }
+    };
+
+    this.localSim.onLakshmanChoice = () => {
+      this.lakshmanChoiceActive = true;
+      this.hud.showLakshmanChoice();
+    };
+
     // Show Chapter 1 intro after a brief delay
     setTimeout(() => {
       this.hud.showChapterBanner(1, "The Forest of Lanka", "Lord Rama enters the dark forests of Lanka. Rakshasa sentinels lurk among the ancient trees...");
@@ -255,6 +293,40 @@ export class Game {
 
     // ── HUD update (combo timer decay) ─────────────────────────
     this.hud.update(dt);
+
+    // ── Handle Lakshman choice ─────────────────────────────────
+    if (this.lakshmanChoiceActive && this.controller && this.localSim) {
+      const key = this.controller.consumeLakshmanKey();
+      if (key === 'Y') {
+        this.localSim.acceptLakshman();
+        this.lakshmanChoiceActive = false;
+        this.chapter6ReadyToAdvance = true;
+        this.hud.hideLakshmanChoice();
+        this.hud.showNotification('LAKSHMAN JOINS YOUR SIDE');
+      } else if (key === 'N') {
+        this.localSim.declineLakshman();
+        this.lakshmanChoiceActive = false;
+        this.chapter6ReadyToAdvance = true;
+        this.hud.hideLakshmanChoice();
+        this.hud.showNotification('LONE WARRIOR — +30% DAMAGE');
+      }
+    }
+
+    // ── Chapter 6 → 7 advance: wait for meditation or 15 seconds ──
+    if (this.chapter6ReadyToAdvance && this.localSim) {
+      // Advance to chapter 7 when player stops meditating or after a delay
+      if (!this.localSim.isMeditating && this.localSim.chapter === 6) {
+        // Give 10 seconds to meditate, then auto-advance
+        if (!this._ch6AdvanceTimer) {
+          this._ch6AdvanceTimer = setTimeout(() => {
+            if (this.localSim && this.localSim.chapter === 6) {
+              this.localSim.advanceToChapter7();
+            }
+            this.chapter6ReadyToAdvance = false;
+          }, 15000);
+        }
+      }
+    }
 
     if (this.controller && this.localPlayerId >= 0) {
       const input = this.controller.getInput(dt);
@@ -349,6 +421,16 @@ export class Game {
     this.world.updateProjectiles(dt);
     if (this.localSim) {
       this.world.updatePickups(dt);
+      // Update companion positions in world
+      for (const comp of this.localSim.companions) {
+        this.world.updateCompanion(comp.id, comp.pos);
+      }
+      // Update meditation bar progress
+      if (this.localSim.isMeditating) {
+        this.hud.updateMeditationBar(this.localSim.meditationTimer / this.localSim.maxMeditationTime);
+      }
+      // Show meditation hint when available and not meditating
+      this.hud.updateMeditationHint(this.localSim.canMeditate && !this.localSim.isMeditating);
     }
 
     if (this.controller) {
@@ -378,6 +460,9 @@ export class Game {
 
     this.renderer.scene.render();
   }
+
+  // Internal timer for chapter 6 → 7
+  private _ch6AdvanceTimer: ReturnType<typeof setTimeout> | null = null;
 
   private updateWorld(snap: GameSnapshot, _dt: number): void {
     for (const ps of snap.players) {

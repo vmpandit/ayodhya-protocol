@@ -34,6 +34,10 @@ export class World {
   private bossMesh: TransformNode | null = null;
   private projectileMeshes = new Map<number, ProjectileMesh>();
   private pickupMeshes = new Map<number, Mesh>();
+  private allyNPCMeshes = new Map<string, TransformNode>();
+  private companionMeshes = new Map<string, TransformNode>();
+  private meditationLight: PointLight | null = null;
+  private meditationActive = false;
   private damageNumbers: { mesh: Mesh; startTime: number; startY: number }[] = [];
   private treeInstances: InstancedMesh[] = [];
 
@@ -964,6 +968,162 @@ export class World {
     plane.scaling.setAll(0.5 + (damage / 50) * 0.5);
 
     this.damageNumbers.push({ mesh: plane, startTime: performance.now(), startY: pos.y });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  ALLY NPCs (non-combatant story characters)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  spawnAllyNPC(id: string, name: string, pos: Vec3): void {
+    const root = new TransformNode(`ally_${id}`, this.scene);
+    root.position.set(pos.x, pos.y, pos.z);
+
+    // Create a colored billboard plane for the ally
+    const billboard = MeshBuilder.CreatePlane(`ally_billboard_${id}`, { width: 1.6, height: 2.8 }, this.scene);
+    billboard.parent = root;
+    billboard.position.y = 1.4;
+    billboard.billboardMode = Mesh.BILLBOARDMODE_Y;
+
+    const mat = new StandardMaterial(`allyMat_${id}`, this.scene);
+
+    // Color coding per ally
+    const colorMap: Record<string, Color3> = {
+      'sugriv': new Color3(0.9, 0.6, 0.1),   // golden orange
+      'hanuman': new Color3(1.0, 0.5, 0.0),   // orange
+      'angad': new Color3(0.2, 0.8, 0.3),     // green
+      'lakshman': new Color3(0.2, 0.4, 0.9),  // blue
+    };
+    const color = colorMap[id] || new Color3(0.8, 0.8, 0.2);
+    mat.emissiveColor = color.scale(0.6);
+    mat.diffuseColor = color;
+    mat.specularColor = new Color3(0, 0, 0);
+    mat.backFaceCulling = false;
+    billboard.material = mat;
+
+    // Name label above head
+    const labelPlane = MeshBuilder.CreatePlane(`allyLabel_${id}`, { width: 2.5, height: 0.5 }, this.scene);
+    labelPlane.parent = root;
+    labelPlane.position.y = 3.2;
+    labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    const labelTex = new DynamicTexture(`allyLabelTex_${id}`, { width: 256, height: 64 }, this.scene, false);
+    labelTex.hasAlpha = true;
+    const ctx = labelTex.getContext() as unknown as CanvasRenderingContext2D;
+    ctx.clearRect(0, 0, 256, 64);
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillStyle = '#ffd700';
+    ctx.textAlign = 'center';
+    ctx.fillText(name, 128, 40);
+    labelTex.update();
+    const labelMat = new StandardMaterial(`allyLabelMat_${id}`, this.scene);
+    labelMat.diffuseTexture = labelTex;
+    labelMat.useAlphaFromDiffuseTexture = true;
+    labelMat.emissiveColor = new Color3(1, 0.85, 0);
+    labelMat.disableLighting = true;
+    labelMat.backFaceCulling = false;
+    labelPlane.material = labelMat;
+
+    // Marker glow (point light)
+    const light = new PointLight(`allyLight_${id}`, new Vector3(pos.x, pos.y + 2, pos.z), this.scene);
+    light.diffuse = color;
+    light.intensity = 0.6;
+    light.range = 8;
+
+    this.allyNPCMeshes.set(id, root);
+  }
+
+  removeAllyNPC(id: string): void {
+    const root = this.allyNPCMeshes.get(id);
+    if (root) { root.dispose(false, true); this.allyNPCMeshes.delete(id); }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  COMPANIONS (combat allies that follow the player)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  spawnCompanion(id: string, name: string, pos: Vec3): void {
+    const root = new TransformNode(`comp_${id}`, this.scene);
+    root.position.set(pos.x, pos.y, pos.z);
+
+    const billboard = MeshBuilder.CreatePlane(`comp_billboard_${id}`, { width: 1.4, height: 2.4 }, this.scene);
+    billboard.parent = root;
+    billboard.position.y = 1.2;
+    billboard.billboardMode = Mesh.BILLBOARDMODE_Y;
+
+    const mat = new StandardMaterial(`compMat_${id}`, this.scene);
+    const colorMap: Record<string, Color3> = {
+      'hanuman': new Color3(1.0, 0.5, 0.0),
+      'angad': new Color3(0.2, 0.8, 0.3),
+      'lakshman': new Color3(0.2, 0.4, 0.9),
+    };
+    const color = colorMap[id] || new Color3(0.8, 0.8, 0.2);
+    mat.emissiveColor = color.scale(0.5);
+    mat.diffuseColor = color;
+    mat.specularColor = new Color3(0, 0, 0);
+    mat.backFaceCulling = false;
+    billboard.material = mat;
+
+    // Companion name label
+    const labelPlane = MeshBuilder.CreatePlane(`compLabel_${id}`, { width: 2.0, height: 0.4 }, this.scene);
+    labelPlane.parent = root;
+    labelPlane.position.y = 2.8;
+    labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    const labelTex = new DynamicTexture(`compLabelTex_${id}`, { width: 256, height: 64 }, this.scene, false);
+    labelTex.hasAlpha = true;
+    const ctx2 = labelTex.getContext() as unknown as CanvasRenderingContext2D;
+    ctx2.clearRect(0, 0, 256, 64);
+    ctx2.font = 'bold 24px sans-serif';
+    ctx2.fillStyle = '#90ee90';
+    ctx2.textAlign = 'center';
+    ctx2.fillText(name, 128, 40);
+    labelTex.update();
+    const labelMat = new StandardMaterial(`compLabelMat_${id}`, this.scene);
+    labelMat.diffuseTexture = labelTex;
+    labelMat.useAlphaFromDiffuseTexture = true;
+    labelMat.emissiveColor = new Color3(0.5, 1, 0.5);
+    labelMat.disableLighting = true;
+    labelMat.backFaceCulling = false;
+    labelPlane.material = labelMat;
+
+    this.companionMeshes.set(id, root);
+  }
+
+  updateCompanion(id: string, pos: Vec3): void {
+    const root = this.companionMeshes.get(id);
+    if (root) {
+      root.position.x = pos.x;
+      root.position.y = pos.y;
+      root.position.z = pos.z;
+    }
+  }
+
+  removeCompanion(id: string): void {
+    const root = this.companionMeshes.get(id);
+    if (root) { root.dispose(false, true); this.companionMeshes.delete(id); }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  MEDITATION EFFECTS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  startMeditationEffect(): void {
+    this.meditationActive = true;
+    // Add a golden point light at the player position
+    if (!this.meditationLight) {
+      const playerRoot = this.playerMeshes.get(1);
+      const pos = playerRoot ? playerRoot.position : Vector3.Zero();
+      this.meditationLight = new PointLight('meditationLight', pos.clone(), this.scene);
+      this.meditationLight.diffuse = new Color3(1.0, 0.85, 0.3);
+      this.meditationLight.intensity = 1.5;
+      this.meditationLight.range = 12;
+    }
+  }
+
+  stopMeditationEffect(): void {
+    this.meditationActive = false;
+    if (this.meditationLight) {
+      this.meditationLight.dispose();
+      this.meditationLight = null;
+    }
   }
 }
 

@@ -40,6 +40,12 @@ interface LocalBoss {
   activated: boolean;
 }
 
+interface Pickup {
+  id: number;
+  pos: Vec3;
+  arrows: number;
+}
+
 export class LocalSim {
   private player: PlayerState;
   private projectiles = new Map<number, LocalProjectile>();
@@ -59,10 +65,26 @@ export class LocalSim {
   private playerVelY = 0;
   private grounded = true;
 
+  // Arrow ammo system
+  public arrowAmmo = 30;
+  public readonly maxArrowAmmo = 50;
+
+  // Pickups on the ground
+  private pickups: Pickup[] = [];
+  private nextPickupId = 1;
+
+  // Chapter tracking
+  private chapter = 1;
+  private chapterEnemiesKilled = 0;
+  private chapterStarted = false;
+
   public onDamage: (targetType: DamageTargetType, targetId: number, damage: number, sourceId: number) => void = () => {};
   public onProjectileSpawn: (proj: ProjectileState) => void = () => {};
   public onGameOver: (won: boolean) => void = () => {};
   public onEnemySpecialArrow: (arrowName: string) => void = () => {};
+  public onPickupSpawned: (id: number, pos: Vec3, arrows: number) => void = () => {};
+  public onPickupCollected: (id: number) => void = () => {};
+  public onChapterChange: (chapter: number, title: string, subtitle: string) => void = () => {};
 
   constructor() {
     this.player = {
@@ -71,14 +93,12 @@ export class LocalSim {
       status: PlayerStatus.Alive, isDodging: false, lastProcessedSeq: 0,
     };
 
-    // Spawn enemies
-    const positions: Vec3[] = [
+    // Chapter 1: 4 enemies in the jungle
+    const chapter1Positions: Vec3[] = [
       { x: -20, y: 0, z: -20 }, { x: 20, y: 0, z: -25 },
       { x: -30, y: 0, z: 10 }, { x: 15, y: 0, z: 30 },
-      { x: -10, y: 0, z: -35 }, { x: 35, y: 0, z: 15 },
-      { x: 25, y: 0, z: 45 }, { x: -15, y: 0, z: 40 },
     ];
-    for (const pos of positions) {
+    for (const pos of chapter1Positions) {
       const id = this.nextEnemyId++;
       this.enemies.push({
         state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_HP, maxHp: C.ENEMY_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
@@ -87,7 +107,7 @@ export class LocalSim {
       });
     }
 
-    // Spawn boss
+    // Spawn boss (stays idle until Chapter 3)
     const maxHp = C.BOSS_HP_BASE;
     this.boss = {
       state: { pos: { ...C.BOSS_ARENA_CENTER }, yaw: 0, hp: maxHp, maxHp, phase: BossPhase.Idle, isAoE: false, isBarrage: false },
@@ -162,7 +182,7 @@ export class LocalSim {
     }
 
     // Shoot (instant fire at moderate damage ~60% charge)
-    if (flags & InputFlag.Shoot) {
+    if (flags & InputFlag.Shoot && this.arrowAmmo > 0) {
       const damage = C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * 0.6;
       const dir: Vec3 = {
         x: -Math.sin(input.yaw) * Math.cos(input.pitch),
@@ -170,6 +190,7 @@ export class LocalSim {
         z: -Math.cos(input.yaw) * Math.cos(input.pitch),
       };
       this.spawnProjectile(1, ProjectileType.Arrow, this.player.pos, dir, damage);
+      this.arrowAmmo--;
     }
 
     // Stamina regen
@@ -210,7 +231,13 @@ export class LocalSim {
       if (dist3(origin, enemy.state.pos) <= C.SHOCKWAVE_RADIUS) {
         enemy.state.hp -= C.SHOCKWAVE_DAMAGE;
         this.onDamage(DamageTargetType.Enemy, enemy.state.id, C.SHOCKWAVE_DAMAGE, 1);
-        if (enemy.state.hp <= 0) { enemy.state.hp = 0; enemy.state.aiState = EnemyAIState.Dead; }
+        if (enemy.state.hp <= 0) {
+          enemy.state.hp = 0;
+          enemy.state.aiState = EnemyAIState.Dead;
+          this.chapterEnemiesKilled++;
+          this.spawnPickup(enemy.state.pos);
+          this.checkChapterProgress();
+        }
       }
     }
     if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
@@ -261,7 +288,13 @@ export class LocalSim {
           if (dist3(proj.state.pos, enemy.state.pos) < 1.2) {
             enemy.state.hp -= proj.state.damage;
             this.onDamage(DamageTargetType.Enemy, enemy.state.id, proj.state.damage, 1);
-            if (enemy.state.hp <= 0) { enemy.state.hp = 0; enemy.state.aiState = EnemyAIState.Dead; }
+            if (enemy.state.hp <= 0) {
+              enemy.state.hp = 0;
+              enemy.state.aiState = EnemyAIState.Dead;
+              this.chapterEnemiesKilled++;
+              this.spawnPickup(enemy.state.pos);
+              this.checkChapterProgress();
+            }
             projToRemove.push(id); break;
           }
         }
@@ -292,6 +325,17 @@ export class LocalSim {
 
     // Update enemies
     this.updateEnemies(dt, now);
+
+    // Collect pickups
+    const pickupsToRemove: number[] = [];
+    for (const pickup of this.pickups) {
+      if (dist3(this.player.pos, pickup.pos) < 2.0) {
+        this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + pickup.arrows);
+        this.onPickupCollected(pickup.id);
+        pickupsToRemove.push(pickup.id);
+      }
+    }
+    this.pickups = this.pickups.filter(p => !pickupsToRemove.includes(p.id));
 
     // Update boss
     this.updateBoss(dt, now);
@@ -381,9 +425,7 @@ export class LocalSim {
     if (b.phase === BossPhase.Dead) return;
 
     if (b.phase === BossPhase.Idle) {
-      if (this.player.status === PlayerStatus.Alive && dist3(this.player.pos, C.BOSS_ARENA_CENTER) < C.BOSS_ARENA_RADIUS) {
-        b.phase = BossPhase.Phase1;
-      }
+      // Only activate boss on Chapter 3
       return;
     }
 
@@ -457,6 +499,44 @@ export class LocalSim {
       this.player.hp = 0;
       this.player.status = PlayerStatus.Downed;
       this.onGameOver(false);
+    }
+  }
+
+  private spawnPickup(pos: Vec3): void {
+    const pickupId = this.nextPickupId++;
+    const arrows = 5 + Math.floor(Math.random() * 6); // 5-10 arrows
+    const pickup: Pickup = { id: pickupId, pos: { ...pos }, arrows };
+    this.pickups.push(pickup);
+    this.onPickupSpawned(pickupId, pickup.pos, pickup.arrows);
+  }
+
+  private checkChapterProgress(): void {
+    if (this.chapter === 1 && this.chapterEnemiesKilled >= 4) {
+      this.chapter = 2;
+      this.chapterEnemiesKilled = 0;
+      this.onChapterChange(2, "The Demon Guard", "The alarm is raised! Ravana's elite guard emerges from the shadows...");
+
+      // Spawn 4 tougher enemies for chapter 2
+      const chapter2Positions: Vec3[] = [
+        { x: -10, y: 0, z: -35 }, { x: 35, y: 0, z: 15 },
+        { x: 25, y: 0, z: 45 }, { x: -15, y: 0, z: 40 },
+      ];
+      for (const pos of chapter2Positions) {
+        const id = this.nextEnemyId++;
+        this.enemies.push({
+          state: { id, pos: { ...pos }, yaw: 0, hp: 80, maxHp: 80, aiState: EnemyAIState.Patrol, targetId: 0 },
+          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+          meleeCdEnd: 0, rangedCdEnd: 0,
+        });
+      }
+    } else if (this.chapter === 2 && this.chapterEnemiesKilled >= 4) {
+      this.chapter = 3;
+      this.chapterEnemiesKilled = 0;
+      this.onChapterChange(3, "The Demon King Ravana", "With his guard vanquished, Ravana himself stirs in the arena. The final battle begins...");
+
+      // Auto-activate boss
+      this.boss.state.phase = BossPhase.Phase1;
+      this.boss.activated = true;
     }
   }
 }

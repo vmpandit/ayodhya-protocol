@@ -166,6 +166,12 @@
       background: rgba(0,0,0,0.6); transition: height 0.1s;
     }
 
+    /* Chapter overlay */
+    #chapterOverlay.visible {
+      opacity: 1 !important;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 60%, transparent 100%);
+    }
+
     /* Low HP pulse animation */
     @keyframes lowHpPulse {
       0%, 100% { opacity: 1; }
@@ -359,6 +365,8 @@
       <div class="cd-icon" id="cdShockwave"><span class="cd-key">E</span>💥<div class="cd-overlay" id="cdShockwaveOverlay"></div></div>
     </div>
 
+    <div id="ammoCount" style="position:fixed; bottom:140px; left:50%; transform:translateX(-50%); font-family:'Rajdhani',monospace; font-size:18px; color:#fff; text-shadow:0 0 6px rgba(255,165,0,0.6); z-index:50; pointer-events:none;">🏹 30/50</div>
+
     <div id="playerBars">
       <div class="bar-container"><div class="bar-label" id="hpLabel">100 / 100</div><div id="hpBar" style="width:100%"></div></div>
       <div class="bar-container"><div class="bar-label" id="staminaLabel">100 / 100</div><div id="staminaBar" style="width:100%"></div></div>
@@ -367,6 +375,12 @@
     <div id="notifications"></div>
     <div id="downedOverlay"><div id="downedText">DOWNED — Waiting for revive</div></div>
     <div id="gameOverScreen"><video class="bg-video" id="gameOverVideo" muted loop playsinline></video><div id="gameOverTitle"></div></div>
+
+    <div id="chapterOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; z-index:200; opacity:0; transition:opacity 0.8s ease;">
+      <div class="chapter-num" style="font-family:'Rajdhani',monospace; font-size:16px; letter-spacing:6px; text-transform:uppercase; color:#c89b3c; margin-bottom:8px;">Chapter 1</div>
+      <div class="chapter-title" style="font-family:'Cinzel',serif,'Rajdhani',monospace; font-size:42px; font-weight:bold; color:#ffd700; text-shadow:0 0 20px rgba(255,165,0,0.6), 0 2px 4px rgba(0,0,0,0.8); margin-bottom:12px;">The Forest of Lanka</div>
+      <div class="chapter-subtitle" style="font-family:'Rajdhani',monospace; font-size:18px; color:#ccaa66; font-style:italic; max-width:500px; text-align:center;">Rakshasa sentinels lurk among the ancient trees...</div>
+    </div>
   </div>
 
   <!-- TOUCH CONTROLS (mobile only) -->

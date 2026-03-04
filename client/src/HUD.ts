@@ -25,6 +25,8 @@ export class HUD {
   private arrowAlert: HTMLElement;
   private arrowSelector: HTMLElement;
   private arrowSlots: HTMLElement[] = [];
+  private ammoLabel: HTMLElement | null;
+  private chapterOverlay: HTMLElement | null;
 
   // ── Combo tracking ────────────────────────────────────────
   private comboCount = 0;
@@ -55,6 +57,8 @@ export class HUD {
     this.comboCountEl = document.getElementById('comboCount')!;
     this.arrowAlert = document.getElementById('arrowAlert')!;
     this.arrowSelector = document.getElementById('arrowSelector')!;
+    this.ammoLabel = document.getElementById('ammoCount');
+    this.chapterOverlay = document.getElementById('chapterOverlay');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
@@ -237,5 +241,28 @@ export class HUD {
         cdOverlay.style.height = `${(cooldowns[i] || 0) * 100}%`;
       }
     }
+  }
+
+  updateAmmo(current: number, max: number): void {
+    if (this.ammoLabel) {
+      this.ammoLabel.textContent = `🏹 ${current}/${max}`;
+      this.ammoLabel.style.color = current <= 5 ? '#ff4444' : current <= 15 ? '#ffaa00' : '#ffffff';
+    }
+  }
+
+  showChapterBanner(chapter: number, title: string, subtitle: string): void {
+    if (!this.chapterOverlay) return;
+    const chapterNum = this.chapterOverlay.querySelector('.chapter-num') as HTMLElement;
+    const chapterTitle = this.chapterOverlay.querySelector('.chapter-title') as HTMLElement;
+    const chapterSub = this.chapterOverlay.querySelector('.chapter-subtitle') as HTMLElement;
+
+    if (chapterNum) chapterNum.textContent = `Chapter ${chapter}`;
+    if (chapterTitle) chapterTitle.textContent = title;
+    if (chapterSub) chapterSub.textContent = subtitle;
+
+    this.chapterOverlay.classList.add('visible');
+    setTimeout(() => {
+      this.chapterOverlay?.classList.remove('visible');
+    }, 4000);
   }
 }

@@ -223,6 +223,25 @@ export class Game {
       this.audio.play(SFX.BowRelease); // audio cue for incoming arrow
     };
 
+    this.localSim.onPickupSpawned = (id, pos, arrows) => {
+      this.world.spawnPickup(id, pos, arrows);
+    };
+
+    this.localSim.onPickupCollected = (id) => {
+      this.world.removePickup(id);
+      this.audio.play(SFX.ArrowHit); // pickup sound
+    };
+
+    this.localSim.onChapterChange = (chapter, title, subtitle) => {
+      this.hud.showChapterBanner(chapter, title, subtitle);
+      this.audio.play(SFX.BossRoar); // dramatic chapter transition sound
+    };
+
+    // Show Chapter 1 intro after a brief delay
+    setTimeout(() => {
+      this.hud.showChapterBanner(1, "The Forest of Lanka", "Lord Rama enters the dark forests of Lanka. Rakshasa sentinels lurk among the ancient trees...");
+    }, 1500);
+
     this.hud.showNotification('SINGLE PLAYER MODE');
   }
 
@@ -328,6 +347,9 @@ export class Game {
     }
 
     this.world.updateProjectiles(dt);
+    if (this.localSim) {
+      this.world.updatePickups(dt);
+    }
 
     if (this.controller) {
       const localState = interpState?.players.find(p => p.id === this.localPlayerId);
@@ -373,6 +395,9 @@ export class Game {
     }
     this.hud.updateTeamBars(snap.players, this.localPlayerId);
     if (snap.boss && snap.boss.phase !== BossPhase.Idle) this.hud.updateBossBar(snap.boss);
+    if (this.localSim) {
+      this.hud.updateAmmo(this.localSim.arrowAmmo, this.localSim.maxArrowAmmo);
+    }
     if (this.controller) {
       this.hud.updateCooldowns(this.controller.getFireArrowCd(), this.controller.getShockwaveCd());
       // Update special arrow selector

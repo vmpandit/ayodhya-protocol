@@ -33,6 +33,7 @@ export class World {
   private enemyMeshes = new Map<number, TransformNode>();
   private bossMesh: TransformNode | null = null;
   private projectileMeshes = new Map<number, ProjectileMesh>();
+  private pickupMeshes = new Map<number, Mesh>();
   private damageNumbers: { mesh: Mesh; startTime: number; startY: number }[] = [];
   private treeInstances: InstancedMesh[] = [];
 
@@ -883,6 +884,35 @@ export class World {
     mesh.material = mat;
 
     this.projectileMeshes.set(proj.id, { mesh, vel: { ...proj.vel }, spawnTime: performance.now(), type: proj.type });
+  }
+
+  spawnPickup(id: number, pos: Vec3, arrows: number): void {
+    // Create a glowing golden arrow bundle on the ground
+    const mesh = MeshBuilder.CreateCylinder(`pickup_${id}`, { height: 0.4, diameter: 0.15, tessellation: 6 }, this.scene);
+    mesh.position.set(pos.x, 0.3, pos.z);
+    mesh.rotation.x = Math.PI / 2; // lay flat
+    mesh.rotation.z = Math.random() * Math.PI; // random rotation
+
+    const mat = new StandardMaterial(`pickupMat_${id}`, this.scene);
+    mat.emissiveColor = new Color3(1.0, 0.85, 0.2); // golden glow
+    mat.diffuseColor = new Color3(0.8, 0.6, 0.1);
+    mat.disableLighting = true;
+    mesh.material = mat;
+
+    this.pickupMeshes.set(id, mesh);
+  }
+
+  removePickup(id: number): void {
+    const mesh = this.pickupMeshes.get(id);
+    if (mesh) { mesh.dispose(); this.pickupMeshes.delete(id); }
+  }
+
+  updatePickups(dt: number): void {
+    const now = performance.now() / 1000;
+    for (const [id, mesh] of this.pickupMeshes) {
+      mesh.position.y = 0.3 + Math.sin(now * 3 + id) * 0.15; // gentle bob
+      mesh.rotation.y += dt * 2; // slow spin
+    }
   }
 
   updateProjectiles(dt: number): void {

@@ -136,10 +136,9 @@ export class World {
   }
 
   /**
-   * Load a sprite image and process it to remove white backgrounds.
-   * Checks if the sprite already has proper RGBA transparency (alpha < 255).
-   * If so, skips white-removal to preserve valid white pixels.
-   * Otherwise, pixels where R>230 && G>230 && B>230 are made fully transparent.
+   * Load a sprite image and process it for use as a billboard texture.
+   * For sprites with existing RGBA alpha, loads directly as Texture (preserves alpha).
+   * For sprites without alpha, uses canvas processing to remove white backgrounds.
    */
   private loadAndProcessSprite(imagePath: string): Promise<Texture> {
     return new Promise((resolve, reject) => {
@@ -172,30 +171,28 @@ export class World {
 
           // Only process white removal if no existing alpha channel
           if (!hasExistingAlpha) {
-            // Iterate through all pixels (RGBA format, 4 bytes per pixel)
             for (let i = 0; i < data.length; i += 4) {
               const r = data[i];
               const g = data[i + 1];
               const b = data[i + 2];
-
-              // If near-white (R>230 && G>230 && B>230), make transparent
               if (r > 230 && g > 230 && b > 230) {
-                data[i + 3] = 0; // Set alpha to 0
+                data[i + 3] = 0;
               }
             }
+            ctx.putImageData(imageData, 0, 0);
           }
 
-          ctx.putImageData(imageData, 0, 0);
-
-          // Create a DynamicTexture from the processed canvas
+          // Create DynamicTexture from the canvas (pass canvas directly to preserve dimensions)
           const dynamicTexture = new DynamicTexture(
             `sprite_${imagePath}`,
-            canvas.width,
-            this.scene
+            { width: canvas.width, height: canvas.height },
+            this.scene,
+            false, // no mipmaps
           );
+          dynamicTexture.hasAlpha = true;
           const ctx2 = dynamicTexture.getContext();
           ctx2.drawImage(canvas, 0, 0);
-          dynamicTexture.update();
+          dynamicTexture.update(false); // don't invert Y
 
           resolve(dynamicTexture);
         } catch (error) {
@@ -482,11 +479,14 @@ export class World {
       const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
       billboardPlane.parent = root;
       billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
-      // Sprites are 512x912 aspect ratio, scale accordingly
+      // Sprites are 512x912 aspect ratio (~0.56), scale: width=1.4, height=2.5
       billboardPlane.scaling.set(1.4, 2.5, 1);
+      // Offset Y so sprite bottom sits at feet (root position), not centered at feet
+      billboardPlane.position.y = 1.25;
 
       const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
-      billboardMat.emissiveTexture = this.playerSpriteTexture;
+      billboardMat.diffuseTexture = this.playerSpriteTexture;   // alpha source
+      billboardMat.emissiveTexture = this.playerSpriteTexture;  // color source
       billboardMat.useAlphaFromDiffuseTexture = true;
       billboardMat.disableLighting = true;
       billboardMat.backFaceCulling = false;
@@ -623,16 +623,15 @@ export class World {
       const spriteTexture = (id % 2 === 1) ? this.enemySpriteTextures.sprite1 : this.enemySpriteTextures.sprite2;
 
       if (spriteTexture) {
-        // Create a plane mesh with billboard mode Y (faces camera horizontally)
         const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
         billboardPlane.parent = root;
         billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
-        // Sprites are 512x912 aspect ratio, scale accordingly
         billboardPlane.scaling.set(1.4, 2.5, 1);
+        billboardPlane.position.y = 1.25; // offset so feet sit at root position
 
-        // Create material with processed sprite texture
         const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
-        billboardMat.emissiveTexture = spriteTexture;
+        billboardMat.diffuseTexture = spriteTexture;   // alpha source
+        billboardMat.emissiveTexture = spriteTexture;   // color source
         billboardMat.useAlphaFromDiffuseTexture = true;
         billboardMat.disableLighting = true;
         billboardMat.backFaceCulling = false;
@@ -744,11 +743,12 @@ export class World {
       const billboardPlane = MeshBuilder.CreatePlane('boss_billboard', { size: 1 }, this.scene);
       billboardPlane.parent = root;
       billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
-      // Scale larger for boss (about 4.0 units), adjust aspect ratio
       billboardPlane.scaling.set(2.2, 4.0, 1);
+      billboardPlane.position.y = 2.0; // offset so feet sit at root position
 
       const billboardMat = new StandardMaterial('boss_billboardMat', this.scene);
-      billboardMat.emissiveTexture = this.bossSpriteTexture;
+      billboardMat.diffuseTexture = this.bossSpriteTexture;   // alpha source
+      billboardMat.emissiveTexture = this.bossSpriteTexture;   // color source
       billboardMat.useAlphaFromDiffuseTexture = true;
       billboardMat.disableLighting = true;
       billboardMat.backFaceCulling = false;
@@ -887,7 +887,8 @@ export class World {
       vfxPlane.scaling.setAll(0.5);
 
       const vfxMat = new StandardMaterial(`projMat_${proj.id}`, this.scene);
-      vfxMat.emissiveTexture = vfxTexture;
+      vfxMat.diffuseTexture = vfxTexture;    // alpha source
+      vfxMat.emissiveTexture = vfxTexture;   // color source
       vfxMat.useAlphaFromDiffuseTexture = true;
       vfxMat.disableLighting = true;
       vfxMat.backFaceCulling = false;

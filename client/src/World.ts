@@ -82,6 +82,28 @@ export class World {
     this.buildAmbientParticles();
   }
 
+  /** Spawn terrain obstacles (rocks/pillars) in the world */
+  spawnObstacles(obstacles: { pos: Vec3; radius: number }[]): void {
+    for (let i = 0; i < obstacles.length; i++) {
+      const obstacle = obstacles[i];
+      const pillar = MeshBuilder.CreateCylinder(`obstacle_${i}`, {
+        height: 3 + Math.random() * 2,
+        diameter: obstacle.radius * 2,
+        tessellation: 8,
+      }, this.scene);
+      pillar.position = new Vector3(obstacle.pos.x, (3 + Math.random()) / 2, obstacle.pos.z);
+
+      const mat = new StandardMaterial(`obstacleMat_${i}`, this.scene);
+      mat.diffuseColor = new Color3(0.35, 0.3, 0.25); // dark stone
+      mat.specularColor = new Color3(0.1, 0.1, 0.1);
+      pillar.material = mat;
+
+      // Cast and receive shadows
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+      pillar.receiveShadows = true;
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   //  ENEMY SPRITE LOADING
   // ══════════════════════════════════════════════════════════════════════════
@@ -567,10 +589,13 @@ export class World {
     root.position.set(state.pos.x, state.pos.y, state.pos.z);
     root.rotation.y = state.yaw;
 
-    // Walking animation: bob and sway when moving (Patrol or Chase)
-    if (state.aiState === EnemyAIState.Patrol || state.aiState === EnemyAIState.Chase) {
+    // Walking animation: bob and sway when moving (Patrol, Chase, Strafe, Retreat, Flank)
+    const isMoving = state.aiState === EnemyAIState.Patrol || state.aiState === EnemyAIState.Chase ||
+                      state.aiState === EnemyAIState.Strafe || state.aiState === EnemyAIState.Retreat ||
+                      state.aiState === EnemyAIState.Flank;
+    if (isMoving) {
       const t = performance.now() / 1000;
-      const bobFreq = state.aiState === EnemyAIState.Chase ? 10 : 5;
+      const bobFreq = (state.aiState === EnemyAIState.Chase || state.aiState === EnemyAIState.Flank) ? 10 : 5;
       root.position.y += Math.sin(t * bobFreq + state.id) * 0.08;
       // Slight lateral tilt for walking feel
       root.rotation.z = Math.sin(t * bobFreq * 0.5 + state.id) * 0.04;

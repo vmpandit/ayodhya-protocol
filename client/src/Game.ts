@@ -48,6 +48,10 @@ export class Game {
   // ── Chapter 6 → 7 advance tracking ───────────────────────────────
   private chapter6ReadyToAdvance = false;
 
+  // ── Tutorial and backstory tracking ─────────────────────────────
+  private tutorialComplete = false;
+  private _backstoryKeyListener = false;
+
   private triggerHitStop(ms = 70): void {
     this.hitStopEnd = performance.now() + ms;
   }
@@ -183,6 +187,10 @@ export class Game {
     this.localPlayerId = this.localSim.playerId;
     this.world.addPlayerMesh(this.localPlayerId, true);
 
+    this.localSim.onObstaclesInit = (obstacles) => {
+      this.world.spawnObstacles(obstacles);
+    };
+
     this.localSim.onDamage = (targetType: DamageTargetType, targetId: number, damage: number) => {
       this.world.showDamageNumber(targetType, targetId, damage);
       if (targetType === DamageTargetType.Player && targetId === this.localPlayerId) {
@@ -299,19 +307,30 @@ export class Game {
       this.audio.play(SFX.UIStart);
     };
 
-    // Show Chapter 1 intro after a brief delay
-    setTimeout(() => {
-      this.hud.showChapterBanner(1, "The Forest of Lanka",
-        "Lord Rama enters the dark forests of Lanka. Every step is Dharma — duty to the innocent, to Sita, to the world's balance...");
-    }, 1500);
+    // ── Tutorial callbacks ────────────────────────────────────────
+    this.localSim.onTutorialStep = (step, allComplete) => {
+      this.hud.showTutorialStep(step, true);
+      if (allComplete) {
+        this.tutorialComplete = true;
+        setTimeout(() => {
+          this.hud.hideTutorialChecklist();
+          this.hud.showTutorialComplete();
+          // Start backstory after 2 seconds
+          setTimeout(() => {
+            if (this.localSim) {
+              this.localSim.startBackstory();
+            }
+          }, 2000);
+        }, 500);
+      }
+    };
 
-    // Chapter 1 opening Dharma dialogue
-    setTimeout(() => {
-      this.hud.showDialogueSequence([
-        { name: 'Rama', message: "Fourteen years of exile. Every trial was Dharma's forge — shaping the patience and resolve I would need for this moment." },
-        { name: 'Rama', message: "Ravana believes might is right. But the Vedas teach that true strength serves the helpless. I will show Lanka what Dharma looks like." },
-      ]);
-    }, 6000);
+    this.localSim.onBackstorySlide = (index, speaker, text, isLast) => {
+      this.hud.showBackstorySlide(speaker, text, isLast);
+    };
+
+    // Show tutorial checklist at start
+    this.hud.showTutorialChecklist();
 
     this.hud.showNotification('SINGLE PLAYER MODE');
   }
@@ -379,6 +398,17 @@ export class Game {
           }, 15000);
         }
       }
+    }
+
+    // ── Backstory advancement (Space key) ────────────────────────
+    if (!this._backstoryKeyListener && this.localSim) {
+      this._backstoryKeyListener = true;
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && this.localSim && this.localSim.backstoryInProgress) {
+          e.preventDefault();
+          this.localSim.advanceBackstory();
+        }
+      });
     }
 
     if (this.controller && this.localPlayerId >= 0) {

@@ -314,6 +314,55 @@
       color: #ff8888; border: 2px solid #ff8888; background: rgba(255,136,136,0.1);
     }
 
+    /* Tutorial checklist */
+    #tutorialChecklist {
+      position: absolute; top: 90px; right: 20px;
+      background: rgba(0,0,0,0.8); border: 1px solid rgba(212,160,23,0.4);
+      border-radius: 8px; padding: 14px 18px; min-width: 260px;
+      z-index: 50; pointer-events: none;
+      opacity: 0; transition: opacity 0.5s;
+    }
+    #tutorialChecklist.visible { opacity: 1; }
+    .tutorial-title {
+      color: #d4a017; font-size: 12px; letter-spacing: 3px; font-weight: bold;
+      margin-bottom: 10px; font-family: 'Rajdhani', monospace;
+    }
+    .tutorial-step {
+      color: #aaa; font-size: 13px; font-family: 'Rajdhani', monospace;
+      margin-bottom: 6px; transition: color 0.3s;
+    }
+    .tutorial-step.done {
+      color: #90ee90;
+    }
+    .tutorial-step.done .tut-check {
+      color: #90ee90;
+    }
+    .tut-check {
+      color: #555; margin-right: 8px;
+    }
+
+    /* Backstory overlay */
+    #backstoryOverlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.92); z-index: 300;
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      padding: 40px;
+    }
+    #backstoryOverlay.visible { display: flex; }
+    .backstory-speaker {
+      color: #d4a017; font-size: 14px; letter-spacing: 4px;
+      font-family: 'Rajdhani', monospace; margin-bottom: 20px;
+    }
+    .backstory-text {
+      color: #ddc88a; font-size: 20px; line-height: 1.7; max-width: 600px;
+      text-align: center; font-family: 'Rajdhani', monospace;
+    }
+    .backstory-continue {
+      color: #888; font-size: 14px; margin-top: 40px;
+      animation: meditPulse 2s ease-in-out infinite;
+      font-family: 'Rajdhani', monospace;
+    }
+
     /* Low HP pulse animation */
     @keyframes lowHpPulse {
       0%, 100% { opacity: 1; }
@@ -556,6 +605,25 @@
         <div class="lk-option lk-accept">[Y] Accept — "Together, as Dharma wills"</div>
         <div class="lk-option lk-decline">[N] Alone — "My Dharma, my burden" (+30% DMG)</div>
       </div>
+    </div>
+
+    <!-- Tutorial checklist -->
+    <div id="tutorialChecklist">
+      <div class="tutorial-title">TRAINING</div>
+      <div class="tutorial-step" data-step="move"><span class="tut-check">○</span> WASD — Move</div>
+      <div class="tutorial-step" data-step="look"><span class="tut-check">○</span> Mouse — Look Around</div>
+      <div class="tutorial-step" data-step="shoot"><span class="tut-check">○</span> Left Click / Q — Shoot Arrow</div>
+      <div class="tutorial-step" data-step="dodge"><span class="tut-check">○</span> C / Ctrl — Dodge Roll</div>
+      <div class="tutorial-step" data-step="sprint"><span class="tut-check">○</span> Shift — Sprint</div>
+      <div class="tutorial-step" data-step="specialArrow"><span class="tut-check">○</span> Right Click — Special Arrow</div>
+      <div class="tutorial-step" data-step="shockwave"><span class="tut-check">○</span> E — Shockwave</div>
+    </div>
+
+    <!-- Backstory overlay -->
+    <div id="backstoryOverlay">
+      <div class="backstory-speaker"></div>
+      <div class="backstory-text"></div>
+      <div class="backstory-continue">Press Space to continue</div>
     </div>
 
     <div id="chapterOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; z-index:200; opacity:0; transition:opacity 0.8s ease;">

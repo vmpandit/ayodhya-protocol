@@ -117,6 +117,9 @@ export const enum EnemyAIState {
   MeleeAttack = 2,
   RangedAttack = 3,
   Dead = 4,
+  Strafe = 5,    // Circle-strafe while attacking
+  Retreat = 6,   // Back away to optimal range
+  Flank = 7,     // Move to player's side/rear
 }
 
 export interface EnemyState {

@@ -38,6 +38,8 @@ export class HUD {
   private goalText: HTMLElement | null;
   private talkPrompt: HTMLElement | null;
   private dialogueChoicesContainer: HTMLElement | null;
+  private tutorialChecklist: HTMLElement | null;
+  private backstoryOverlay: HTMLElement | null;
 
   // ── Dialogue choice callback ──────────────────────────────
   public onChoiceSelected: (index: number) => void = () => {};
@@ -86,6 +88,8 @@ export class HUD {
     this.goalText = document.getElementById('goalText');
     this.talkPrompt = document.getElementById('talkPrompt');
     this.dialogueChoicesContainer = document.getElementById('dialogueChoices');
+    this.tutorialChecklist = document.getElementById('tutorialChecklist');
+    this.backstoryOverlay = document.getElementById('backstoryOverlay');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
@@ -509,6 +513,66 @@ export class HUD {
   hideTalkPrompt(): void {
     if (this.talkPrompt) {
       this.talkPrompt.classList.remove('visible');
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  TUTORIAL SYSTEM
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showTutorialChecklist(): void {
+    if (this.tutorialChecklist) {
+      this.tutorialChecklist.classList.add('visible');
+    }
+  }
+
+  hideTutorialChecklist(): void {
+    if (this.tutorialChecklist) {
+      this.tutorialChecklist.classList.remove('visible');
+    }
+  }
+
+  showTutorialStep(step: string, completed: boolean): void {
+    if (!this.tutorialChecklist) return;
+    const stepEl = this.tutorialChecklist.querySelector(`[data-step="${step}"]`);
+    if (stepEl) {
+      const checkMark = stepEl.querySelector('.tut-check') as HTMLElement;
+      if (checkMark) {
+        checkMark.textContent = completed ? '✓' : '○';
+      }
+      if (completed) {
+        stepEl.classList.add('done');
+      }
+    }
+  }
+
+  showTutorialComplete(): void {
+    this.showNotification('TUTORIAL COMPLETE — The story begins...');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  BACKSTORY CUTSCENE
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showBackstorySlide(speaker: string, text: string, isLast: boolean): void {
+    if (!this.backstoryOverlay) return;
+
+    const speakerEl = this.backstoryOverlay.querySelector('.backstory-speaker') as HTMLElement;
+    const textEl = this.backstoryOverlay.querySelector('.backstory-text') as HTMLElement;
+    const continueEl = this.backstoryOverlay.querySelector('.backstory-continue') as HTMLElement;
+
+    if (speakerEl) speakerEl.textContent = speaker;
+    if (textEl) textEl.textContent = text;
+    if (continueEl) {
+      continueEl.textContent = isLast ? 'Press Space to begin the battle' : 'Press Space to continue';
+    }
+
+    this.backstoryOverlay.classList.add('visible');
+  }
+
+  hideBackstory(): void {
+    if (this.backstoryOverlay) {
+      this.backstoryOverlay.classList.remove('visible');
     }
   }
 }

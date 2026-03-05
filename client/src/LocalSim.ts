@@ -30,6 +30,11 @@ interface LocalEnemy {
   patrolAngle: number;
   meleeCdEnd: number;
   rangedCdEnd: number;
+  respawnTime?: number;  // For tutorial dummies
+  originalMaxHp?: number;  // For tutorial dummies
+  behaviorTimer: number;    // Time until next behavior change
+  strafeDir: number;        // 1 = clockwise, -1 = counter-clockwise
+  preferredRange: number;   // Ideal combat distance (8-20)
 }
 
 interface LocalBoss {
@@ -94,8 +99,8 @@ export class LocalSim {
   private pickups: Pickup[] = [];
   private nextPickupId = 1;
 
-  // Chapter tracking (7 chapters)
-  public chapter = 1;
+  // Chapter tracking (0 = tutorial, 1-7 main chapters)
+  public chapter = 0;
   private chapterEnemiesKilled = 0;
   private chapterStarted = false;
 
@@ -123,6 +128,49 @@ export class LocalSim {
   // Lone Warrior buff (if Lakshman declined)
   public loneWarriorBuff = false;
 
+  // Tutorial system (Chapter 0)
+  private tutorialSteps: Record<string, boolean> = {
+    move: false,
+    look: false,
+    shoot: false,
+    dodge: false,
+    sprint: false,
+    specialArrow: false,
+    shockwave: false,
+  };
+  public tutorialComplete = false;
+  private previousYaw = 0;
+
+  // Backstory system
+  public backstoryInProgress = false;
+  private backstoryIndex = 0;
+  private readonly BACKSTORY_SLIDES: { speaker: string; text: string }[] = [
+    {
+      speaker: 'Narrator',
+      text: "In the ancient kingdom of Ayodhya, Prince Rama was the embodiment of Dharma — duty, truth, and righteousness. Heir to the throne, beloved by all, he was to be crowned king.",
+    },
+    {
+      speaker: 'Narrator',
+      text: "But fate, guided by a queen's jealous promise, sent Rama into fourteen years of forest exile. With him went his devoted wife Sita and his loyal brother Lakshman — choosing hardship over comfort, for Dharma demanded it.",
+    },
+    {
+      speaker: 'Narrator',
+      text: "In the forests, Rama protected the sages from demons and upheld the sacred order. But the Demon King Ravana, lord of golden Lanka, had other designs.",
+    },
+    {
+      speaker: 'Narrator',
+      text: "Through deception and dark sorcery, Ravana abducted Sita — tearing her from Rama's side. This act of Adharma would shake the three worlds.",
+    },
+    {
+      speaker: 'Narrator',
+      text: "Rama's grief was beyond words, but his resolve was forged in Dharma. He journeyed south, befriending the Vanara King Sugriv and the mighty Hanuman, building an army of the righteous.",
+    },
+    {
+      speaker: 'Narrator',
+      text: "Now, at the shores of Lanka, Rama stands ready. Not for vengeance — but for Dharma. To rescue Sita. To restore balance. To show that no power, however great, can endure when built upon Adharma. The battle for Lanka begins.",
+    },
+  ];
+
   // Chapter goals system
   public chapterGoals: Record<number, { description: string; revealed: boolean; completed: boolean }> = {
     1: { description: 'Defeat the forest sentinels guarding the path to Lanka', revealed: false, completed: false },
@@ -140,8 +188,21 @@ export class LocalSim {
   }
   private get loneWarrierBuff_internal(): boolean { return this.loneWarriorBuff; }
 
+  // Terrain obstacles
+  private obstacles: { pos: Vec3; radius: number }[] = [
+    { pos: { x: -15, y: 0, z: -15 }, radius: 2 },
+    { pos: { x: 10, y: 0, z: -30 }, radius: 2.5 },
+    { pos: { x: -25, y: 0, z: 5 }, radius: 2 },
+    { pos: { x: 30, y: 0, z: -5 }, radius: 3 },
+    { pos: { x: -5, y: 0, z: 25 }, radius: 2 },
+    { pos: { x: 20, y: 0, z: 35 }, radius: 2.5 },
+    { pos: { x: -35, y: 0, z: -25 }, radius: 2 },
+    { pos: { x: 0, y: 0, z: -40 }, radius: 2.5 },
+  ];
+
   // Callbacks
   public onDamage: (targetType: DamageTargetType, targetId: number, damage: number, sourceId: number) => void = () => {};
+  public onObstaclesInit: (obstacles: { pos: Vec3; radius: number }[]) => void = () => {};
   public onProjectileSpawn: (proj: ProjectileState) => void = () => {};
   public onGameOver: (won: boolean) => void = () => {};
   public onEnemySpecialArrow: (arrowName: string) => void = () => {};
@@ -158,6 +219,8 @@ export class LocalSim {
   /** Multi-line dialogue sequence for richer story moments */
   public onDialogueSequence: (lines: { name: string; message: string }[]) => void = () => {};
   public onGoalCompleted: (chapter: number, description: string) => void = () => {};
+  public onTutorialStep: (step: string, allComplete: boolean) => void = () => {};
+  public onBackstorySlide: (index: number, speaker: string, text: string, isLast: boolean) => void = () => {};
 
   constructor() {
     this.player = {
@@ -166,21 +229,28 @@ export class LocalSim {
       status: PlayerStatus.Alive, isDodging: false, lastProcessedSeq: 0,
     };
 
-    // Chapter 1: 4 enemies in the jungle
-    const chapter1Positions: Vec3[] = [
-      { x: -20, y: 0, z: -20 }, { x: 20, y: 0, z: -25 },
-      { x: -30, y: 0, z: 10 }, { x: 15, y: 0, z: 30 },
+    this.previousYaw = 0;
+
+    // Chapter 0 (Tutorial): Spawn 3 training dummies that don't attack
+    const tutorialDummyPositions: Vec3[] = [
+      { x: 5, y: 0, z: -8 },
+      { x: -6, y: 0, z: -12 },
+      { x: 8, y: 0, z: -15 },
     ];
-    for (const pos of chapter1Positions) {
+    for (const pos of tutorialDummyPositions) {
       const id = this.nextEnemyId++;
       this.enemies.push({
-        state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_HP, maxHp: C.ENEMY_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
+        state: { id, pos: { ...pos }, yaw: 0, hp: 30, maxHp: 30, aiState: EnemyAIState.Patrol, targetId: 0 },
         patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
         meleeCdEnd: 0, rangedCdEnd: 0,
+        originalMaxHp: 30,
+        behaviorTimer: 0,
+        strafeDir: Math.random() > 0.5 ? 1 : -1,
+        preferredRange: 10 + Math.random() * 10,
       });
     }
 
-    // Spawn Sage Agastya as story NPC in Chapter 1
+    // Spawn Sage Agastya as story NPC in Chapter 0 (tutorial guide)
     const sagePos: Vec3 = { x: -5, y: 0, z: -10 };
     this.storyNPCs.push({
       id: 'sage', name: 'Sage Agastya', pos: sagePos,
@@ -194,6 +264,9 @@ export class LocalSim {
       meleeCdEnd: 0, aoeCdEnd: 0, barrageCdEnd: 0,
       aoeEndTime: 0, barrageEndTime: 0, activated: false,
     };
+
+    // Initialize obstacles in the world
+    this.onObstaclesInit(this.obstacles);
   }
 
   get playerId(): number { return 1; }
@@ -372,6 +445,13 @@ export class LocalSim {
       return;
     }
 
+    // During backstory, block all movement/combat input
+    if (this.backstoryInProgress) {
+      this.player.vel = { x: 0, y: 0, z: 0 };
+      this.player.lastProcessedSeq = input.seq;
+      return;
+    }
+
     // During dialogue, block all movement/combat input
     if (this.dialogueInProgress) {
       this.player.vel = { x: 0, y: 0, z: 0 };
@@ -384,6 +464,36 @@ export class LocalSim {
     const flags = input.flags;
     const sinY = Math.sin(input.yaw);
     const cosY = Math.cos(input.yaw);
+
+    // ── Tutorial tracking (Chapter 0) ──────────────────────────────
+    if (this.chapter === 0 && !this.tutorialComplete) {
+      // Check movement
+      if (!this.tutorialSteps.move && (flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right))) {
+        this.tutorialSteps.move = true;
+        this.onTutorialStep('move', this.checkTutorialComplete());
+      }
+      // Check look (yaw change from initial)
+      if (!this.tutorialSteps.look && Math.abs(input.yaw - this.previousYaw) > 0.05) {
+        this.tutorialSteps.look = true;
+        this.onTutorialStep('look', this.checkTutorialComplete());
+      }
+      // Check shoot
+      if (!this.tutorialSteps.shoot && (flags & InputFlag.Shoot)) {
+        this.tutorialSteps.shoot = true;
+        this.onTutorialStep('shoot', this.checkTutorialComplete());
+      }
+      // Check dodge
+      if (!this.tutorialSteps.dodge && (flags & InputFlag.Dodge)) {
+        this.tutorialSteps.dodge = true;
+        this.onTutorialStep('dodge', this.checkTutorialComplete());
+      }
+      // Check sprint
+      if (!this.tutorialSteps.sprint && (flags & InputFlag.Sprint)) {
+        this.tutorialSteps.sprint = true;
+        this.onTutorialStep('sprint', this.checkTutorialComplete());
+      }
+    }
+    this.previousYaw = input.yaw;
 
     let moveX = 0, moveZ = 0;
     if (flags & InputFlag.Forward) { moveX -= sinY; moveZ -= cosY; }
@@ -420,6 +530,9 @@ export class LocalSim {
       this.player.pos.x += dodgeDir.x * input.dt;
       this.player.pos.z += dodgeDir.z * input.dt;
     }
+
+    // Push player out of obstacles
+    this.pushOutOfObstacles(this.player.pos);
 
     // Simple gravity
     this.playerVelY += C.GRAVITY * input.dt;
@@ -461,6 +574,18 @@ export class LocalSim {
     if (this.isMeditating) return;
 
     const mult = this.damageMultiplier;
+
+    // ── Tutorial tracking (Chapter 0) ──────────────────────────────
+    if (this.chapter === 0 && !this.tutorialComplete) {
+      if (ability === AbilityType.FireArrow && !this.tutorialSteps.specialArrow) {
+        this.tutorialSteps.specialArrow = true;
+        this.onTutorialStep('specialArrow', this.checkTutorialComplete());
+      }
+      if (ability === AbilityType.Shockwave && !this.tutorialSteps.shockwave) {
+        this.tutorialSteps.shockwave = true;
+        this.onTutorialStep('shockwave', this.checkTutorialComplete());
+      }
+    }
 
     if (ability === AbilityType.FireArrow && now >= this.fireArrowCd) {
       this.fireArrowCd = now + C.FIRE_ARROW_COOLDOWN_MS;
@@ -571,6 +696,18 @@ export class LocalSim {
       proj.state.vel.y -= 20 * 0.15 * dt;
       if (proj.state.pos.y < 0) { projToRemove.push(id); continue; }
 
+      // Check obstacle collision
+      for (const obs of this.obstacles) {
+        const dx = proj.state.pos.x - obs.pos.x;
+        const dz = proj.state.pos.z - obs.pos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < obs.radius) {
+          projToRemove.push(id);
+          break;
+        }
+      }
+      if (projToRemove.includes(id)) continue;
+
       // Player arrows hit enemies/boss
       if (proj.state.type === ProjectileType.Arrow || proj.state.type === ProjectileType.FireArrow ||
           proj.state.type === ProjectileType.VayuAstra || proj.state.type === ProjectileType.VarunaAstra ||
@@ -584,7 +721,12 @@ export class LocalSim {
               enemy.state.hp = 0;
               enemy.state.aiState = EnemyAIState.Dead;
               this.chapterEnemiesKilled++;
-              this.spawnPickup(enemy.state.pos);
+              // Tutorial dummies respawn after 3 seconds; others drop pickups
+              if (this.chapter === 0 && enemy.originalMaxHp === 30) {
+                enemy.respawnTime = now + 3000;
+              } else {
+                this.spawnPickup(enemy.state.pos);
+              }
               this.checkChapterProgress();
             }
             projToRemove.push(id); break;
@@ -615,8 +757,24 @@ export class LocalSim {
     }
     for (const id of projToRemove) this.projectiles.delete(id);
 
-    // Update enemies
+    // Update enemies (including tutorial dummy respawns)
     this.updateEnemies(dt, now);
+
+    // Handle tutorial dummy respawns
+    if (this.chapter === 0) {
+      for (const enemy of this.enemies) {
+        if (enemy.state.aiState === EnemyAIState.Dead && enemy.respawnTime !== undefined) {
+          if (now >= enemy.respawnTime) {
+            // Respawn the dummy
+            enemy.state.hp = enemy.originalMaxHp || 30;
+            enemy.state.maxHp = enemy.originalMaxHp || 30;
+            enemy.state.aiState = EnemyAIState.Patrol;
+            enemy.state.pos = { ...enemy.patrolOrigin };
+            delete enemy.respawnTime;
+          }
+        }
+      }
+    }
 
     // Collect pickups
     const pickupsToRemove: number[] = [];
@@ -744,14 +902,39 @@ export class LocalSim {
         state: { id, pos: { ...pos }, yaw: 0, hp: 70, maxHp: 70, aiState: EnemyAIState.Patrol, targetId: 0 },
         patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
         meleeCdEnd: 0, rangedCdEnd: 0,
+        behaviorTimer: 0,
+        strafeDir: Math.random() > 0.5 ? 1 : -1,
+        preferredRange: 10 + Math.random() * 10,
       });
     }
+  }
+
+  private pushOutOfObstacles(pos: Vec3): void {
+    for (const obs of this.obstacles) {
+      const dx = pos.x - obs.pos.x;
+      const dz = pos.z - obs.pos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < obs.radius + 0.5) { // 0.5 = entity radius
+        const pushDist = obs.radius + 0.5 - dist;
+        const nx = dx / (dist || 1);
+        const nz = dz / (dist || 1);
+        pos.x += nx * pushDist;
+        pos.z += nz * pushDist;
+      }
+    }
+    // Clamp to world bounds
+    const halfWorld = C.WORLD_SIZE / 2;
+    pos.x = Math.max(-halfWorld, Math.min(halfWorld, pos.x));
+    pos.z = Math.max(-halfWorld, Math.min(halfWorld, pos.z));
   }
 
   private updateEnemies(dt: number, now: number): void {
     for (const enemy of this.enemies) {
       if (enemy.state.aiState === EnemyAIState.Dead) continue;
       const nearestDist = dist3(enemy.state.pos, this.player.pos);
+
+      // Update behavior timer
+      enemy.behaviorTimer -= dt;
 
       if (enemy.state.aiState === EnemyAIState.Patrol) {
         enemy.patrolAngle += dt * 0.5;
@@ -763,54 +946,148 @@ export class LocalSim {
         enemy.state.pos.x += (dx / l) * C.ENEMY_PATROL_SPEED * dt;
         enemy.state.pos.z += (dz / l) * C.ENEMY_PATROL_SPEED * dt;
         enemy.state.yaw = Math.atan2(dx, dz);
-        if (this.player.status === PlayerStatus.Alive && nearestDist < C.ENEMY_AGGRO_RANGE) {
+        this.pushOutOfObstacles(enemy.state.pos);
+        // Tutorial dummies don't chase — stay in patrol forever
+        if (this.chapter !== 0 && this.player.status === PlayerStatus.Alive && nearestDist < C.ENEMY_AGGRO_RANGE) {
           enemy.state.aiState = EnemyAIState.Chase;
           enemy.state.targetId = 1;
+          enemy.behaviorTimer = 0;
         }
-      } else if (enemy.state.aiState === EnemyAIState.Chase) {
+      } else if (
+        enemy.state.aiState === EnemyAIState.Chase ||
+        enemy.state.aiState === EnemyAIState.Strafe ||
+        enemy.state.aiState === EnemyAIState.Retreat ||
+        enemy.state.aiState === EnemyAIState.Flank
+      ) {
+        // Deaggro if player is too far or dead
         if (this.player.status !== PlayerStatus.Alive || nearestDist > C.ENEMY_DEAGGRO_RANGE) {
-          enemy.state.aiState = EnemyAIState.Patrol; enemy.state.targetId = 0; continue;
+          enemy.state.aiState = EnemyAIState.Patrol;
+          enemy.state.targetId = 0;
+          continue;
         }
+
         const dx = this.player.pos.x - enemy.state.pos.x;
         const dz = this.player.pos.z - enemy.state.pos.z;
-        const l = Math.sqrt(dx * dx + dz * dz) || 1;
+        const d = Math.sqrt(dx * dx + dz * dz) || 1;
         enemy.state.yaw = Math.atan2(dx, dz);
+
+        // Roll new behavior when timer expires
+        if (enemy.behaviorTimer <= 0) {
+          if (d > enemy.preferredRange * 1.5) {
+            enemy.state.aiState = EnemyAIState.Chase;
+          } else if (d < enemy.preferredRange * 0.5) {
+            const roll = Math.random();
+            if (roll < 0.4) {
+              enemy.state.aiState = EnemyAIState.Retreat;
+            } else if (roll < 0.7) {
+              enemy.state.aiState = EnemyAIState.Strafe;
+            } else {
+              enemy.state.aiState = EnemyAIState.Chase;
+            }
+          } else {
+            // In optimal range
+            const roll = Math.random();
+            if (roll < 0.4) {
+              enemy.state.aiState = EnemyAIState.Strafe;
+            } else if (roll < 0.7) {
+              enemy.state.aiState = EnemyAIState.RangedAttack;
+            } else if (roll < 0.85) {
+              enemy.state.aiState = EnemyAIState.Flank;
+            } else {
+              enemy.state.aiState = EnemyAIState.Chase;
+            }
+          }
+          enemy.behaviorTimer = 1.5 + Math.random() * 2;
+          enemy.strafeDir = Math.random() > 0.5 ? 1 : -1;
+        }
+
+        // Execute current behavior
+        if (enemy.state.aiState === EnemyAIState.Chase) {
+          enemy.state.pos.x += (dx / d) * C.ENEMY_CHASE_SPEED * dt;
+          enemy.state.pos.z += (dz / d) * C.ENEMY_CHASE_SPEED * dt;
+        } else if (enemy.state.aiState === EnemyAIState.Strafe) {
+          // Perpendicular movement (rotated 90°)
+          const perpX = -dz / d * enemy.strafeDir;
+          const perpZ = dx / d * enemy.strafeDir;
+          enemy.state.pos.x += perpX * C.ENEMY_CHASE_SPEED * 0.8 * dt;
+          enemy.state.pos.z += perpZ * C.ENEMY_CHASE_SPEED * 0.8 * dt;
+          // Still fire when able
+          if (d <= C.ENEMY_RANGED_RANGE && now >= enemy.rangedCdEnd) {
+            const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
+            dir.y += 0.1;
+            if (Math.random() < 0.3) {
+              const specialArrowRoll = Math.random();
+              let specialType: ProjectileType;
+              let arrowName: string;
+              if (specialArrowRoll < 0.33) {
+                specialType = ProjectileType.EnemyAgniAstra;
+                arrowName = "Agni Astra";
+              } else if (specialArrowRoll < 0.66) {
+                specialType = ProjectileType.EnemyVayuAstra;
+                arrowName = "Vayu Astra";
+              } else {
+                specialType = ProjectileType.EnemyNagaAstra;
+                arrowName = "Naga Astra";
+              }
+              this.spawnProjectile(200 + enemy.state.id, specialType, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE, ENEMY_SPECIAL_ARROW_SPEED);
+              this.onEnemySpecialArrow(arrowName);
+            } else {
+              this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
+            }
+            enemy.rangedCdEnd = now + C.ENEMY_RANGED_COOLDOWN_MS;
+          }
+        } else if (enemy.state.aiState === EnemyAIState.Retreat) {
+          enemy.state.pos.x -= (dx / d) * C.ENEMY_CHASE_SPEED * 0.6 * dt;
+          enemy.state.pos.z -= (dz / d) * C.ENEMY_CHASE_SPEED * 0.6 * dt;
+          if (d >= enemy.preferredRange) {
+            enemy.state.aiState = EnemyAIState.Strafe;
+            enemy.behaviorTimer = 1.5 + Math.random() * 2;
+          }
+        } else if (enemy.state.aiState === EnemyAIState.Flank) {
+          const angle = Math.atan2(dx, dz) + (Math.PI / 4) * enemy.strafeDir;
+          enemy.state.pos.x += Math.sin(angle) * C.ENEMY_CHASE_SPEED * dt;
+          enemy.state.pos.z += Math.cos(angle) * C.ENEMY_CHASE_SPEED * dt;
+        } else if (enemy.state.aiState === EnemyAIState.RangedAttack) {
+          // Stay still and shoot
+          if (d <= C.ENEMY_RANGED_RANGE && now >= enemy.rangedCdEnd) {
+            const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
+            dir.y += 0.1;
+            if (Math.random() < 0.3) {
+              const specialArrowRoll = Math.random();
+              let specialType: ProjectileType;
+              let arrowName: string;
+              if (specialArrowRoll < 0.33) {
+                specialType = ProjectileType.EnemyAgniAstra;
+                arrowName = "Agni Astra";
+              } else if (specialArrowRoll < 0.66) {
+                specialType = ProjectileType.EnemyVayuAstra;
+                arrowName = "Vayu Astra";
+              } else {
+                specialType = ProjectileType.EnemyNagaAstra;
+                arrowName = "Naga Astra";
+              }
+              this.spawnProjectile(200 + enemy.state.id, specialType, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE, ENEMY_SPECIAL_ARROW_SPEED);
+              this.onEnemySpecialArrow(arrowName);
+            } else {
+              this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
+            }
+            enemy.rangedCdEnd = now + C.ENEMY_RANGED_COOLDOWN_MS;
+          }
+        }
+
+        this.pushOutOfObstacles(enemy.state.pos);
+
+        // Melee attack when in range
         if (nearestDist <= C.ENEMY_MELEE_RANGE) {
           if (now >= enemy.meleeCdEnd && !this.player.isDodging) {
             this.damagePlayer(C.ENEMY_MELEE_DAMAGE, 200 + enemy.state.id);
             enemy.meleeCdEnd = now + C.ENEMY_MELEE_COOLDOWN_MS;
-          }
-        } else if (nearestDist <= C.ENEMY_RANGED_RANGE && now >= enemy.rangedCdEnd) {
-          const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
-          dir.y += 0.1;
-
-          // 30% chance to fire special arrow instead of normal projectile
-          if (Math.random() < 0.3) {
-            const specialArrowRoll = Math.random();
-            let specialType: ProjectileType;
-            let arrowName: string;
-
-            if (specialArrowRoll < 0.33) {
-              specialType = ProjectileType.EnemyAgniAstra;
-              arrowName = "Agni Astra";
-            } else if (specialArrowRoll < 0.66) {
-              specialType = ProjectileType.EnemyVayuAstra;
-              arrowName = "Vayu Astra";
-            } else {
-              specialType = ProjectileType.EnemyNagaAstra;
-              arrowName = "Naga Astra";
+            // 20% chance to trigger retreat after melee
+            if (Math.random() < 0.2) {
+              enemy.state.aiState = EnemyAIState.Retreat;
+              enemy.behaviorTimer = 1.5 + Math.random() * 2;
             }
-
-            this.spawnProjectile(200 + enemy.state.id, specialType, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE, ENEMY_SPECIAL_ARROW_SPEED);
-            this.onEnemySpecialArrow(arrowName);
-          } else {
-            this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
           }
-
-          enemy.rangedCdEnd = now + C.ENEMY_RANGED_COOLDOWN_MS;
-        } else {
-          enemy.state.pos.x += (dx / l) * C.ENEMY_CHASE_SPEED * dt;
-          enemy.state.pos.z += (dz / l) * C.ENEMY_CHASE_SPEED * dt;
         }
       }
     }
@@ -931,6 +1208,9 @@ export class LocalSim {
           state: { id, pos: { ...pos }, yaw: 0, hp: 80, maxHp: 80, aiState: EnemyAIState.Patrol, targetId: 0 },
           patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
           meleeCdEnd: 0, rangedCdEnd: 0,
+          behaviorTimer: 0,
+          strafeDir: Math.random() > 0.5 ? 1 : -1,
+          preferredRange: 10 + Math.random() * 10,
         });
       }
     }
@@ -995,6 +1275,9 @@ export class LocalSim {
           state: { id, pos: { ...pos }, yaw: 0, hp: 90, maxHp: 90, aiState: EnemyAIState.Patrol, targetId: 0 },
           patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
           meleeCdEnd: 0, rangedCdEnd: 0,
+          behaviorTimer: 0,
+          strafeDir: Math.random() > 0.5 ? 1 : -1,
+          preferredRange: 10 + Math.random() * 10,
         });
       }
     }
@@ -1064,6 +1347,73 @@ export class LocalSim {
     // Auto-activate boss
     this.boss.state.phase = BossPhase.Phase1;
     this.boss.activated = true;
+  }
+
+  // ── Tutorial System ────────────────────────────────────────────
+  private checkTutorialComplete(): boolean {
+    const allComplete = Object.values(this.tutorialSteps).every(v => v);
+    if (allComplete && !this.tutorialComplete) {
+      this.tutorialComplete = true;
+    }
+    return this.tutorialComplete;
+  }
+
+  startBackstory(): void {
+    this.backstoryInProgress = true;
+    this.backstoryIndex = 0;
+    this.showBackstorySlide();
+  }
+
+  private showBackstorySlide(): void {
+    if (this.backstoryIndex >= this.BACKSTORY_SLIDES.length) {
+      this.endBackstory();
+      return;
+    }
+    const slide = this.BACKSTORY_SLIDES[this.backstoryIndex];
+    const isLast = this.backstoryIndex === this.BACKSTORY_SLIDES.length - 1;
+    this.onBackstorySlide(this.backstoryIndex, slide.speaker, slide.text, isLast);
+  }
+
+  advanceBackstory(): void {
+    if (!this.backstoryInProgress) return;
+    this.backstoryIndex++;
+    if (this.backstoryIndex >= this.BACKSTORY_SLIDES.length) {
+      this.endBackstory();
+      return;
+    }
+    this.showBackstorySlide();
+  }
+
+  endBackstory(): void {
+    this.backstoryInProgress = false;
+    this.chapter = 1;
+    this.chapterEnemiesKilled = 0;
+    this.spawnChapter1Enemies();
+    this.onChapterChange(1, "The Forest of Lanka",
+      "Lord Rama enters the dark forests of Lanka. Every step is Dharma — duty to the innocent, to Sita, to the world's balance...");
+  }
+
+  private spawnChapter1Enemies(): void {
+    // Clear tutorial dummies
+    this.enemies = [];
+    this.nextEnemyId = 1;
+
+    // Spawn Chapter 1 enemies
+    const chapter1Positions: Vec3[] = [
+      { x: -20, y: 0, z: -20 }, { x: 20, y: 0, z: -25 },
+      { x: -30, y: 0, z: 10 }, { x: 15, y: 0, z: 30 },
+    ];
+    for (const pos of chapter1Positions) {
+      const id = this.nextEnemyId++;
+      this.enemies.push({
+        state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_HP, maxHp: C.ENEMY_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
+        patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+        meleeCdEnd: 0, rangedCdEnd: 0,
+        behaviorTimer: 0,
+        strafeDir: Math.random() > 0.5 ? 1 : -1,
+        preferredRange: 10 + Math.random() * 10,
+      });
+    }
   }
 }
 

@@ -39,6 +39,8 @@ export class World {
   private meditationLight: PointLight | null = null;
   private meditationActive = false;
   private damageNumbers: { mesh: Mesh; startTime: number; startY: number }[] = [];
+  private trailParticles: { mesh: Mesh; age: number; maxAge: number }[] = [];
+  private trailSpawnAccum = 0;
   private treeInstances: InstancedMesh[] = [];
 
   /** Shared PBR material cache — keyed by a descriptive string */
@@ -537,6 +539,15 @@ export class World {
     root.position.set(state.pos.x, state.pos.y, state.pos.z);
     root.rotation.y = overrideYaw ?? state.yaw;
     root.rotation.x = state.status === PlayerStatus.Downed ? Math.PI / 2 * 0.8 : 0;
+
+    // Walking animation: bob when moving
+    const speed = Math.sqrt(state.vel.x * state.vel.x + state.vel.z * state.vel.z);
+    if (speed > 0.5 && state.status === PlayerStatus.Alive) {
+      const t = performance.now() / 1000;
+      const bobFreq = speed > 8 ? 12 : 7; // faster bob when sprinting
+      root.position.y += Math.sin(t * bobFreq) * 0.06;
+      root.rotation.z = Math.sin(t * bobFreq * 0.5) * 0.03;
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -555,6 +566,17 @@ export class World {
     root.setEnabled(true);
     root.position.set(state.pos.x, state.pos.y, state.pos.z);
     root.rotation.y = state.yaw;
+
+    // Walking animation: bob and sway when moving (Patrol or Chase)
+    if (state.aiState === EnemyAIState.Patrol || state.aiState === EnemyAIState.Chase) {
+      const t = performance.now() / 1000;
+      const bobFreq = state.aiState === EnemyAIState.Chase ? 10 : 5;
+      root.position.y += Math.sin(t * bobFreq + state.id) * 0.08;
+      // Slight lateral tilt for walking feel
+      root.rotation.z = Math.sin(t * bobFreq * 0.5 + state.id) * 0.04;
+    } else {
+      root.rotation.z = 0;
+    }
   }
 
   private _buildRakshasaParts(id: number): TransformNode {
@@ -923,14 +945,27 @@ export class World {
     const now = performance.now();
     const toRemove: number[] = [];
 
+    // Accumulate time for trail spawn throttling
+    this.trailSpawnAccum += dt;
+    const spawnTrail = this.trailSpawnAccum >= 0.03; // ~30 trail particles/sec
+    if (spawnTrail) this.trailSpawnAccum = 0;
+
     for (const [id, proj] of this.projectileMeshes) {
       proj.mesh.position.x += proj.vel.x * dt;
       proj.mesh.position.y += proj.vel.y * dt;
       proj.mesh.position.z += proj.vel.z * dt;
       proj.vel.y -= 20 * 0.15 * dt;
 
+      // Spawn fading trail particle
+      if (spawnTrail && now - proj.spawnTime < 3500) {
+        this.spawnTrailParticle(proj.mesh.position, proj.type);
+      }
+
       if (now - proj.spawnTime > 4000 || proj.mesh.position.y < -1) toRemove.push(id);
     }
+
+    // Fade and remove trail particles
+    this.updateTrailParticles(dt);
 
     for (const id of toRemove) {
       const proj = this.projectileMeshes.get(id);
@@ -946,6 +981,74 @@ export class World {
       else { dn.mesh.position.y = dn.startY + age * 2; dn.mesh.visibility = 1 - (age / 1.5); }
     }
     for (let i = dnToRemove.length - 1; i >= 0; i--) this.damageNumbers.splice(dnToRemove[i], 1);
+  }
+
+  // ── Trail particle system ─────────────────────────────────────────────
+  private getTrailColor(type: ProjectileType): [number, number, number] {
+    switch (type) {
+      case 0: return [0.8, 0.7, 0.3];     // Arrow — golden
+      case 1: return [1.0, 0.4, 0.1];     // FireArrow/Agni — orange fire
+      case 5: return [0.5, 0.85, 1.0];    // VayuAstra — cyan wind
+      case 6: return [0.2, 0.5, 1.0];     // VarunaAstra — blue water
+      case 7: return [0.3, 0.9, 0.2];     // NagaAstra — green serpent
+      case 8: return [1.0, 0.85, 0.3];    // BrahmaAstra — bright gold
+      case 3: return [0.8, 0.2, 0.1];     // EnemyProjectile — red
+      case 4: return [0.7, 0.1, 0.5];     // BossProjectile — purple
+      case 9: return [1.0, 0.3, 0.0];     // EnemyAgniAstra — orange-red
+      case 10: return [0.6, 0.7, 0.9];    // EnemyVayuAstra — pale blue
+      case 11: return [0.5, 0.9, 0.3];    // EnemyNagaAstra — lime green
+      default: return [1, 1, 1];
+    }
+  }
+
+  private spawnTrailParticle(pos: Vector3, type: ProjectileType): void {
+    // Limit total trail particles for performance
+    if (this.trailParticles.length > 150) return;
+
+    const [r, g, b] = this.getTrailColor(type);
+    const size = 0.08 + Math.random() * 0.06;
+    const trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
+    trail.position.set(
+      pos.x + (Math.random() - 0.5) * 0.1,
+      pos.y + (Math.random() - 0.5) * 0.1,
+      pos.z + (Math.random() - 0.5) * 0.1,
+    );
+    trail.billboardMode = Mesh.BILLBOARDMODE_ALL;
+
+    const mat = new StandardMaterial(`trailMat_${Math.random()}`, this.scene);
+    mat.emissiveColor = new Color3(r, g, b);
+    mat.disableLighting = true;
+    mat.alpha = 0.7;
+    trail.material = mat;
+
+    this.trailParticles.push({ mesh: trail, age: 0, maxAge: 0.25 + Math.random() * 0.15 });
+  }
+
+  private updateTrailParticles(dt: number): void {
+    const toRemove: number[] = [];
+    for (let i = 0; i < this.trailParticles.length; i++) {
+      const p = this.trailParticles[i];
+      p.age += dt;
+      const life = p.age / p.maxAge;
+      if (life >= 1) {
+        toRemove.push(i);
+        continue;
+      }
+      // Fade out and shrink
+      const alpha = 0.7 * (1 - life);
+      const scale = 1.0 - life * 0.5;
+      if (p.mesh.material instanceof StandardMaterial) {
+        p.mesh.material.alpha = alpha;
+      }
+      p.mesh.scaling.setAll(scale);
+    }
+    // Remove expired particles (iterate backward)
+    for (let i = toRemove.length - 1; i >= 0; i--) {
+      const idx = toRemove[i];
+      this.trailParticles[idx].mesh.material?.dispose();
+      this.trailParticles[idx].mesh.dispose();
+      this.trailParticles.splice(idx, 1);
+    }
   }
 
   showDamageNumber(targetType: DamageTargetType, targetId: number, damage: number): void {

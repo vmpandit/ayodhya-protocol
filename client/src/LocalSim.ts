@@ -265,8 +265,8 @@ export class LocalSim {
     let moveX = 0, moveZ = 0;
     if (flags & InputFlag.Forward) { moveX -= sinY; moveZ -= cosY; }
     if (flags & InputFlag.Backward) { moveX += sinY; moveZ += cosY; }
-    if (flags & InputFlag.Left) { moveX -= cosY; moveZ += sinY; }
-    if (flags & InputFlag.Right) { moveX += cosY; moveZ -= sinY; }
+    if (flags & InputFlag.Left) { moveX += cosY; moveZ -= sinY; }
+    if (flags & InputFlag.Right) { moveX -= cosY; moveZ += sinY; }
 
     const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
     if (len > 0) { moveX /= len; moveZ /= len; }
@@ -317,13 +317,13 @@ export class LocalSim {
     if (flags & InputFlag.Shoot && this.arrowAmmo > 0) {
       const baseDamage = C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * 0.6;
       const damage = baseDamage * this.damageMultiplier;
-      const dir: Vec3 = {
+      const dir: Vec3 = input.aimDir ?? {
         x: -Math.sin(input.yaw) * Math.cos(input.pitch),
         y: Math.sin(input.pitch),
         z: -Math.cos(input.yaw) * Math.cos(input.pitch),
       };
-      this.spawnProjectile(1, ProjectileType.Arrow, this.player.pos, dir, damage);
       this.arrowAmmo--;
+      this.spawnProjectile(1, ProjectileType.Arrow, this.player.pos, dir, damage);
     }
 
     // Stamina regen

@@ -52,6 +52,7 @@ export interface PlayerInput {
   pitch: number;
   chargeMs: number;
   dt: number;
+  aimDir?: Vec3;  // Direction from player toward target (accounts for soft-lock)
 }
 
 // ── Player state ──

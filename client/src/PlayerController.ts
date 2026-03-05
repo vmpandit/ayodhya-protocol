@@ -144,8 +144,16 @@ export class PlayerController {
       this.mouseScreenX = e.clientX;
       this.mouseScreenY = e.clientY;
 
-      // Right-click drag rotates camera
-      if (this.rightMouseDown) {
+      // Pointer-locked mode: mouse always rotates camera (standard FPS)
+      if (document.pointerLockElement === this.canvas) {
+        this.yaw -= e.movementX * 0.003;
+        this.pitch -= e.movementY * 0.003;
+        this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
+        // Keep crosshair centered when pointer locked
+        this.mouseScreenX = this.canvas.clientWidth / 2;
+        this.mouseScreenY = this.canvas.clientHeight / 2;
+      } else if (this.rightMouseDown) {
+        // Right-click drag rotates camera (fallback for non-locked mode)
         this.yaw -= e.movementX * 0.003;
         this.pitch -= e.movementY * 0.003;
         this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
@@ -155,8 +163,32 @@ export class PlayerController {
       }
     });
 
+    // Click canvas to lock pointer (standard FPS camera control)
+    this.canvas.addEventListener('click', () => {
+      if (!document.pointerLockElement) {
+        this.canvas.requestPointerLock();
+      }
+    });
+
+    // ESC exits pointer lock (handled by browser), track state
+    document.addEventListener('pointerlockchange', () => {
+      // Update crosshair visibility based on lock state
+      const crosshair = document.getElementById('crosshair');
+      if (crosshair) {
+        if (document.pointerLockElement === this.canvas) {
+          crosshair.style.left = '50%';
+          crosshair.style.top = '50%';
+        }
+      }
+    });
+
     this.canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) this.touchShootTapped = true; // Left-click = basic arrow
+      if (e.button === 0) {
+        // Only fire if pointer is already locked (otherwise the click was to lock)
+        if (document.pointerLockElement === this.canvas) {
+          this.touchShootTapped = true; // Left-click = basic arrow
+        }
+      }
       if (e.button === 2) this.rightMouseDown = true; // Right-click for special
     });
     this.canvas.addEventListener('mouseup', (e) => {
@@ -404,7 +436,7 @@ export class PlayerController {
     }
 
     this.lastInputFlags = flags;
-    const input: PlayerInput = { seq: ++this.seq, flags, yaw: this.yaw, pitch: this.pitch, chargeMs: 0, dt };
+    const input: PlayerInput = { seq: ++this.seq, flags, yaw: this.yaw, pitch: this.pitch, chargeMs: 0, dt, aimDir: this.getAimDirection() };
     this.pendingInputs.push(input);
     return input;
   }
@@ -424,8 +456,8 @@ export class PlayerController {
     } else {
       if (flags & InputFlag.Forward)  { targetX -= sinY; targetZ -= cosY; }
       if (flags & InputFlag.Backward) { targetX += sinY; targetZ += cosY; }
-      if (flags & InputFlag.Left)     { targetX -= cosY; targetZ += sinY; }
-      if (flags & InputFlag.Right)    { targetX += cosY; targetZ -= sinY; }
+      if (flags & InputFlag.Left)     { targetX += cosY; targetZ -= sinY; }
+      if (flags & InputFlag.Right)    { targetX -= cosY; targetZ += sinY; }
       const len = Math.sqrt(targetX * targetX + targetZ * targetZ);
       if (len > 0) { targetX /= len; targetZ /= len; }
     }
@@ -561,8 +593,9 @@ export class PlayerController {
     const isMoving = (flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right)) !== 0;
     const isFiring = this.rightMouseDown || (flags & InputFlag.Shoot) !== 0;
 
-    if (isFiring) {
-      // Snap toward aim direction while right-click held or firing
+    const isSprinting = (flags & InputFlag.Sprint) !== 0;
+    if (isFiring || isSprinting) {
+      // Snap toward aim direction while right-click held, firing, or sprinting
       this.visualYaw = lerpAngle(this.visualYaw, this.yaw, Math.min(1, dt * 18));
     } else if (isMoving) {
       // Face movement direction
@@ -576,8 +609,8 @@ export class PlayerController {
       } else {
         if (flags & InputFlag.Forward)  { tx -= sinY; tz -= cosY; }
         if (flags & InputFlag.Backward) { tx += sinY; tz += cosY; }
-        if (flags & InputFlag.Left)     { tx -= cosY; tz += sinY; }
-        if (flags & InputFlag.Right)    { tx += cosY; tz -= sinY; }
+        if (flags & InputFlag.Left)     { tx += cosY; tz -= sinY; }
+        if (flags & InputFlag.Right)    { tx -= cosY; tz += sinY; }
       }
 
       if (tx !== 0 || tz !== 0) {

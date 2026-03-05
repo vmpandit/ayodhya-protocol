@@ -32,6 +32,32 @@
     .team-hp { width: 120px; height: 10px; background: rgba(0,0,0,0.7); border-radius: 2px; overflow: hidden; }
     .team-hp-fill { height: 100%; background: #2ecc71; transition: width 0.15s; }
 
+    /* Goal widget */
+    #goalWidget {
+      position: absolute; top: 90px; left: 20px;
+      max-width: 300px; padding: 10px 14px;
+      background: rgba(0,0,0,0.7);
+      border-left: 3px solid #d4a017;
+      border-radius: 0 6px 6px 0;
+      pointer-events: none;
+      opacity: 0; transition: opacity 0.5s;
+      z-index: 50;
+    }
+    #goalWidget.visible { opacity: 1; }
+    #goalLabel {
+      font-family: 'Rajdhani', monospace; font-size: 10px;
+      color: #d4a017; letter-spacing: 3px; text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    #goalText {
+      font-family: 'Rajdhani', monospace; font-size: 13px;
+      color: #ddc88a; line-height: 1.4;
+    }
+    #goalText.completed {
+      text-decoration: line-through;
+      color: #90ee90;
+    }
+
     /* Boss bar */
     #bossBar { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 4px; }
     #bossBar.visible { display: flex; }
@@ -190,6 +216,39 @@
       font-family: 'Rajdhani', monospace; font-size: 15px;
       color: #ddc88a; line-height: 1.5;
     }
+
+    /* Dialogue choices */
+    #dialogueChoices {
+      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+      width: 500px; max-width: 90vw; padding: 16px 20px;
+      background: rgba(0,0,0,0.9); border: 2px solid #d4a017;
+      border-radius: 10px; z-index: 180; pointer-events: none;
+      opacity: 0; transition: opacity 0.4s ease;
+      margin-top: 200px;
+    }
+    #dialogueChoices.visible { opacity: 1; pointer-events: auto; }
+    .dialogue-choice {
+      background: rgba(212,160,23,0.1); border: 1px solid rgba(212,160,23,0.5);
+      border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;
+      color: #d4a017; font-family: 'Rajdhani', monospace; font-size: 13px;
+      cursor: pointer; transition: all 0.2s ease;
+    }
+    .dialogue-choice:hover {
+      background: rgba(212,160,23,0.25); border-color: #d4a017;
+      box-shadow: 0 0 8px rgba(212,160,23,0.3);
+    }
+    .dialogue-choice:last-child { margin-bottom: 0; }
+
+    /* Talk prompt */
+    #talkPrompt {
+      position: fixed; bottom: 20px; right: 20px;
+      background: rgba(0,0,0,0.8); border: 2px solid #d4a017;
+      color: #ffd700; padding: 10px 20px; border-radius: 6px;
+      font-size: 14px; font-family: 'Rajdhani', monospace;
+      display: none; z-index: 50; pointer-events: none;
+      text-shadow: 0 0 8px rgba(255,215,0,0.4);
+    }
+    #talkPrompt.visible { display: block; }
 
     /* Meditation bar */
     #meditationBar {
@@ -427,6 +486,11 @@
     <div id="comboDisplay"><div id="comboCount">0</div><div id="comboLabel">COMBO</div></div>
     <div id="teamBars"></div>
 
+    <div id="goalWidget">
+      <div id="goalLabel">CHAPTER GOAL</div>
+      <div id="goalText">???</div>
+    </div>
+
     <div id="bossBar">
       <div id="bossName">RAVANA PROTOCOL</div>
       <div id="bossHpContainer"><div id="bossHpFill" style="width:100%"></div></div>
@@ -464,6 +528,16 @@
       <div class="dialogue-name">Sugriv</div>
       <div class="dialogue-message"></div>
     </div>
+
+    <!-- Dialogue choices -->
+    <div id="dialogueChoices" style="display:none;">
+      <div class="dialogue-choice" data-index="0"></div>
+      <div class="dialogue-choice" data-index="1"></div>
+      <div class="dialogue-choice" data-index="2"></div>
+    </div>
+
+    <!-- Talk prompt ("Press F to Talk") -->
+    <div id="talkPrompt"></div>
 
     <!-- Meditation bar -->
     <div id="meditationBar">

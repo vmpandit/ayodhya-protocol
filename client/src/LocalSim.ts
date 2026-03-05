@@ -16,6 +16,7 @@ import {
   BRAHMA_ASTRA_DAMAGE, BRAHMA_ASTRA_COOLDOWN_MS,
   ENEMY_SPECIAL_ARROW_SPEED,
 } from '@shared/constants';
+import { DialogueNode, DialogueTree, DIALOGUE_TREES } from './DialogueTrees';
 
 interface LocalProjectile {
   state: ProjectileState;
@@ -58,12 +59,12 @@ export interface Companion {
   hpRegenBuff: number;  // HP/s regen buff to player
 }
 
-interface AllyNPC {
+interface StoryNPC {
   id: string;
   name: string;
   pos: Vec3;
-  met: boolean;
-  message: string;
+  dialogueTreeId: string;
+  spoken: boolean;
 }
 
 export class LocalSim {
@@ -101,8 +102,14 @@ export class LocalSim {
   // Companion system
   public companions: Companion[] = [];
 
-  // Ally NPCs (non-combatant story NPCs)
-  public allyNPCs: AllyNPC[] = [];
+  // Story NPCs (non-combatant NPCs with dialogue trees)
+  public storyNPCs: StoryNPC[] = [];
+
+  // Dialogue system
+  public dialogueInProgress = false;
+  private currentDialogueTree: DialogueTree | null = null;
+  private currentDialogueNodeId: string | null = null;
+  private nearbyNPCId: string | null = null;  // ID of NPC player is near (for "Press F to Talk")
 
   // Meditation system
   public isMeditating = false;
@@ -115,6 +122,17 @@ export class LocalSim {
 
   // Lone Warrior buff (if Lakshman declined)
   public loneWarriorBuff = false;
+
+  // Chapter goals system
+  public chapterGoals: Record<number, { description: string; revealed: boolean; completed: boolean }> = {
+    1: { description: 'Defeat the forest sentinels guarding the path to Lanka', revealed: false, completed: false },
+    2: { description: 'Eliminate the Demon Guard elite warriors', revealed: false, completed: false },
+    3: { description: 'Form the Vanara alliance with King Sugriv', revealed: false, completed: false },
+    4: { description: 'Prove worthy through Hanuman\'s trial of demon scouts', revealed: false, completed: false },
+    5: { description: 'Earn Angad\'s loyalty by defeating Lanka\'s elite warriors', revealed: false, completed: false },
+    6: { description: 'Learn Ravana\'s weakness from Vibhishana and prepare for battle', revealed: false, completed: false },
+    7: { description: 'Defeat the Demon King Ravana and restore Dharma', revealed: true, completed: false },
+  };
 
   // Damage multiplier (affected by Lone Warrior)
   public get damageMultiplier(): number {
@@ -134,9 +152,12 @@ export class LocalSim {
   public onCompanionJoined: (id: string, name: string, pos: Vec3) => void = () => {};
   public onMeditationStateChanged: (active: boolean) => void = () => {};
   public onLakshmanChoice: () => void = () => {};
-  public onAllyNPCSpawned: (id: string, name: string, pos: Vec3) => void = () => {};
+  public onNPCNearby: (id: string, name: string) => void = () => {};
+  public onDialogueNode: (node: DialogueNode, isEnd: boolean) => void = () => {};
+  public onGoalRevealed: (chapter: number, description: string) => void = () => {};
   /** Multi-line dialogue sequence for richer story moments */
   public onDialogueSequence: (lines: { name: string; message: string }[]) => void = () => {};
+  public onGoalCompleted: (chapter: number, description: string) => void = () => {};
 
   constructor() {
     this.player = {
@@ -159,6 +180,13 @@ export class LocalSim {
       });
     }
 
+    // Spawn Sage Agastya as story NPC in Chapter 1
+    const sagePos: Vec3 = { x: -5, y: 0, z: -10 };
+    this.storyNPCs.push({
+      id: 'sage', name: 'Sage Agastya', pos: sagePos,
+      dialogueTreeId: 'ch1_sage', spoken: false,
+    });
+
     // Spawn boss (stays idle until Chapter 7)
     const maxHp = C.BOSS_HP_BASE;
     this.boss = {
@@ -169,6 +197,23 @@ export class LocalSim {
   }
 
   get playerId(): number { return 1; }
+
+  // ── Goal System ─────────────────────────────────────────────────
+  revealGoal(chapter: number): void {
+    const goal = this.chapterGoals[chapter];
+    if (goal && !goal.revealed) {
+      goal.revealed = true;
+      this.onGoalRevealed(chapter, goal.description);
+    }
+  }
+
+  completeGoal(chapter: number): void {
+    const goal = this.chapterGoals[chapter];
+    if (goal) {
+      goal.completed = true;
+      this.onGoalCompleted(chapter, goal.description);
+    }
+  }
 
   // ── Meditation ────────────────────────────────────────────────
   startMeditation(): void {
@@ -184,6 +229,77 @@ export class LocalSim {
     this.isMeditating = false;
     this.meditationTimer = 0;
     this.onMeditationStateChanged(false);
+  }
+
+  // ── Dialogue System ──────────────────────────────────────────
+  startDialogue(treeId: string): void {
+    const tree = DIALOGUE_TREES[treeId];
+    if (!tree) {
+      console.warn(`[LocalSim] Dialogue tree not found: ${treeId}`);
+      return;
+    }
+    this.currentDialogueTree = tree;
+    this.currentDialogueNodeId = tree.startNodeId;
+    this.dialogueInProgress = true;
+
+    const node = tree.nodes[tree.startNodeId];
+    if (node) {
+      const isEnd = !node.choices || node.choices.length === 0;
+      this.onDialogueNode(node, isEnd);
+    }
+  }
+
+  selectChoice(index: number): void {
+    if (!this.currentDialogueTree || !this.currentDialogueNodeId) return;
+
+    const currentNode = this.currentDialogueTree.nodes[this.currentDialogueNodeId];
+    if (!currentNode || !currentNode.choices || index < 0 || index >= currentNode.choices.length) {
+      return;
+    }
+
+    const choice = currentNode.choices[index];
+
+    // If this choice reveals the goal, do it now
+    if (choice.revealsGoal) {
+      this.revealGoal(this.chapter);
+    }
+
+    // Move to the next node
+    const nextNode = this.currentDialogueTree.nodes[choice.nextNodeId];
+    if (nextNode) {
+      this.currentDialogueNodeId = choice.nextNodeId;
+      const isEnd = !nextNode.choices || nextNode.choices.length === 0;
+      this.onDialogueNode(nextNode, isEnd);
+
+      // Auto-end dialogue if this is the last node (no more choices)
+      if (isEnd) {
+        setTimeout(() => {
+          this.endDialogue();
+        }, 5000);
+      }
+    }
+  }
+
+  endDialogue(): void {
+    if (!this.dialogueInProgress) return;
+
+    // Mark the NPC as spoken to
+    if (this.nearbyNPCId) {
+      const npc = this.storyNPCs.find(n => n.id === this.nearbyNPCId);
+      if (npc) {
+        npc.spoken = true;
+      }
+    }
+
+    this.dialogueInProgress = false;
+    this.currentDialogueTree = null;
+    this.currentDialogueNodeId = null;
+    this.nearbyNPCId = null;
+  }
+
+  getNearbyNPC(): StoryNPC | null {
+    if (!this.nearbyNPCId) return null;
+    return this.storyNPCs.find(n => n.id === this.nearbyNPCId) || null;
   }
 
   // ── Lakshman Choice ──────────────────────────────────────────
@@ -251,6 +367,13 @@ export class LocalSim {
       if (input.flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right | InputFlag.Jump | InputFlag.Sprint | InputFlag.Dodge | InputFlag.Shoot)) {
         this.stopMeditation();
       }
+      this.player.vel = { x: 0, y: 0, z: 0 };
+      this.player.lastProcessedSeq = input.seq;
+      return;
+    }
+
+    // During dialogue, block all movement/combat input
+    if (this.dialogueInProgress) {
       this.player.vel = { x: 0, y: 0, z: 0 };
       this.player.lastProcessedSeq = input.seq;
       return;
@@ -427,12 +550,14 @@ export class LocalSim {
       }
     }
 
-    // ── Check ally NPC proximity ────────────────────────────────
-    for (const ally of this.allyNPCs) {
-      if (!ally.met && dist3(this.player.pos, ally.pos) < 5) {
-        ally.met = true;
-        this.onAllyMet(ally.id, ally.name, ally.message);
-        this.handleAllyMet(ally.id);
+    // ── Check story NPC proximity ────────────────────────────────
+    this.nearbyNPCId = null;
+    for (const npc of this.storyNPCs) {
+      const dist = dist3(this.player.pos, npc.pos);
+      if (!npc.spoken && dist < 5) {
+        // Set nearby NPC for "Press F to Talk" prompt
+        this.nearbyNPCId = npc.id;
+        this.onNPCNearby(npc.id, npc.name);
       }
     }
 
@@ -582,6 +707,9 @@ export class LocalSim {
 
   private handleAllyMet(allyId: string): void {
     if (allyId === 'sugriv') {
+      // Complete the goal of meeting Sugriv
+      this.completeGoal(3);
+
       // Sugriv Dharma dialogue sequence — then advance
       setTimeout(() => {
         this.onDialogueSequence([
@@ -753,7 +881,13 @@ export class LocalSim {
 
   private checkBossPhase(): void {
     const b = this.boss.state;
-    if (b.hp <= 0) { b.hp = 0; b.phase = BossPhase.Dead; this.onGameOver(true); return; }
+    if (b.hp <= 0) {
+      b.hp = 0;
+      b.phase = BossPhase.Dead;
+      this.completeGoal(7);
+      this.onGameOver(true);
+      return;
+    }
     const pct = b.hp / b.maxHp;
     if (pct <= C.BOSS_PHASE3_HP_PCT && b.phase !== BossPhase.Phase3Enrage) b.phase = BossPhase.Phase3Enrage;
     else if (pct <= C.BOSS_PHASE2_HP_PCT && b.phase === BossPhase.Phase1) b.phase = BossPhase.Phase2;
@@ -781,6 +915,7 @@ export class LocalSim {
   private checkChapterProgress(): void {
     // Chapter 1 → 2: 4 sentinels killed
     if (this.chapter === 1 && this.chapterEnemiesKilled >= 4) {
+      this.completeGoal(1);
       this.chapter = 2;
       this.chapterEnemiesKilled = 0;
       this.onChapterChange(2, "The Demon Guard", "Adharma breeds in darkness. Ravana's elite guard emerges — those who serve tyranny must face the light...");
@@ -801,22 +936,23 @@ export class LocalSim {
     }
     // Chapter 2 → 3 (Kishkindha — meet Sugriv): 4 elites killed
     else if (this.chapter === 2 && this.chapterEnemiesKilled >= 4) {
+      this.completeGoal(2);
       this.chapter = 3;
       this.chapterEnemiesKilled = 0;
       this.canMeditate = true;
       this.onChapterChange(3, "Kishkindha — The Vanara Alliance",
         "Dharma answered with Dharma. Sugriv, whose kingdom you once restored, now emerges to honor that sacred bond...");
 
-      // Spawn Sugriv as ally NPC
+      // Spawn Sugriv as story NPC with dialogue tree
       const sugrivPos: Vec3 = { x: 0, y: 0, z: -15 };
-      this.allyNPCs.push({
-        id: 'sugriv', name: 'Sugriv', pos: sugrivPos, met: false,
-        message: "Lord Rama! I am Sugriv, King of Kishkindha. You who upheld Dharma when you restored my throne — now I repay that bond. My warriors Hanuman and Angad shall aid your righteous cause against Ravana.",
+      this.storyNPCs.push({
+        id: 'sugriv', name: 'Sugriv', pos: sugrivPos,
+        dialogueTreeId: 'ch3_sugriv', spoken: false,
       });
-      this.onAllyNPCSpawned('sugriv', 'Sugriv', sugrivPos);
     }
     // Chapter 4 → 5 (Angad's Challenge): 5 scouts killed → Hanuman joins
     else if (this.chapter === 4 && this.chapterEnemiesKilled >= 5) {
+      this.completeGoal(4);
       this.chapter = 5;
       this.chapterEnemiesKilled = 0;
 
@@ -831,6 +967,13 @@ export class LocalSim {
 
       this.onChapterChange(5, "Angad's Challenge",
         "Hanuman, son of Vayu, joins your cause — devotion made flesh. Now prove worthy of Angad's loyalty...");
+
+      // Spawn Angad as story NPC in Chapter 5
+      const angadNpcPos: Vec3 = { x: this.player.pos.x + 5, y: 0, z: this.player.pos.z - 5 };
+      this.storyNPCs.push({
+        id: 'angad_npc', name: 'Angad', pos: angadNpcPos,
+        dialogueTreeId: 'ch5_angad', spoken: false,
+      });
 
       // Hanuman Dharma dialogue after chapter banner
       setTimeout(() => {
@@ -857,6 +1000,7 @@ export class LocalSim {
     }
     // Chapter 5 → 6 (Lakshman's Choice): 5 warriors killed → Angad joins, Lakshman choice
     else if (this.chapter === 5 && this.chapterEnemiesKilled >= 5) {
+      this.completeGoal(5);
       this.chapter = 6;
       this.chapterEnemiesKilled = 0;
       this.canMeditate = true;
@@ -881,6 +1025,13 @@ export class LocalSim {
         ]);
       }, 5000);
 
+      // Spawn Vibhishana as story NPC in Chapter 6
+      const vibhishanaPos: Vec3 = { x: 10, y: 0, z: -5 };
+      this.storyNPCs.push({
+        id: 'vibhishana', name: 'Vibhishana', pos: vibhishanaPos,
+        dialogueTreeId: 'ch6_vibhishana', spoken: false,
+      });
+
       // Trigger Lakshman choice after Angad's dialogue
       setTimeout(() => {
         this.lakshmanChoice = 'pending';
@@ -893,6 +1044,7 @@ export class LocalSim {
   advanceToChapter7(): void {
     if (this.chapter !== 6) return;
     if (this.lakshmanChoice === 'pending') return; // must choose first
+    this.completeGoal(6);
     this.chapter = 7;
     this.chapterEnemiesKilled = 0;
     this.canMeditate = false;

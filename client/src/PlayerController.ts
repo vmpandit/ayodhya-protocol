@@ -98,9 +98,10 @@ export class PlayerController {
   /** Last frame's input flags for visual yaw logic */
   private lastInputFlags = 0;
 
-  // ── Meditation & Lakshman choice ──
+  // ── Meditation & Lakshman choice & Talk ──
   private meditatePressed = false;
   public lakshmanKeyPressed: 'Y' | 'N' | null = null;
+  private talkPressed = false;
 
   constructor(canvas: HTMLCanvasElement, camera: FreeCamera) {
     this.canvas = canvas;
@@ -131,6 +132,7 @@ export class PlayerController {
       if (e.code === 'Digit4') this.selectSpecialArrow(3); // NagaAstra
       if (e.code === 'Digit5') this.selectSpecialArrow(4); // BrahmaAstra
       if (e.code === 'KeyM') this.meditatePressed = true;
+      if (e.code === 'KeyF') this.talkPressed = true;
       if (e.code === 'KeyY') this.lakshmanKeyPressed = 'Y';
       if (e.code === 'KeyN') this.lakshmanKeyPressed = 'N';
     });
@@ -435,6 +437,11 @@ export class PlayerController {
       this.meditatePressed = false;
     }
 
+    if (this.talkPressed) {
+      flags |= InputFlag.Talk;
+      this.talkPressed = false;
+    }
+
     this.lastInputFlags = flags;
     const input: PlayerInput = { seq: ++this.seq, flags, yaw: this.yaw, pitch: this.pitch, chargeMs: 0, dt, aimDir: this.getAimDirection() };
     this.pendingInputs.push(input);
@@ -629,5 +636,12 @@ export class PlayerController {
     const k = this.lakshmanKeyPressed;
     this.lakshmanKeyPressed = null;
     return k;
+  }
+
+  /** Consume Talk keypress. Returns true if F was just pressed. */
+  consumeTalkKey(): boolean {
+    const pressed = this.talkPressed;
+    this.talkPressed = false;
+    return pressed;
   }
 }

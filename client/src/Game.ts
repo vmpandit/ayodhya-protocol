@@ -241,16 +241,25 @@ export class Game {
     this.localSim.onChapterChange = (chapter, title, subtitle) => {
       this.hud.showChapterBanner(chapter, title, subtitle);
       this.audio.play(SFX.BossRoar); // dramatic chapter transition sound
+
+      // Update goal widget
+      const goal = this.localSim!.chapterGoals[chapter];
+      if (goal && goal.revealed) {
+        this.hud.showGoal(goal.description);
+      } else {
+        this.hud.showGoal('Find and speak with allies to learn your objective...');
+      }
     };
 
-    // ── New story callbacks ──────────────────────────────────────
+    // ── Dialogue system callbacks ──────────────────────────────────────
 
-    this.localSim.onAllyNPCSpawned = (id, name, pos) => {
-      this.world.spawnAllyNPC(id, name, pos);
+    this.localSim.onNPCNearby = (id, name) => {
+      this.hud.showTalkPrompt(name);
     };
 
-    this.localSim.onAllyMet = (id, name, message) => {
-      this.hud.showDialogue(name, message);
+    this.localSim.onDialogueNode = (node, isEnd) => {
+      // Show the dialogue node with speaker name and text
+      this.hud.showDialogueNode(node, isEnd);
       this.audio.play(SFX.BossRoar); // reuse for dramatic effect
     };
 
@@ -277,6 +286,17 @@ export class Game {
 
     this.localSim.onDialogueSequence = (lines) => {
       this.hud.showDialogueSequence(lines);
+    };
+
+    this.localSim.onGoalRevealed = (chapter, description) => {
+      this.hud.showGoalRevealed(description);
+      this.audio.play(SFX.UIStart);
+    };
+
+    this.localSim.onGoalCompleted = (chapter, description) => {
+      this.hud.completeGoal();
+      this.hud.addKillFeedEntry(`Goal Complete: ${description}`, '#90ee90');
+      this.audio.play(SFX.UIStart);
     };
 
     // Show Chapter 1 intro after a brief delay
@@ -307,7 +327,27 @@ export class Game {
     // ── HUD update (combo timer decay) ─────────────────────────
     this.hud.update(dt);
 
-    // ── Handle Lakshman choice ─────────────────────────────────
+    // ── Handle Talk input for dialogue ────────────────────────────
+    if (this.controller && this.localSim) {
+      const talkPressed = this.controller.consumeTalkKey();
+      if (talkPressed) {
+        const nearbyNpc = this.localSim.getNearbyNPC();
+        if (nearbyNpc && !nearbyNpc.spoken && !this.localSim.dialogueInProgress) {
+          // Start dialogue with this NPC
+          this.localSim.startDialogue(nearbyNpc.dialogueTreeId);
+          this.hud.hideTalkPrompt();
+        }
+      }
+    }
+
+    // ── Wire dialogue choice callback ──────────────────────────────
+    this.hud.onChoiceSelected = (index: number) => {
+      if (this.localSim) {
+        this.localSim.selectChoice(index);
+      }
+    };
+
+    // ── Handle Lakshman choice ─────────────────────────────────────
     if (this.lakshmanChoiceActive && this.controller && this.localSim) {
       const key = this.controller.consumeLakshmanKey();
       if (key === 'Y') {

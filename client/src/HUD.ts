@@ -3,6 +3,7 @@
 // Expanded: dialogue system, meditation bar, Lakshman choice, companion notifications.
 
 import { PlayerState, BossState, BossPhase, PlayerStatus, SpecialArrowType } from '@shared/types';
+import { DialogueNode, DialogueChoice } from './DialogueTrees';
 
 export class HUD {
   private hpBar: HTMLElement;
@@ -33,6 +34,13 @@ export class HUD {
   private meditationFill: HTMLElement | null;
   private meditationHint: HTMLElement | null;
   private lakshmanChoiceEl: HTMLElement | null;
+  private goalWidget: HTMLElement | null;
+  private goalText: HTMLElement | null;
+  private talkPrompt: HTMLElement | null;
+  private dialogueChoicesContainer: HTMLElement | null;
+
+  // ── Dialogue choice callback ──────────────────────────────
+  public onChoiceSelected: (index: number) => void = () => {};
 
   // ── Combo tracking ────────────────────────────────────────
   private comboCount = 0;
@@ -74,11 +82,34 @@ export class HUD {
     this.meditationFill = document.getElementById('meditationFill');
     this.meditationHint = document.getElementById('meditationHint');
     this.lakshmanChoiceEl = document.getElementById('lakshmanChoice');
+    this.goalWidget = document.getElementById('goalWidget');
+    this.goalText = document.getElementById('goalText');
+    this.talkPrompt = document.getElementById('talkPrompt');
+    this.dialogueChoicesContainer = document.getElementById('dialogueChoices');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
       const slot = document.getElementById(`arrowSlot${i}`);
       if (slot) this.arrowSlots.push(slot);
+    }
+
+    // Setup dialogue choice click handlers
+    if (this.dialogueChoicesContainer) {
+      const choiceButtons = this.dialogueChoicesContainer.querySelectorAll('.dialogue-choice');
+      choiceButtons.forEach((btn, index) => {
+        btn.addEventListener('click', () => {
+          this.onChoiceSelected(index);
+        });
+      });
+
+      // Setup keyboard handlers for choice selection (1/2/3 keys)
+      window.addEventListener('keydown', (e) => {
+        if (!this.dialogueChoicesContainer?.classList.contains('visible')) return;
+        const num = parseInt(e.key);
+        if (num >= 1 && num <= 3) {
+          this.onChoiceSelected(num - 1);
+        }
+      });
     }
   }
 
@@ -373,5 +404,111 @@ export class HUD {
   showCompanionJoined(name: string): void {
     this.addKillFeedEntry(`${name} has joined your quest!`, '#90ee90');
     this.showNotification(`${name.toUpperCase()} JOINS`);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  GOAL WIDGET
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showGoal(description: string): void {
+    if (this.goalText) this.goalText.textContent = description;
+    if (this.goalText) this.goalText.classList.remove('completed');
+    if (this.goalWidget) this.goalWidget.classList.add('visible');
+  }
+
+  completeGoal(): void {
+    if (this.goalText) this.goalText.classList.add('completed');
+    // Hide after 3 seconds
+    setTimeout(() => {
+      this.goalWidget?.classList.remove('visible');
+    }, 3000);
+  }
+
+  hideGoal(): void {
+    if (this.goalWidget) this.goalWidget.classList.remove('visible');
+  }
+
+  /** Show goal revealed with a notification animation */
+  showGoalRevealed(description: string): void {
+    this.showGoal(description);
+    // Also show a notification
+    this.showNotification('GOAL REVEALED');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  DIALOGUE CHOICE SYSTEM
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showDialogueNode(node: DialogueNode, isEnd: boolean): void {
+    if (!this.dialogueOverlay) return;
+
+    const nameEl = this.dialogueOverlay.querySelector('.dialogue-name') as HTMLElement;
+    const msgEl = this.dialogueOverlay.querySelector('.dialogue-message') as HTMLElement;
+
+    if (nameEl) nameEl.textContent = node.speaker;
+    if (msgEl) msgEl.textContent = node.text;
+
+    this.dialogueOverlay.classList.add('visible');
+
+    // Show choices if available
+    if (node.choices && node.choices.length > 0) {
+      this.showDialogueChoices(node.choices);
+    } else if (isEnd) {
+      // No choices — show "Press Space to continue" and auto-close after 5 seconds
+      if (msgEl) {
+        const hint = document.createElement('div');
+        hint.style.fontSize = '12px';
+        hint.style.marginTop = '10px';
+        hint.style.opacity = '0.7';
+        hint.textContent = '(Press Space to continue)';
+        msgEl.parentElement?.appendChild(hint);
+      }
+      setTimeout(() => {
+        this.hideDialogueChoices();
+        this.dialogueOverlay?.classList.remove('visible');
+      }, 5000);
+    }
+  }
+
+  private showDialogueChoices(choices: DialogueChoice[]): void {
+    if (!this.dialogueChoicesContainer) return;
+
+    // Clear previous choices
+    this.dialogueChoicesContainer.innerHTML = '';
+
+    // Create choice buttons
+    for (let i = 0; i < choices.length; i++) {
+      const choice = choices[i];
+      const btn = document.createElement('div');
+      btn.className = 'dialogue-choice';
+      btn.setAttribute('data-index', i.toString());
+      btn.innerHTML = `<span style="font-weight: bold;">${i + 1}.</span> ${choice.label}`;
+      this.dialogueChoicesContainer.appendChild(btn);
+
+      // Add click handler
+      btn.addEventListener('click', () => {
+        this.onChoiceSelected(i);
+      });
+    }
+
+    this.dialogueChoicesContainer.classList.add('visible');
+  }
+
+  hideDialogueChoices(): void {
+    if (this.dialogueChoicesContainer) {
+      this.dialogueChoicesContainer.classList.remove('visible');
+    }
+  }
+
+  showTalkPrompt(npcName: string): void {
+    if (!this.talkPrompt) return;
+    this.talkPrompt.textContent = `Press F to talk to ${npcName}`;
+    this.talkPrompt.classList.add('visible');
+  }
+
+  hideTalkPrompt(): void {
+    if (this.talkPrompt) {
+      this.talkPrompt.classList.remove('visible');
+    }
   }
 }

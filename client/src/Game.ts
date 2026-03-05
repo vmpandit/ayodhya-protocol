@@ -16,6 +16,7 @@ import { AudioManager, SFX } from './AudioManager';
 import { TextureLoader } from './TextureLoader';
 import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
+import { MapRenderer, WaypointType } from './MapRenderer';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -30,6 +31,7 @@ export class Game {
   private haptics!: HapticsManager;
   private perfManager!: PerformanceManager;
   private audio!: AudioManager;
+  private mapRenderer!: MapRenderer;
   private localPlayerId = -1;
   private lastSnapshot: GameSnapshot | null = null;
   private running = false;
@@ -51,6 +53,11 @@ export class Game {
   // ── Tutorial and backstory tracking ─────────────────────────────
   private tutorialComplete = false;
   private _backstoryKeyListener = false;
+
+  // ── Map / pause state ──────────────────────────────────────────
+  private mapOpen = false;
+  private gamePaused = false;
+  private gameStartTime = 0;
 
   private triggerHitStop(ms = 70): void {
     this.hitStopEnd = performance.now() + ms;
@@ -84,6 +91,11 @@ export class Game {
     this.haptics = new HapticsManager();
     this.perfManager = new PerformanceManager(this.renderer.scene);
     this.audio = new AudioManager();
+
+    // Initialize map renderer
+    const mapCanvas = document.getElementById('mapCanvas') as HTMLCanvasElement;
+    const miniMapCanvas = document.getElementById('miniMapCanvas') as HTMLCanvasElement;
+    this.mapRenderer = new MapRenderer(mapCanvas, miniMapCanvas);
 
     // Attach pipeline for dynamic quality scaling
     this.perfManager.attachPipeline(this.renderer.pipeline, this.renderer.shadowGenerator);
@@ -329,10 +341,126 @@ export class Game {
       this.hud.showBackstorySlide(speaker, text, isLast);
     };
 
+    // ── Map system callbacks ───────────────────────────────────────
+    this.localSim.onMapReveal = (cx, cz, radius, chapter, note) => {
+      this.mapRenderer.revealLargeArea(cx, cz, radius, chapter, note);
+      this.hud.showNotification('MAP UPDATED');
+    };
+
+    this.localSim.onMapWaypoint = (x, z, type, label, chapter) => {
+      this.mapRenderer.addWaypoint({ x, z, type: type as WaypointType, label, chapter, timestamp: Date.now() });
+    };
+
+    this.localSim.onEnemyDroppedMap = (_enemyId, cx, cz, radius) => {
+      this.mapRenderer.revealLargeArea(cx, cz, radius, this.localSim!.chapter, 'Map fragment recovered from fallen enemy');
+      this.hud.showNotification('MAP FRAGMENT FOUND');
+    };
+
+    // Initial waypoints — spawn point and tutorial area
+    this.mapRenderer.addWaypoint({
+      x: 0, z: 0, type: WaypointType.Landmark, label: 'Spawn — Training Grounds',
+      chapter: 0, timestamp: Date.now(),
+    });
+    this.mapRenderer.revealRegion(0, 0, 20, 0); // Reveal spawn area
+
+    // Setup minimap tap for mobile (opens full map)
+    const miniMapEl = document.getElementById('miniMapContainer');
+    if (miniMapEl) {
+      miniMapEl.addEventListener('click', () => this.toggleMap());
+      miniMapEl.addEventListener('touchend', () => this.toggleMap());
+    }
+
+    // Setup map panel buttons
+    document.getElementById('mapSaveBtn')?.addEventListener('click', () => this.saveGame());
+    document.getElementById('mapNewGameBtn')?.addEventListener('click', () => this.newGame());
+    document.getElementById('mapCloseBtn')?.addEventListener('click', () => this.toggleMap());
+    document.getElementById('mapLoadBtn')?.addEventListener('click', () => this.loadGame());
+
     // Show tutorial checklist at start
     this.hud.showTutorialChecklist();
 
     this.hud.showNotification('SINGLE PLAYER MODE');
+    this.gameStartTime = performance.now();
+  }
+
+  // ── Map toggle & pause system ──────────────────────────────────
+  private toggleMap(): void {
+    this.mapOpen = !this.mapOpen;
+    this.gamePaused = this.mapOpen;
+
+    const mapPanel = document.getElementById('mapPanel');
+    if (this.mapOpen) {
+      // Render full map
+      const mapCanvas = document.getElementById('mapCanvas') as HTMLCanvasElement;
+      mapCanvas.width = Math.min(800, window.innerWidth - 40);
+      mapCanvas.height = Math.min(600, window.innerHeight - 40);
+      this.mapRenderer.renderFullMap(this.localSim?.chapter ?? 0);
+
+      // Update stats display
+      const statsEl = document.getElementById('mapStats');
+      if (statsEl) {
+        this.mapRenderer.playTimeMs = performance.now() - this.gameStartTime;
+        const explored = this.mapRenderer.getRevealedPercentage().toFixed(1);
+        const waypoints = this.mapRenderer.getWaypointCount();
+        const chapter = this.localSim?.chapter ?? 0;
+        const time = this.mapRenderer.formatPlayTime();
+        statsEl.innerHTML = `Chapter: ${chapter} | Explored: ${explored}% | Waypoints: ${waypoints} | Time: ${time}`;
+      }
+
+      // Show save slot info
+      const saveInfoEl = document.getElementById('mapSaveInfo');
+      if (saveInfoEl) {
+        if (MapRenderer.hasSave()) {
+          const save = MapRenderer.loadFromLocalStorage();
+          if (save) {
+            const date = new Date(save.timestamp).toLocaleString();
+            saveInfoEl.textContent = `Saved: ${date} (Ch.${save.chapter})`;
+          }
+        } else {
+          saveInfoEl.textContent = 'No save found';
+        }
+      }
+
+      mapPanel?.classList.add('visible');
+
+      // Exit pointer lock when map opens
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    } else {
+      mapPanel?.classList.remove('visible');
+    }
+  }
+
+  private saveGame(): void {
+    if (!this.localSim) return;
+    const simState = this.localSim.getSaveState();
+    const saveData = this.mapRenderer.createSaveData(simState);
+    const ok = this.mapRenderer.saveToLocalStorage(saveData);
+    this.hud.showNotification(ok ? 'GAME SAVED' : 'SAVE FAILED');
+
+    // Update save info display
+    const saveInfoEl = document.getElementById('mapSaveInfo');
+    if (saveInfoEl && ok) {
+      const date = new Date(saveData.timestamp).toLocaleString();
+      saveInfoEl.textContent = `Saved: ${date} (Ch.${saveData.chapter})`;
+    }
+  }
+
+  private loadGame(): void {
+    const save = MapRenderer.loadFromLocalStorage();
+    if (!save) {
+      this.hud.showNotification('NO SAVE FOUND');
+      return;
+    }
+    // Reload the page to restart with save data
+    // The main.ts will check for save data on load
+    window.location.reload();
+  }
+
+  private newGame(): void {
+    MapRenderer.deleteSave();
+    window.location.reload();
   }
 
   private gameLoop(): void {
@@ -345,6 +473,27 @@ export class Game {
 
     // ── HUD update (combo timer decay) ─────────────────────────
     this.hud.update(dt);
+
+    // ── Handle Map toggle (M key) ────────────────────────────────
+    if (this.controller && this.controller.consumeMapToggle()) {
+      this.toggleMap();
+    }
+
+    // If game is paused (map open), skip sim + render minimap
+    if (this.gamePaused) {
+      // Still render the 3D scene (frozen)
+      this.renderer.scene.render();
+      return;
+    }
+
+    // ── Update minimap each frame ──────────────────────────────
+    if (this.localSim && this.frameIndex % 5 === 0) {
+      const p = this.lastSnapshot?.players.find(pl => pl.id === this.localPlayerId);
+      if (p) {
+        this.mapRenderer.updatePlayerPosition(p.pos, p.yaw);
+        this.mapRenderer.renderMinimap();
+      }
+    }
 
     // ── Handle Talk input for dialogue ────────────────────────────
     if (this.controller && this.localSim) {

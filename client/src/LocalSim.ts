@@ -221,6 +221,9 @@ export class LocalSim {
   public onGoalCompleted: (chapter: number, description: string) => void = () => {};
   public onTutorialStep: (step: string, allComplete: boolean) => void = () => {};
   public onBackstorySlide: (index: number, speaker: string, text: string, isLast: boolean) => void = () => {};
+  public onMapReveal: (cx: number, cz: number, radius: number, chapter: number, note?: string) => void = () => {};
+  public onMapWaypoint: (x: number, z: number, type: number, label: string, chapter: number) => void = () => {};
+  public onEnemyDroppedMap: (enemyId: number, cx: number, cz: number, radius: number) => void = () => {};
 
   constructor() {
     this.player = {
@@ -356,11 +359,14 @@ export class LocalSim {
   endDialogue(): void {
     if (!this.dialogueInProgress) return;
 
-    // Mark the NPC as spoken to
+    // Mark the NPC as spoken to and reveal map area
     if (this.nearbyNPCId) {
       const npc = this.storyNPCs.find(n => n.id === this.nearbyNPCId);
       if (npc) {
         npc.spoken = true;
+        // NPC reveals a large map area + waypoint
+        this.onMapWaypoint(npc.pos.x, npc.pos.z, 1, npc.name, this.chapter); // NPCLocation = 1
+        this.onMapReveal(npc.pos.x, npc.pos.z, 25, this.chapter, `${npc.name} shared knowledge of the surrounding lands`);
       }
     }
 
@@ -1187,6 +1193,15 @@ export class LocalSim {
     const pickup: Pickup = { id: pickupId, pos: { ...pos }, arrows };
     this.pickups.push(pickup);
     this.onPickupSpawned(pickupId, pickup.pos, pickup.arrows);
+
+    // 35% chance enemy drops a map fragment revealing nearby area
+    if (Math.random() < 0.35) {
+      const revealRadius = 15 + Math.random() * 15; // 15-30 world units
+      const cx = pos.x + (Math.random() - 0.5) * 20;
+      const cz = pos.z + (Math.random() - 0.5) * 20;
+      this.onEnemyDroppedMap(0, cx, cz, revealRadius);
+      this.onMapWaypoint(pos.x, pos.z, 2, 'Fallen Sentinel', this.chapter); // EnemyCamp = 2
+    }
   }
 
   private checkChapterProgress(): void {
@@ -1196,6 +1211,8 @@ export class LocalSim {
       this.chapter = 2;
       this.chapterEnemiesKilled = 0;
       this.onChapterChange(2, "The Demon Guard", "Adharma breeds in darkness. Ravana's elite guard emerges — those who serve tyranny must face the light...");
+      this.onMapWaypoint(0, 0, 6, 'Chapter 2 — Demon Guard', 2); // ChapterGate = 6
+      this.onMapReveal(0, -20, 25, 2, 'The Demon Guard patrols were mapped from battle');
 
       // Spawn 4 tougher enemies for chapter 2
       const chapter2Positions: Vec3[] = [
@@ -1222,6 +1239,8 @@ export class LocalSim {
       this.canMeditate = true;
       this.onChapterChange(3, "Kishkindha — The Vanara Alliance",
         "Dharma answered with Dharma. Sugriv, whose kingdom you once restored, now emerges to honor that sacred bond...");
+      this.onMapWaypoint(0, -15, 6, 'Chapter 3 — Kishkindha', 3);
+      this.onMapReveal(0, -15, 30, 3, 'Sugriv revealed paths through Kishkindha');
 
       // Spawn Sugriv as story NPC with dialogue tree
       const sugrivPos: Vec3 = { x: 0, y: 0, z: -15 };
@@ -1247,6 +1266,8 @@ export class LocalSim {
 
       this.onChapterChange(5, "Angad's Challenge",
         "Hanuman, son of Vayu, joins your cause — devotion made flesh. Now prove worthy of Angad's loyalty...");
+      this.onMapWaypoint(this.player.pos.x, this.player.pos.z, 7, 'Hanuman Joined', 5);
+      this.onMapReveal(this.player.pos.x, this.player.pos.z, 30, 5, 'Hanuman scouted the demon positions ahead');
 
       // Spawn Angad as story NPC in Chapter 5
       const angadNpcPos: Vec3 = { x: this.player.pos.x + 5, y: 0, z: this.player.pos.z - 5 };
@@ -1299,6 +1320,8 @@ export class LocalSim {
 
       this.onChapterChange(6, "Lakshman's Choice",
         "Angad, whose foot none could lift from Ravana's court, joins the righteous. Now a brother's bond is tested...");
+      this.onMapWaypoint(this.player.pos.x, this.player.pos.z, 7, 'Angad Joined', 6);
+      this.onMapReveal(this.player.pos.x, this.player.pos.z, 35, 6, 'Angad revealed Ravana\'s fortress layout');
 
       // Angad Dharma dialogue
       setTimeout(() => {
@@ -1335,6 +1358,9 @@ export class LocalSim {
 
     this.onChapterChange(7, "The Demon King Ravana",
       "The final test of Dharma. Ravana — scholar, devotee, king — fell to the deepest Adharma through pride alone. End this, not with hatred, but with duty...");
+    // Reveal the boss arena area on the map
+    this.onMapWaypoint(C.BOSS_ARENA_CENTER.x, C.BOSS_ARENA_CENTER.z, 3, 'Ravana — Boss Arena', 7);
+    this.onMapReveal(C.BOSS_ARENA_CENTER.x, C.BOSS_ARENA_CENTER.z, 30, 7, 'The gates of Lanka stand open — Ravana awaits');
 
     // Pre-battle Dharma dialogue
     setTimeout(() => {
@@ -1414,6 +1440,33 @@ export class LocalSim {
         preferredRange: 10 + Math.random() * 10,
       });
     }
+  }
+
+  // ── Save State Extraction (for MapRenderer save system) ──────────────────
+  getSaveState(): {
+    chapter: number;
+    playerHp: number; playerMaxHp: number; playerStamina: number;
+    playerPos: Vec3; arrowAmmo: number;
+    chapterGoals: Record<number, { description: string; revealed: boolean; completed: boolean }>;
+    companionIds: string[]; loneWarriorBuff: boolean;
+    lakshmanChoice: 'accepted' | 'declined' | null;
+    tutorialComplete: boolean;
+  } {
+    return {
+      chapter: this.chapter,
+      playerHp: this.player.hp,
+      playerMaxHp: this.player.maxHp,
+      playerStamina: this.player.stamina,
+      playerPos: { ...this.player.pos },
+      arrowAmmo: this.arrowAmmo,
+      chapterGoals: JSON.parse(JSON.stringify(this.chapterGoals)),
+      companionIds: this.companions.map(c => c.id),
+      loneWarriorBuff: this.loneWarriorBuff,
+      lakshmanChoice: this.lakshmanChoice === 'accepted' ? 'accepted'
+        : this.lakshmanChoice === 'declined' ? 'declined'
+        : null,
+      tutorialComplete: this.tutorialComplete,
+    };
   }
 }
 

@@ -111,17 +111,17 @@
     }
     #damageVignette.flash { animation: dmgFlash 0.55s ease-out forwards; }
 
-    /* FPS counter */
+    /* FPS counter — below minimap */
     #fpsCounter {
-      position: absolute; top: 20px; right: 20px;
+      position: absolute; top: 170px; right: 20px;
       color: #4eff4e; font-size: 12px; font-family: monospace;
       text-shadow: 0 0 4px rgba(0,0,0,0.8);
       pointer-events: none;
     }
 
-    /* Kill feed */
+    /* Kill feed — below FPS counter */
     #killFeed {
-      position: absolute; top: 60px; right: 20px;
+      position: absolute; top: 190px; right: 20px;
       display: flex; flex-direction: column; gap: 4px;
       pointer-events: none;
     }
@@ -316,7 +316,7 @@
 
     /* Tutorial checklist */
     #tutorialChecklist {
-      position: absolute; top: 90px; right: 20px;
+      position: absolute; top: 200px; right: 20px;
       background: rgba(0,0,0,0.8); border: 1px solid rgba(212,160,23,0.4);
       border-radius: 8px; padding: 14px 18px; min-width: 260px;
       z-index: 50; pointer-events: none;
@@ -361,6 +361,110 @@
       color: #888; font-size: 14px; margin-top: 40px;
       animation: meditPulse 2s ease-in-out infinite;
       font-family: 'Rajdhani', monospace;
+    }
+
+    /* ══════════════════════════════════════════════
+       MINIMAP
+       ══════════════════════════════════════════════ */
+    #miniMapContainer {
+      position: absolute; top: 20px; right: 20px;
+      width: 140px; height: 140px; border-radius: 50%;
+      background: rgba(0,0,0,0.5);
+      border: 2px solid #b8860b;
+      box-shadow: 0 0 12px rgba(184,134,11,0.3), inset 0 0 6px rgba(0,0,0,0.5);
+      z-index: 55; cursor: pointer;
+      overflow: hidden;
+    }
+    #miniMapCanvas {
+      width: 100%; height: 100%;
+      border-radius: 50%;
+    }
+    .minimap-label {
+      position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+      font-family: 'Rajdhani', monospace; font-size: 9px;
+      color: #b8860b; letter-spacing: 2px;
+      white-space: nowrap;
+    }
+
+    /* ══════════════════════════════════════════════
+       FULL MAP PANEL (overlay)
+       ══════════════════════════════════════════════ */
+    #mapPanel {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85); z-index: 500;
+      display: none; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px;
+    }
+    #mapPanel.visible { display: flex; }
+
+    #mapCanvasWrapper {
+      position: relative;
+      border: 3px solid #b8860b;
+      border-radius: 8px;
+      box-shadow: 0 0 30px rgba(184,134,11,0.2),
+                  0 0 60px rgba(0,0,0,0.5);
+      overflow: hidden;
+    }
+    #mapCanvas {
+      display: block;
+    }
+    #mapStats {
+      font-family: 'Rajdhani', monospace; font-size: 13px;
+      color: #b8860b; letter-spacing: 2px;
+    }
+    #mapSaveInfo {
+      font-family: 'Rajdhani', monospace; font-size: 11px;
+      color: #888; letter-spacing: 1px;
+    }
+    #mapButtons {
+      display: flex; gap: 12px; margin-top: 8px;
+    }
+    .map-btn {
+      padding: 10px 24px; font-family: 'Rajdhani', monospace;
+      font-size: 14px; font-weight: bold; letter-spacing: 2px;
+      border-radius: 6px; cursor: pointer;
+      text-transform: uppercase; transition: all 0.2s;
+      border: 2px solid; background: transparent;
+    }
+    .map-btn:active { transform: scale(0.95); }
+    #mapSaveBtn {
+      color: #90ee90; border-color: #90ee90;
+    }
+    #mapSaveBtn:hover {
+      background: rgba(144,238,144,0.15);
+      box-shadow: 0 0 12px rgba(144,238,144,0.2);
+    }
+    #mapLoadBtn {
+      color: #87ceeb; border-color: #87ceeb;
+    }
+    #mapLoadBtn:hover {
+      background: rgba(135,206,235,0.15);
+      box-shadow: 0 0 12px rgba(135,206,235,0.2);
+    }
+    #mapNewGameBtn {
+      color: #ff8888; border-color: #ff8888;
+    }
+    #mapNewGameBtn:hover {
+      background: rgba(255,136,136,0.15);
+      box-shadow: 0 0 12px rgba(255,136,136,0.2);
+    }
+    #mapCloseBtn {
+      color: #d4a017; border-color: #d4a017;
+    }
+    #mapCloseBtn:hover {
+      background: rgba(212,160,23,0.15);
+      box-shadow: 0 0 12px rgba(212,160,23,0.2);
+    }
+    #mapHint {
+      font-family: 'Rajdhani', monospace; font-size: 11px;
+      color: #666; letter-spacing: 1px;
+    }
+
+    /* Mobile map adjustments */
+    @media (max-width: 768px) {
+      #miniMapContainer { width: 100px; height: 100px; top: 10px; right: 10px; }
+      .map-btn { padding: 8px 16px; font-size: 12px; }
+      #mapButtons { flex-wrap: wrap; justify-content: center; }
     }
 
     /* Low HP pulse animation */
@@ -531,6 +635,13 @@
     <div id="chargeRing"></div>
 
     <div id="fpsCounter">60 FPS</div>
+
+    <!-- Minimap (top-right) -->
+    <div id="miniMapContainer">
+      <canvas id="miniMapCanvas" width="140" height="140"></canvas>
+      <span class="minimap-label">M — MAP</span>
+    </div>
+
     <div id="killFeed"></div>
     <div id="comboDisplay"><div id="comboCount">0</div><div id="comboLabel">COMBO</div></div>
     <div id="teamBars"></div>
@@ -595,7 +706,7 @@
     </div>
 
     <!-- Meditation hint -->
-    <div id="meditationHint">Press M to Meditate</div>
+    <div id="meditationHint">Press V to Meditate</div>
 
     <!-- Lakshman choice -->
     <div id="lakshmanChoice">
@@ -642,6 +753,22 @@
     <div class="touch-btn" id="btnSprint">⚡<span class="touch-btn-label">SPRINT</span></div>
     <div class="touch-btn" id="btnFire">🔥<span class="touch-btn-label">FIRE</span></div>
     <div class="touch-btn" id="btnShockwave">💥<span class="touch-btn-label">SHOCK</span></div>
+  </div>
+
+  <!-- FULL MAP PANEL (overlay, pauses game) -->
+  <div id="mapPanel">
+    <div id="mapCanvasWrapper">
+      <canvas id="mapCanvas" width="800" height="600"></canvas>
+    </div>
+    <div id="mapStats">Chapter: 0 | Explored: 0% | Waypoints: 0 | Time: 0m 0s</div>
+    <div id="mapSaveInfo">No save found</div>
+    <div id="mapButtons">
+      <button class="map-btn" id="mapSaveBtn">Save Game</button>
+      <button class="map-btn" id="mapLoadBtn">Load Game</button>
+      <button class="map-btn" id="mapNewGameBtn">New Game</button>
+      <button class="map-btn" id="mapCloseBtn">Close Map</button>
+    </div>
+    <div id="mapHint">Press M to close • Map updates as you explore, defeat enemies, and talk to NPCs</div>
   </div>
 
   <!-- HOW TO PLAY SCREEN -->

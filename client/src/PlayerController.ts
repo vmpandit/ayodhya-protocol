@@ -98,10 +98,11 @@ export class PlayerController {
   /** Last frame's input flags for visual yaw logic */
   private lastInputFlags = 0;
 
-  // ── Meditation & Lakshman choice & Talk ──
+  // ── Meditation & Lakshman choice & Talk & Map ──
   private meditatePressed = false;
   public lakshmanKeyPressed: 'Y' | 'N' | null = null;
   private talkPressed = false;
+  private mapTogglePressed = false;
 
   constructor(canvas: HTMLCanvasElement, camera: FreeCamera) {
     this.canvas = canvas;
@@ -131,8 +132,9 @@ export class PlayerController {
       if (e.code === 'Digit3') this.selectSpecialArrow(2); // VarunaAstra
       if (e.code === 'Digit4') this.selectSpecialArrow(3); // NagaAstra
       if (e.code === 'Digit5') this.selectSpecialArrow(4); // BrahmaAstra
-      if (e.code === 'KeyM') this.meditatePressed = true;
+      if (e.code === 'KeyV') this.meditatePressed = true;
       if (e.code === 'KeyF') this.talkPressed = true;
+      if (e.code === 'KeyM') this.mapTogglePressed = true;
       if (e.code === 'KeyY') this.lakshmanKeyPressed = 'Y';
       if (e.code === 'KeyN') this.lakshmanKeyPressed = 'N';
     });
@@ -642,6 +644,13 @@ export class PlayerController {
   consumeTalkKey(): boolean {
     const pressed = this.talkPressed;
     this.talkPressed = false;
+    return pressed;
+  }
+
+  /** Consume Map toggle keypress. Returns true if M was just pressed. */
+  consumeMapToggle(): boolean {
+    const pressed = this.mapTogglePressed;
+    this.mapTogglePressed = false;
     return pressed;
   }
 }

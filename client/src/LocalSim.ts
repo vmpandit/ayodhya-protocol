@@ -147,39 +147,43 @@ export class LocalSim {
   private readonly BACKSTORY_SLIDES: { speaker: string; text: string }[] = [
     {
       speaker: 'Narrator',
-      text: "In the ancient kingdom of Ayodhya, Prince Rama was the embodiment of Dharma — duty, truth, and righteousness. Heir to the throne, beloved by all, he was to be crowned king.",
+      text: "In the Treta Yuga, in the sacred city of Ayodhya on the banks of the Sarayu, Prince Rama was born — the seventh avatar of Vishnu. He was Dharma incarnate: protector of the righteous, refuge of the helpless, the perfect son of King Dasharatha.",
     },
     {
       speaker: 'Narrator',
-      text: "But fate, guided by a queen's jealous promise, sent Rama into fourteen years of forest exile. With him went his devoted wife Sita and his loyal brother Lakshman — choosing hardship over comfort, for Dharma demanded it.",
+      text: "On the eve of his coronation, Queen Kaikeyi — bound by two ancient boons — demanded Rama's exile for fourteen years and the throne for her son Bharata. Rama accepted without a tremor, for a son's duty to his father's word is sacred above all.",
     },
     {
       speaker: 'Narrator',
-      text: "In the forests, Rama protected the sages from demons and upheld the sacred order. But the Demon King Ravana, lord of golden Lanka, had other designs.",
+      text: "Into the Dandaka forest went Rama, with Sita his beloved and Lakshman his loyal brother. There, Sage Agastya gifted Rama celestial weapons — the Brahmastra, Agni Astra, and Vayu Astra — knowing the great trial that lay ahead.",
     },
     {
       speaker: 'Narrator',
-      text: "Through deception and dark sorcery, Ravana abducted Sita — tearing her from Rama's side. This act of Adharma would shake the three worlds.",
+      text: "Ravana, the ten-headed king of Lanka, was once the greatest scholar in three worlds — master of the Vedas, blessed by Brahma with near-immortality. But desire poisoned his wisdom. He sent the demon Maricha as a golden deer to lure Rama away, then stole Sita by force.",
     },
     {
       speaker: 'Narrator',
-      text: "Rama's grief was beyond words, but his resolve was forged in Dharma. He journeyed south, befriending the Vanara King Sugriv and the mighty Hanuman, building an army of the righteous.",
+      text: "The noble vulture Jatayu, friend of Dasharatha, fought Ravana in the sky to protect Sita — and fell, mortally wounded. With his dying breath, he told Rama: 'South. Ravana flew south.' Even in death, Dharma found its voice.",
     },
     {
       speaker: 'Narrator',
-      text: "Now, at the shores of Lanka, Rama stands ready. Not for vengeance — but for Dharma. To rescue Sita. To restore balance. To show that no power, however great, can endure when built upon Adharma. The battle for Lanka begins.",
+      text: "Rama journeyed south, restored the exiled Vanara king Sugriv to his throne, and earned the devotion of Hanuman — son of the Wind. Hanuman leapt across the ocean itself and found Sita in the Ashoka Vatika, steadfast in her faith.",
+    },
+    {
+      speaker: 'Narrator',
+      text: "Now the bridge of Nala and Nila spans the sea, inscribed with Rama's name — even the stones float for one who walks in Dharma. Lanka's golden towers gleam on the horizon. The final battle approaches — not for vengeance, but for the balance of all worlds.",
     },
   ];
 
   // Chapter goals system
   public chapterGoals: Record<number, { description: string; revealed: boolean; completed: boolean }> = {
-    1: { description: 'Defeat the forest sentinels guarding the path to Lanka', revealed: false, completed: false },
-    2: { description: 'Eliminate the Demon Guard elite warriors', revealed: false, completed: false },
-    3: { description: 'Form the Vanara alliance with King Sugriv', revealed: false, completed: false },
-    4: { description: 'Prove worthy through Hanuman\'s trial of demon scouts', revealed: false, completed: false },
-    5: { description: 'Earn Angad\'s loyalty by defeating Lanka\'s elite warriors', revealed: false, completed: false },
-    6: { description: 'Learn Ravana\'s weakness from Vibhishana and prepare for battle', revealed: false, completed: false },
-    7: { description: 'Defeat the Demon King Ravana and restore Dharma', revealed: true, completed: false },
+    1: { description: 'Clear the Dandaka forest of Rakshasa sentinels — the path Agastya has shown you', revealed: false, completed: false },
+    2: { description: 'Avenge Jatayu — destroy the Demon Guard who patrol where the noble vulture fell', revealed: false, completed: false },
+    3: { description: 'Forge the Vanara alliance with King Sugriv of Kishkindha', revealed: false, completed: false },
+    4: { description: 'Silence Ravana\'s demon scouts — clear the path to the sea crossing', revealed: false, completed: false },
+    5: { description: 'Prove worthy of the Vanara army — defeat Lanka\'s elite warriors', revealed: false, completed: false },
+    6: { description: 'Hear Vibhishana\'s secret and prepare for the final battle', revealed: false, completed: false },
+    7: { description: 'Strike the Amrita in Ravana\'s navel with the Brahmastra — restore Dharma to the three worlds', revealed: true, completed: false },
   };
 
   // Damage multiplier (affected by Lone Warrior)
@@ -877,8 +881,9 @@ export class LocalSim {
       // Sugriv Dharma dialogue sequence — then advance
       setTimeout(() => {
         this.onDialogueSequence([
-          { name: 'Sugriv', message: "Dharma binds those who protect the helpless. You stood for me when Vali's tyranny crushed Kishkindha — now the Vanara nation stands for you." },
-          { name: 'Sugriv', message: "Rest here, gather your strength. In stillness the warrior finds clarity. Meditate — let your purpose sharpen like the edge of an arrow. Press M to meditate." },
+          { name: 'Sugriv', message: "When Vali drove me from Kishkindha, I hid on Rishyamukha — the one mountain his curse forbade him from entering. I lived like a beggar king until you came. Your single arrow freed me and freed Dharma." },
+          { name: 'Sugriv', message: "I have sent search parties in all four directions — Angad leads the southern expedition. Hanuman has already crossed the sea and found Sita in the Ashoka Vatika. The Vanara armies are yours, Rama." },
+          { name: 'Sugriv', message: "Rest here, gather your strength. Nala and Nila will build the bridge to Lanka — stones inscribed with your name float upon the sea. Meditate while you can — press V to find inner clarity." },
         ]);
       }, 8500);
 
@@ -893,8 +898,24 @@ export class LocalSim {
     this.chapter = 4;
     this.chapterEnemiesKilled = 0;
     this.canMeditate = false;
-    this.onChapterChange(4, "Hanuman's Trial",
-      "The path of Dharma is never unguarded. Demon scouts rise to block the righteous — but no shadow endures before the sun...");
+    this.onChapterChange(4, "The March to the Sea",
+      "With Sugriv's Vanara armies at your command, the march south begins. Jambavan the immortal bear-king and Sampati the wingless vulture await — ancient witnesses who carry wisdom no warrior can. But Ravana's demon scouts infest the path...");
+
+    // Spawn Jambavan as story NPC in Chapter 4
+    const jambPos: Vec3 = { x: -20, y: 0, z: -30 };
+    this.storyNPCs.push({
+      id: 'jambavan', name: 'Jambavan', pos: jambPos,
+      dialogueTreeId: 'ch4_jambavan', spoken: false,
+    });
+
+    // Spawn Sampati as story NPC in Chapter 4
+    const sampatiPos: Vec3 = { x: 30, y: 0, z: 25 };
+    this.storyNPCs.push({
+      id: 'sampati', name: 'Sampati', pos: sampatiPos,
+      dialogueTreeId: 'ch4_sampati', spoken: false,
+    });
+    this.onMapWaypoint(jambPos.x, jambPos.z, 1, 'Jambavan', 4);
+    this.onMapWaypoint(sampatiPos.x, sampatiPos.z, 1, 'Sampati', 4);
 
     // Spawn 5 demon scouts (70 HP, faster)
     const ch4Positions: Vec3[] = [
@@ -1210,9 +1231,16 @@ export class LocalSim {
       this.completeGoal(1);
       this.chapter = 2;
       this.chapterEnemiesKilled = 0;
-      this.onChapterChange(2, "The Demon Guard", "Adharma breeds in darkness. Ravana's elite guard emerges — those who serve tyranny must face the light...");
-      this.onMapWaypoint(0, 0, 6, 'Chapter 2 — Demon Guard', 2); // ChapterGate = 6
+      this.onChapterChange(2, "Jatayu's Legacy", "Beyond the fallen sentinels lies the place where noble Jatayu gave his life defending Sita. Ravana's Demon Guard patrol these bloodied grounds — elite warriors who sold their honour for power. Avenge the vulture king...");
+      this.onMapWaypoint(0, 0, 6, 'Chapter 2 — Jatayu\'s Legacy', 2); // ChapterGate = 6
       this.onMapReveal(0, -20, 25, 2, 'The Demon Guard patrols were mapped from battle');
+
+      // Spawn Jatayu's Spirit as story NPC in Chapter 2
+      const jatayuPos: Vec3 = { x: -5, y: 0, z: -25 };
+      this.storyNPCs.push({
+        id: 'jatayu', name: 'Spirit of Jatayu', pos: jatayuPos,
+        dialogueTreeId: 'ch2_jatayu', spoken: false,
+      });
 
       // Spawn 4 tougher enemies for chapter 2
       const chapter2Positions: Vec3[] = [
@@ -1238,7 +1266,7 @@ export class LocalSim {
       this.chapterEnemiesKilled = 0;
       this.canMeditate = true;
       this.onChapterChange(3, "Kishkindha — The Vanara Alliance",
-        "Dharma answered with Dharma. Sugriv, whose kingdom you once restored, now emerges to honor that sacred bond...");
+        "You arrive at Rishyamukha, where Sugriv once hid from his brother Vali's wrath. It was here that Rama and Sugriv first met — two exiled kings bound by honour. The debt of Kishkindha is repaid in blood and brotherhood...");
       this.onMapWaypoint(0, -15, 6, 'Chapter 3 — Kishkindha', 3);
       this.onMapReveal(0, -15, 30, 3, 'Sugriv revealed paths through Kishkindha');
 
@@ -1264,8 +1292,8 @@ export class LocalSim {
       });
       this.onCompanionJoined('hanuman', 'Hanuman', hanumanPos);
 
-      this.onChapterChange(5, "Angad's Challenge",
-        "Hanuman, son of Vayu, joins your cause — devotion made flesh. Now prove worthy of Angad's loyalty...");
+      this.onChapterChange(5, "Angad's Embassy",
+        "Hanuman, who leapt across the ocean and set Lanka ablaze with his burning tail, now fights at your side. But first — Angad, son of the slain Vali, returns from Ravana's court. He planted his foot before the demon throne and none could move it. His loyalty to you transcends the grief of his father's death...");
       this.onMapWaypoint(this.player.pos.x, this.player.pos.z, 7, 'Hanuman Joined', 5);
       this.onMapReveal(this.player.pos.x, this.player.pos.z, 30, 5, 'Hanuman scouted the demon positions ahead');
 
@@ -1279,8 +1307,9 @@ export class LocalSim {
       // Hanuman Dharma dialogue after chapter banner
       setTimeout(() => {
         this.onDialogueSequence([
-          { name: 'Hanuman', message: "Lord Rama, I am but an instrument of your will. Where Dharma walks, I follow — for devotion to the righteous is the highest path." },
-          { name: 'Hanuman', message: "I who leapt across the ocean to find Mother Sita — no force of Ravana's can stay me. Let us deliver Lanka from this Adharma." },
+          { name: 'Hanuman', message: "Lord Rama, when I leapt across the ocean, Surasa the serpent-goddess and Simhika the shadow-demon tried to stop me — yet devotion to you carried me over every obstacle." },
+          { name: 'Hanuman', message: "In the Ashoka Vatika, I found Mother Sita beneath the Simsapa tree, guarded by Rakshasis. I gave her your signet ring and she wept with joy. She sent this — a jewel from her hair — so you would know she lives and waits." },
+          { name: 'Hanuman', message: "I set Lanka's golden rooftops ablaze with the very torch they tied to my tail. Let Ravana know: where Rama's devotee walks, even fire obeys Dharma." },
         ]);
       }, 5000);
 
@@ -1318,16 +1347,16 @@ export class LocalSim {
       });
       this.onCompanionJoined('angad', 'Angad', angadPos);
 
-      this.onChapterChange(6, "Lakshman's Choice",
-        "Angad, whose foot none could lift from Ravana's court, joins the righteous. Now a brother's bond is tested...");
+      this.onChapterChange(6, "The Defector of Lanka",
+        "Angad joins the righteous army. But now comes the most unexpected ally — Vibhishana, Ravana's own brother, who chose Dharma over blood. Three times he begged Ravana to return Sita. Three times he was refused. Banished from Lanka, he brings the secret that will end this war...");
       this.onMapWaypoint(this.player.pos.x, this.player.pos.z, 7, 'Angad Joined', 6);
       this.onMapReveal(this.player.pos.x, this.player.pos.z, 35, 6, 'Angad revealed Ravana\'s fortress layout');
 
       // Angad Dharma dialogue
       setTimeout(() => {
         this.onDialogueSequence([
-          { name: 'Angad', message: "I stood in Ravana's court and planted my foot as a challenge — not one demon could move it. Dharma anchors those who stand for truth." },
-          { name: 'Angad', message: "Ravana had every gift — knowledge, power, devotion to Shiva — yet his pride consumed them all. That is the price of Adharma." },
+          { name: 'Angad', message: "In Ravana's court, I planted my foot and declared: 'If any warrior in Lanka can lift it, Rama withdraws.' Indrajit tried. Kumbhakarna's sons tried. Even Ravana reached down. None could move me — Dharma held me rooted like Mount Meru." },
+          { name: 'Angad', message: "You killed my father Vali, Lord Rama. I wept. But my mother Tara taught me: your arrow struck not from malice but from Dharma. Vali had wronged Sugriv and broken the cosmic order. I serve you because I have seen what unchecked power becomes." },
         ]);
       }, 5000);
 
@@ -1356,8 +1385,8 @@ export class LocalSim {
     this.canMeditate = false;
     this.stopMeditation();
 
-    this.onChapterChange(7, "The Demon King Ravana",
-      "The final test of Dharma. Ravana — scholar, devotee, king — fell to the deepest Adharma through pride alone. End this, not with hatred, but with duty...");
+    this.onChapterChange(7, "The Fall of Ravana",
+      "Before you stands Lanka — the golden city that Ravana stole from his brother Kubera. Within those walls, ten-headed Ravana sits upon his throne of conquest, and Sita endures in the Ashoka Vatika. Vibhishana has revealed the secret: the Amrita in Ravana's navel sustains his ten heads. The Brahmastra must strike true. End the Adharma. Restore the balance of three worlds...");
     // Reveal the boss arena area on the map
     this.onMapWaypoint(C.BOSS_ARENA_CENTER.x, C.BOSS_ARENA_CENTER.z, 3, 'Ravana — Boss Arena', 7);
     this.onMapReveal(C.BOSS_ARENA_CENTER.x, C.BOSS_ARENA_CENTER.z, 30, 7, 'The gates of Lanka stand open — Ravana awaits');
@@ -1365,8 +1394,9 @@ export class LocalSim {
     // Pre-battle Dharma dialogue
     setTimeout(() => {
       this.onDialogueSequence([
-        { name: 'Rama', message: "I take no joy in this battle. Ravana was once great — learned in the Vedas, blessed by Brahma. But he chose to steal another's wife and crush the weak beneath his power." },
-        { name: 'Rama', message: "This is Dharma Yuddha — righteous war. I fight not for vengeance, but to restore the balance that Adharma has broken. May the world remember this." },
+        { name: 'Vibhishana', message: "Lord Rama, my brother sits within. Even now, Mandodari his queen weeps at his feet, begging him to return Sita. He will not listen. His pride has consumed the scholar he once was." },
+        { name: 'Rama', message: "Ravana mastered the four Vedas, performed penance that shook Kailasa, and received boons from Brahma and Shiva alike. All that tapasya, all that knowledge — undone by the theft of one innocent woman." },
+        { name: 'Rama', message: "This is Dharma Yuddha — righteous war. Remember Vibhishana's words: the Amrita in his navel sustains his ten heads. When the moment comes, the Brahmastra will find its mark. May even Ravana's soul find peace through this liberation." },
       ]);
     }, 5000);
 
@@ -1415,8 +1445,8 @@ export class LocalSim {
     this.chapter = 1;
     this.chapterEnemiesKilled = 0;
     this.spawnChapter1Enemies();
-    this.onChapterChange(1, "The Forest of Lanka",
-      "Lord Rama enters the dark forests of Lanka. Every step is Dharma — duty to the innocent, to Sita, to the world's balance...");
+    this.onChapterChange(1, "The Dandaka Forest",
+      "Lord Rama steps into the ancient Dandaka — the forest where Rishis performed tapasya under Rakshasa threat. The same woods where Agastya armed you, where Surpanakha's humiliation set Ravana's rage ablaze. Every shadow here remembers...");
   }
 
   private spawnChapter1Enemies(): void {

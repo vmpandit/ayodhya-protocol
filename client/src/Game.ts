@@ -677,32 +677,37 @@ export class Game {
         if (bp === BossPhase.Phase2) {
           this.haptics.play(HapticMotif.BossPhaseShift);
           this.audio.play(SFX.BossRoar);
-          this.hud.showNotification('BOSS PHASE II — ASCENDED');
+          this.hud.showNotification('RAVANA ASCENDS — PHASE II');
           // Ravana Dharma dialogue — Phase 2
           setTimeout(() => {
-            this.hud.showDialogue('Ravana',
-              "You think yourself righteous, Rama? I conquered the three worlds! The gods themselves trembled before my penance. Who are you to judge my Dharma?", 6000);
+            this.hud.showDialogueSequence([
+              { name: 'Ravana', message: "You think yourself righteous? I performed ten thousand years of tapasya! I lifted Mount Kailasa! Brahma himself granted me immortality against gods, gandharvas, and yakshas!" },
+              { name: 'Rama', message: "Yet you forgot to ask protection from men and vanaras, Ravana. Even Brahma's boon contains the seed of your undoing — planted by your own arrogance." },
+            ]);
           }, 2000);
         } else if (bp === BossPhase.Phase3Enrage) {
           this.haptics.play(HapticMotif.BossPhaseShift);
           this.audio.play(SFX.BossRoar);
-          this.hud.showNotification('BOSS ENRAGED');
+          this.hud.showNotification('RAVANA ENRAGED — THE TEN HEADS ROAR');
           // Ravana enrage Dharma dialogue
           setTimeout(() => {
             this.hud.showDialogueSequence([
-              { name: 'Ravana', message: "ENOUGH! I am Ravana — master of ten heads, conqueror of Indra! No mortal arrow can fell me!" },
-              { name: 'Rama', message: "Your knowledge was vast, Ravana. But knowledge without compassion is a weapon turned upon oneself. This is the fruit of your Adharma." },
+              { name: 'Ravana', message: "I who made Shiva weep when I played the Veena with my own sinews! I who imprisoned the nine planets! No exile prince and his monkey army can end what the gods could not!" },
+              { name: 'Vibhishana', message: "Now, Lord Rama! His navel — the Amrita! The Brahmastra is the only weapon that will not be deflected. End my brother's suffering!" },
+              { name: 'Rama', message: "Forgive me, Ravana. This arrow carries not hatred but the accumulated Dharma of those you wronged — Sita, Jatayu, the sages, your own brother. Be free." },
             ]);
           }, 2000);
         } else if (bp === BossPhase.Dead) {
           this.haptics.play(HapticMotif.BossDefeated);
           this.audio.play(SFX.BossDefeated);
-          // Victory Dharma dialogue
+          // Victory Dharma dialogue — faithful to Ramayana's aftermath
           setTimeout(() => {
             this.hud.showDialogueSequence([
-              { name: 'Rama', message: "It is done. Not with hatred did I loose this arrow, but with the weight of Dharma — duty to the innocent, to Sita, to the order of the world." },
-              { name: 'Rama', message: "Let it be known: Ravana fell not because he lacked strength, but because he abandoned Dharma. May even his soul find peace now." },
-              { name: 'Hanuman', message: "Jai Shri Ram! Dharma prevails. Lanka is free — and Mother Sita shall be reunited with her Lord." },
+              { name: 'Narrator', message: "The Brahmastra finds its mark. The Amrita spills from Ravana's navel, and one by one, his ten great heads fall still. The golden city trembles — not with destruction, but with the weight of Adharma finally lifting." },
+              { name: 'Rama', message: "Go in peace, Ravana. You were once the greatest devotee of Shiva, the finest scholar of the Vedas. Let this death free you from the prison your pride built." },
+              { name: 'Vibhishana', message: "My brother... he was not always this. He was kind once. He taught me the scriptures. Desire consumed him. Thank you, Lord Rama, for ending his suffering." },
+              { name: 'Rama', message: "Vibhishana, you are now King of Lanka. Rule with the Dharma your brother forgot. And let Mandodari know — her husband's soul is at peace." },
+              { name: 'Hanuman', message: "Jai Shri Ram! The Ashoka Vatika's doors are open — Mother Sita is free! The exile ends. Ayodhya awaits. Dharma prevails across the three worlds!" },
             ]);
           }, 3000);
         }

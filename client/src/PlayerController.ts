@@ -182,6 +182,16 @@ export class PlayerController {
         if (document.pointerLockElement === this.canvas) {
           crosshair.style.left = '50%';
           crosshair.style.top = '50%';
+          crosshair.style.opacity = '1';
+        } else {
+          // Pointer lock lost (ESC pressed or another reason)
+          crosshair.style.opacity = '0.5';
+          // Show a note: "Click to resume"
+          const note = document.getElementById('pointerLockNote');
+          if (note) {
+            note.style.display = 'block';
+            note.style.opacity = '1';
+          }
         }
       }
     });
@@ -193,7 +203,10 @@ export class PlayerController {
           this.touchShootTapped = true; // Left-click = basic arrow
         }
       }
-      if (e.button === 2) this.rightMouseDown = true; // Right-click for special
+      if (e.button === 2) {
+        // Right-click: do NOT request pointer lock, just set flag
+        this.rightMouseDown = true;
+      }
     });
     this.canvas.addEventListener('mouseup', (e) => {
       if (e.button === 2) {

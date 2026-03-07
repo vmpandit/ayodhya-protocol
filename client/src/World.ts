@@ -207,7 +207,7 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   private buildGround(): void {
-    const ground = MeshBuilder.CreateGround('ground', { width: C.WORLD_SIZE * 2, height: C.WORLD_SIZE * 2, subdivisions: 64 }, this.scene);
+    const ground = MeshBuilder.CreateGround('ground_main', { width: C.WORLD_SIZE * 2, height: C.WORLD_SIZE * 2, subdivisions: 64 }, this.scene);
     const mat = this.getMat('ground_jungle', 'groundMat', 0.12, 0.18, 0.08, 0, 0.95);
     // UV tiling for ground textures
     if (mat.albedoTexture) {
@@ -260,37 +260,92 @@ export class World {
   }
 
   private buildBossArena(): void {
+    // ── ELEVATED PLATFORM (main arena disc at y=2.5) ───────────────────────────
     const arena = MeshBuilder.CreateDisc('bossArena', { radius: C.BOSS_ARENA_RADIUS, tessellation: 48 }, this.scene);
     arena.rotation.x = Math.PI / 2;
-    arena.position.set(C.BOSS_ARENA_CENTER.x, 0.02, C.BOSS_ARENA_CENTER.z);
-    const mat = this.getMat('ground_arena', 'arenaMat', 0.15, 0.05, 0.05, 0.3, 0.7, 0.08, 0.01, 0.01);
-    // UV tiling for arena
-    if (mat.albedoTexture) {
-      (mat.albedoTexture as Texture).uScale = 4; (mat.albedoTexture as Texture).vScale = 4;
-      if (mat.bumpTexture) { (mat.bumpTexture as Texture).uScale = 4; (mat.bumpTexture as Texture).vScale = 4; }
-      if (mat.microSurfaceTexture) { (mat.microSurfaceTexture as Texture).uScale = 4; (mat.microSurfaceTexture as Texture).vScale = 4; }
-      if (mat.metallicTexture) { (mat.metallicTexture as Texture).uScale = 4; (mat.metallicTexture as Texture).vScale = 4; }
+    arena.position.set(C.BOSS_ARENA_CENTER.x, 2.5, C.BOSS_ARENA_CENTER.z);
+    const arenaMatProps = this.getMat('ground_arena', 'arenaMat', 0.1, 0.03, 0.08, 0.4, 0.7, 0.08, 0.01, 0.01);
+    if (arenaMatProps.albedoTexture) {
+      (arenaMatProps.albedoTexture as Texture).uScale = 4; (arenaMatProps.albedoTexture as Texture).vScale = 4;
+      if (arenaMatProps.bumpTexture) { (arenaMatProps.bumpTexture as Texture).uScale = 4; (arenaMatProps.bumpTexture as Texture).vScale = 4; }
+      if (arenaMatProps.microSurfaceTexture) { (arenaMatProps.microSurfaceTexture as Texture).uScale = 4; (arenaMatProps.microSurfaceTexture as Texture).vScale = 4; }
+      if (arenaMatProps.metallicTexture) { (arenaMatProps.metallicTexture as Texture).uScale = 4; (arenaMatProps.metallicTexture as Texture).vScale = 4; }
     }
-    arena.material = mat;
+    arena.material = arenaMatProps;
+    this.renderer.shadowGenerator.addShadowCaster(arena);
 
-    // Arena point light — purple dread glow from the centre
+    // ── STAIRS/RAMP (5 box steps leading up from south side) ────────────────────
+    for (let i = 0; i < 5; i++) {
+      const y = 0.5 + i * 0.5;
+      const z = C.BOSS_ARENA_CENTER.z + (25 - i * 0.8);
+      const step = MeshBuilder.CreateBox(`stair_${i}`, { width: 4, height: 1, depth: 1 }, this.scene);
+      step.position.set(C.BOSS_ARENA_CENTER.x, y, z);
+      const stepMat = this.getMat('stairs_stone', `stairMat_${i}`, 0.25, 0.2, 0.15, 0.2, 0.65);
+      step.material = stepMat;
+      this.renderer.shadowGenerator.addShadowCaster(step);
+    }
+
+    // ── FORTRESS WALLS (12 segments in a circle with gaps at cardinal directions) ────
+    const wallRadius = 22;
+    const wallCount = 12;
+    const gapAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]; // N, E, S, W
+    const isGap = (angle: number): boolean => {
+      const angleDeg = (angle * 180) / Math.PI;
+      return gapAngles.some(g => Math.abs(((g * 180) / Math.PI) - angleDeg) < 15);
+    };
+
+    for (let i = 0; i < wallCount; i++) {
+      const angle = (Math.PI * 2 / wallCount) * i;
+      if (isGap(angle)) continue; // Skip gaps
+
+      const x = C.BOSS_ARENA_CENTER.x + Math.cos(angle) * wallRadius;
+      const z = C.BOSS_ARENA_CENTER.z + Math.sin(angle) * wallRadius;
+      const wall = MeshBuilder.CreateBox(`wall_${i}`, { width: 3, height: 8, depth: 0.8 }, this.scene);
+      wall.position.set(x, 4, z);
+      wall.rotation.y = angle;
+      const wallMat = this.getMat('wall_stone', `wallMat_${i}`, 0.2, 0.15, 0.1, 0.3, 0.6);
+      wall.material = wallMat;
+      this.renderer.shadowGenerator.addShadowCaster(wall);
+    }
+
+    // ── 4 TOWERS (at diagonal positions: NE, NW, SE, SW) ───────────────────────
+    const diagonalAngles = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
+    const towerGoldMat = this.getMat('tower_gold', 'towerGoldMat', 0.7, 0.55, 0.1, 0.8, 0.2);
+    for (let i = 0; i < diagonalAngles.length; i++) {
+      const angle = diagonalAngles[i];
+      const x = C.BOSS_ARENA_CENTER.x + Math.cos(angle) * wallRadius;
+      const z = C.BOSS_ARENA_CENTER.z + Math.sin(angle) * wallRadius;
+      const tower = MeshBuilder.CreateCylinder(`tower_${i}`, { height: 15, diameter: 3, tessellation: 12 }, this.scene);
+      tower.position.set(x, 7.5, z);
+      tower.material = towerGoldMat;
+      this.renderer.shadowGenerator.addShadowCaster(tower);
+    }
+
+    // ── THRONE (raised disc at center) ──────────────────────────────────────────
+    const throne = MeshBuilder.CreateDisc('throneDisc', { radius: 3, tessellation: 32 }, this.scene);
+    throne.rotation.x = Math.PI / 2;
+    throne.position.set(C.BOSS_ARENA_CENTER.x, 3.0, C.BOSS_ARENA_CENTER.z);
+    const throneMat = this.getMat('throne_gold', 'throneMat', 0.85, 0.7, 0.15, 0.85, 0.15);
+    throne.material = throneMat;
+    this.renderer.shadowGenerator.addShadowCaster(throne);
+
+    // ── FIRE BOWLS (4 point lights at entry gaps) ──────────────────────────────
+    for (let i = 0; i < gapAngles.length; i++) {
+      const angle = gapAngles[i];
+      const x = C.BOSS_ARENA_CENTER.x + Math.cos(angle) * wallRadius;
+      const z = C.BOSS_ARENA_CENTER.z + Math.sin(angle) * wallRadius;
+      const fireBowl = new PointLight(`fireBowl_${i}`, new Vector3(x, 6, z), this.scene);
+      fireBowl.intensity = 2.0;
+      fireBowl.diffuse = new Color3(1.0, 0.5, 0.1);
+      fireBowl.range = 12;
+    }
+
+    // ── ATMOSPHERIC PURPLE POINT LIGHT (elevated and stronger) ────────────────────
     const arenaLight = new PointLight('arenaLight',
-      new Vector3(C.BOSS_ARENA_CENTER.x, 3, C.BOSS_ARENA_CENTER.z), this.scene);
-    arenaLight.intensity = 1.8;
+      new Vector3(C.BOSS_ARENA_CENTER.x, 6, C.BOSS_ARENA_CENTER.z), this.scene);
+    arenaLight.intensity = 3.0;
     arenaLight.diffuse   = new Color3(0.7, 0.1, 0.9);
-    arenaLight.specular  = new Color3(0.4, 0.05, 0.6);
-    arenaLight.range     = C.BOSS_ARENA_RADIUS * 2.2;
-
-    for (let i = 0; i < 8; i++) {
-      const angle = (Math.PI * 2 / 8) * i;
-      const x = C.BOSS_ARENA_CENTER.x + Math.cos(angle) * (C.BOSS_ARENA_RADIUS - 1);
-      const z = C.BOSS_ARENA_CENTER.z + Math.sin(angle) * (C.BOSS_ARENA_RADIUS - 1);
-      const pillar = MeshBuilder.CreateCylinder(`pillar_${i}`, { height: 8, diameter: 1.2, tessellation: 8 }, this.scene);
-      pillar.position.set(x, 4, z);
-      const pMat = this.getMat('pillar_stone', `pillarMat_${i}`, 0.3, 0.25, 0.2, 0.2, 0.6);
-      pillar.material = pMat;
-      this.renderer.shadowGenerator.addShadowCaster(pillar);
-    }
+    arenaLight.range     = C.BOSS_ARENA_RADIUS * 2.5;
   }
 
   private buildSkybox(): void {
@@ -860,79 +915,58 @@ export class World {
   spawnProjectile(proj: ProjectileState): void {
     if (this.projectileMeshes.has(proj.id)) return;
 
-    // Map special arrow types to VFX textures
-    const vfxMap: Record<number, string> = {
-      [ProjectileType.FireArrow]: 'vfx_agni_trail',
-      5: 'vfx_vayu_trail',  // VayuAstra
-      6: 'vfx_varuna_trail', // VarunaAstra
-      7: 'vfx_naga_trail',   // NagaAstra
-      8: 'vfx_brahma_trail', // BrahmaAstra
-    };
-
-    // Check if this projectile type has a VFX sprite
-    const vfxKey = vfxMap[proj.type];
-    const vfxTexture = vfxKey ? this.vfxTextures.get(vfxKey) : null;
-
-    if (vfxTexture) {
-      // Use billboard plane for VFX sprite
-      const vfxPlane = MeshBuilder.CreatePlane(`proj_${proj.id}`, { size: 1 }, this.scene);
-      vfxPlane.position.set(proj.pos.x, proj.pos.y, proj.pos.z);
-      vfxPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-      vfxPlane.scaling.setAll(0.8); // larger VFX visibility
-
-      const vfxMat = new StandardMaterial(`projMat_${proj.id}`, this.scene);
-      vfxMat.diffuseTexture = vfxTexture;
-      vfxMat.useAlphaFromDiffuseTexture = true;
-      vfxMat.emissiveColor = new Color3(0.8, 0.6, 0.2); // bright self-illumination for glow
-      vfxMat.disableLighting = true;
-      vfxMat.backFaceCulling = false;
-      vfxMat.alphaMode = Engine.ALPHA_ADD;
-      vfxPlane.material = vfxMat;
-
-      console.log(`[World] spawnProjectile type=${proj.type}, vfxKey=${vfxKey}, hasVfx=true, vfxCount=${this.vfxTextures.size}`);
-      this.projectileMeshes.set(proj.id, { mesh: vfxPlane, vel: { ...proj.vel }, spawnTime: performance.now(), type: proj.type });
-      return;
-    }
-
-    // Fallback to sphere-based projectiles
-    console.log(`[World] spawnProjectile type=${proj.type}, vfxKey=${vfxKey}, hasVfx=false, vfxCount=${this.vfxTextures.size}`);
+    // Define projectile properties: size, color, emissive
+    let size: number;
     let color: Color3;
     let emissive: Color3;
-    let size = 0.15;
+    let lightIntensity = 0.8;
+    let lightRange = 8;
 
     switch (proj.type) {
-      case ProjectileType.Arrow:        color = new Color3(0.8, 0.7, 0.3); emissive = new Color3(0.3, 0.25, 0.1); break;
-      case ProjectileType.FireArrow:    color = new Color3(1, 0.4, 0.1);   emissive = new Color3(0.8, 0.3, 0);    size = 0.2; break;
-      case ProjectileType.ShockwaveArrow: color = new Color3(0.3, 0.5, 1); emissive = new Color3(0.2, 0.3, 0.8); size = 0.25; break;
-      // Special arrows
+      case ProjectileType.Arrow:
+        size = 0.25; color = new Color3(0.9, 0.75, 0.3); emissive = new Color3(0.4, 0.35, 0.1); break;
+      case ProjectileType.FireArrow:
+        size = 0.45; color = new Color3(1.0, 0.4, 0.1); emissive = new Color3(1.0, 0.3, 0.0); break;
+      case ProjectileType.ShockwaveArrow:
+        size = 0.35; color = new Color3(0.5, 0.9, 1.0); emissive = new Color3(0.3, 0.7, 1.0); break;
       case 5: // VayuAstra (air)
-        color = new Color3(0.7, 0.9, 1.0); emissive = new Color3(0.5, 0.7, 0.9); size = 0.22; break;
+        size = 0.4; color = new Color3(0.5, 0.9, 1.0); emissive = new Color3(0.3, 0.7, 1.0); break;
       case 6: // VarunaAstra (water)
-        color = new Color3(0.2, 0.6, 1.0); emissive = new Color3(0.1, 0.4, 0.8); size = 0.24; break;
+        size = 0.45; color = new Color3(0.1, 0.4, 1.0); emissive = new Color3(0.0, 0.3, 0.9); break;
       case 7: // NagaAstra (serpent)
-        color = new Color3(0.3, 0.8, 0.2); emissive = new Color3(0.2, 0.6, 0.1); size = 0.20; break;
+        size = 0.4; color = new Color3(0.2, 0.9, 0.2); emissive = new Color3(0.1, 0.8, 0.1); break;
       case 8: // BrahmaAstra (divine)
-        color = new Color3(1.0, 0.8, 0.2); emissive = new Color3(0.9, 0.6, 0.0); size = 0.28; break;
-      // Enemy special projectiles
-      case ProjectileType.EnemyProjectile: color = new Color3(0.8, 0.2, 0.1); emissive = new Color3(0.6, 0.1, 0); break;
+        size = 0.55; color = new Color3(1.0, 0.85, 0.2); emissive = new Color3(1.0, 0.7, 0.0); break;
+      case ProjectileType.EnemyProjectile:
+        size = 0.3; color = new Color3(0.9, 0.15, 0.1); emissive = new Color3(0.8, 0.1, 0.0); break;
       case 9: // EnemyAgniAstra (enemy fire)
-        color = new Color3(1, 0.3, 0.0); emissive = new Color3(0.8, 0.2, 0); size = 0.22; break;
+        size = 0.4; color = new Color3(1.0, 0.3, 0.0); emissive = new Color3(0.9, 0.2, 0.0); break;
       case 10: // EnemyVayuAstra (enemy air)
-        color = new Color3(0.6, 0.7, 0.9); emissive = new Color3(0.4, 0.5, 0.7); size = 0.20; break;
+        size = 0.35; color = new Color3(0.6, 0.7, 0.9); emissive = new Color3(0.4, 0.5, 0.7); break;
       case 11: // EnemyNagaAstra (enemy serpent)
-        color = new Color3(0.5, 0.9, 0.3); emissive = new Color3(0.3, 0.7, 0.1); size = 0.21; break;
-      case ProjectileType.BossProjectile:  color = new Color3(0.7, 0.1, 0.5); emissive = new Color3(0.5, 0.05, 0.3); size = 0.3; break;
-      default: color = new Color3(1, 1, 1); emissive = new Color3(0.5, 0.5, 0.5);
+        size = 0.35; color = new Color3(0.4, 0.9, 0.3); emissive = new Color3(0.2, 0.8, 0.1); break;
+      case ProjectileType.BossProjectile:
+        size = 0.45; color = new Color3(0.7, 0.1, 0.6); emissive = new Color3(0.6, 0.05, 0.4); break;
+      default:
+        size = 0.3; color = new Color3(1, 1, 1); emissive = new Color3(0.5, 0.5, 0.5);
     }
 
-    const mesh = MeshBuilder.CreateSphere(`proj_${proj.id}`, { diameter: size * 2, segments: 6 }, this.scene);
+    // Create procedural glow-based sphere
+    const mesh = MeshBuilder.CreateSphere(`proj_${proj.id}`, { diameter: size * 2, segments: 8 }, this.scene);
     mesh.position.set(proj.pos.x, proj.pos.y, proj.pos.z);
     const mat = new PBRMaterial(`projMat_${proj.id}`, this.scene);
     mat.albedoColor = color;
     mat.emissiveColor = emissive;
-    mat.metallic = 0.8;
-    mat.roughness = 0.2;
+    mat.metallic = 0.6;
+    mat.roughness = 0.3;
     mesh.material = mat;
+
+    // Add point light to each projectile for glow effect
+    const light = new PointLight(`projLight_${proj.id}`, mesh.position.clone(), this.scene);
+    light.intensity = lightIntensity;
+    light.diffuse = emissive.clone();
+    light.range = lightRange;
+    light.parent = mesh;
 
     this.projectileMeshes.set(proj.id, { mesh, vel: { ...proj.vel }, spawnTime: performance.now(), type: proj.type });
   }
@@ -1031,7 +1065,7 @@ export class World {
     if (this.trailParticles.length > 150) return;
 
     const [r, g, b] = this.getTrailColor(type);
-    const size = 0.08 + Math.random() * 0.06;
+    const size = 0.6; // Larger trail particles
     const trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
     trail.position.set(
       pos.x + (Math.random() - 0.5) * 0.1,
@@ -1106,32 +1140,63 @@ export class World {
     const root = new TransformNode(`ally_${id}`, this.scene);
     root.position.set(pos.x, pos.y, pos.z);
 
-    // Create a colored billboard plane for the ally
-    const billboard = MeshBuilder.CreatePlane(`ally_billboard_${id}`, { width: 1.6, height: 2.8 }, this.scene);
+    // Color coding per ally
+    const colorMap: Record<string, Color3> = {
+      'sugriv': new Color3(0.9, 0.6, 0.1),   // golden orange for monkey kings
+      'hanuman': new Color3(1.0, 0.5, 0.0),   // orange
+      'angad': new Color3(0.2, 0.8, 0.3),     // green for younger allies
+      'lakshman': new Color3(0.2, 0.4, 0.9),  // blue for devotees
+    };
+    const color = colorMap[id] || new Color3(0.8, 0.8, 0.2);
+
+    // Determine beacon color based on NPC type
+    let beaconColor: Color3;
+    if (id === 'sugriv' || id === 'hanuman' || id === 'angad') {
+      beaconColor = new Color3(0.2, 0.5, 1.0); // Blue for Sugriv/Angad/Hanuman
+    } else if (id === 'lakshman') {
+      beaconColor = new Color3(0.9, 0.7, 0.2); // Gold for sages/leaders
+    } else {
+      beaconColor = new Color3(0.2, 0.8, 0.3); // Green for others
+    }
+
+    // Create a larger colored billboard plane for the ally (2.2x3.8 instead of 1.6x2.8)
+    const billboard = MeshBuilder.CreatePlane(`ally_billboard_${id}`, { width: 2.2, height: 3.8 }, this.scene);
     billboard.parent = root;
-    billboard.position.y = 1.4;
+    billboard.position.y = 1.9;
     billboard.billboardMode = Mesh.BILLBOARDMODE_Y;
 
     const mat = new StandardMaterial(`allyMat_${id}`, this.scene);
-
-    // Color coding per ally
-    const colorMap: Record<string, Color3> = {
-      'sugriv': new Color3(0.9, 0.6, 0.1),   // golden orange
-      'hanuman': new Color3(1.0, 0.5, 0.0),   // orange
-      'angad': new Color3(0.2, 0.8, 0.3),     // green
-      'lakshman': new Color3(0.2, 0.4, 0.9),  // blue
-    };
-    const color = colorMap[id] || new Color3(0.8, 0.8, 0.2);
     mat.emissiveColor = color.scale(0.6);
     mat.diffuseColor = color;
     mat.specularColor = new Color3(0, 0, 0);
     mat.backFaceCulling = false;
     billboard.material = mat;
 
+    // ── BEACON PILLAR (glowing cylinder above NPC) ────────────────────────────
+    const beacon = MeshBuilder.CreateCylinder(`beacon_${id}`, { height: 20, diameter: 0.6, tessellation: 16 }, this.scene);
+    beacon.parent = root;
+    beacon.position.y = 10; // centered at height 10
+    const beaconMat = new StandardMaterial(`beaconMat_${id}`, this.scene);
+    beaconMat.emissiveColor = beaconColor;
+    beaconMat.diffuseColor = beaconColor.scale(0.5);
+    beaconMat.alpha = 0.3;
+    beaconMat.backFaceCulling = false;
+    beacon.material = beaconMat;
+
+    // ── FLOATING DIAMOND MARKER (octahedron above NPC head) ────────────────────
+    const diamond = MeshBuilder.CreatePolyhedron(`diamond_${id}`, { type: 1, size: 0.4 }, this.scene);
+    diamond.parent = root;
+    diamond.position.y = 4;
+    const diamondMat = new StandardMaterial(`diamondMat_${id}`, this.scene);
+    diamondMat.emissiveColor = beaconColor;
+    diamondMat.diffuseColor = beaconColor.scale(0.7);
+    diamondMat.backFaceCulling = false;
+    diamond.material = diamondMat;
+
     // Name label above head
     const labelPlane = MeshBuilder.CreatePlane(`allyLabel_${id}`, { width: 2.5, height: 0.5 }, this.scene);
     labelPlane.parent = root;
-    labelPlane.position.y = 3.2;
+    labelPlane.position.y = 4.5;
     labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
     const labelTex = new DynamicTexture(`allyLabelTex_${id}`, { width: 256, height: 64 }, this.scene, false);
     labelTex.hasAlpha = true;
@@ -1150,11 +1215,11 @@ export class World {
     labelMat.backFaceCulling = false;
     labelPlane.material = labelMat;
 
-    // Marker glow (point light)
+    // Marker glow (point light) — increased intensity and range
     const light = new PointLight(`allyLight_${id}`, new Vector3(pos.x, pos.y + 2, pos.z), this.scene);
     light.diffuse = color;
-    light.intensity = 0.6;
-    light.range = 8;
+    light.intensity = 3.0;
+    light.range = 15;
 
     this.allyNPCMeshes.set(id, root);
   }
@@ -1162,6 +1227,25 @@ export class World {
   removeAllyNPC(id: string): void {
     const root = this.allyNPCMeshes.get(id);
     if (root) { root.dispose(false, true); this.allyNPCMeshes.delete(id); }
+  }
+
+  updateNPCBeacons(dt: number): void {
+    const now = performance.now() / 1000;
+    for (const [id, root] of this.allyNPCMeshes) {
+      // Rotate diamond markers
+      const diamond = this.scene.getMeshByName(`diamond_${id}`);
+      if (diamond) {
+        diamond.rotation.x += 1.5 * dt;
+        diamond.rotation.y += 1.5 * dt;
+      }
+
+      // Pulse beacon cylinder alpha using sin(time * 2)
+      const beacon = this.scene.getMeshByName(`beacon_${id}`);
+      if (beacon?.material instanceof StandardMaterial) {
+        const alphaPulse = 0.25 + Math.sin(now * 2) * 0.075;
+        beacon.material.alpha = alphaPulse;
+      }
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1251,6 +1335,44 @@ export class World {
     if (this.meditationLight) {
       this.meditationLight.dispose();
       this.meditationLight = null;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  CHAPTER BIOME SYSTEM
+  // ══════════════════════════════════════════════════════════════════════════
+
+  setChapterBiome(chapter: number): void {
+    // Get the ground mesh
+    const ground = this.scene.getMeshByName('ground_main');
+    const groundMat = ground?.material as PBRMaterial;
+
+    // Define biome settings per chapter
+    const biomes: Record<number, { groundColor: [number, number, number]; fogColor: [number, number, number]; fogDensity: number; sunColor: [number, number, number]; sunIntensity: number }> = {
+      0: { groundColor: [0.12, 0.22, 0.08], fogColor: [0.15, 0.12, 0.06], fogDensity: 0.008, sunColor: [1.0, 0.7, 0.3], sunIntensity: 1.2 }, // Dandaka - lush
+      1: { groundColor: [0.12, 0.22, 0.08], fogColor: [0.15, 0.12, 0.06], fogDensity: 0.008, sunColor: [1.0, 0.7, 0.3], sunIntensity: 1.2 },
+      2: { groundColor: [0.2, 0.1, 0.06], fogColor: [0.25, 0.1, 0.05], fogDensity: 0.012, sunColor: [1.0, 0.4, 0.2], sunIntensity: 1.0 }, // Scorched
+      3: { groundColor: [0.18, 0.15, 0.1], fogColor: [0.2, 0.15, 0.08], fogDensity: 0.006, sunColor: [0.9, 0.7, 0.4], sunIntensity: 1.5 }, // Kishkindha rocky
+      4: { groundColor: [0.22, 0.2, 0.14], fogColor: [0.15, 0.18, 0.22], fogDensity: 0.005, sunColor: [0.8, 0.85, 1.0], sunIntensity: 1.3 }, // Shore
+      5: { groundColor: [0.12, 0.08, 0.06], fogColor: [0.2, 0.08, 0.04], fogDensity: 0.015, sunColor: [0.9, 0.3, 0.15], sunIntensity: 0.8 }, // Volcanic
+      6: { groundColor: [0.12, 0.08, 0.06], fogColor: [0.2, 0.08, 0.04], fogDensity: 0.015, sunColor: [0.9, 0.3, 0.15], sunIntensity: 0.8 },
+      7: { groundColor: [0.06, 0.02, 0.08], fogColor: [0.12, 0.04, 0.1], fogDensity: 0.018, sunColor: [0.6, 0.15, 0.4], sunIntensity: 0.6 }, // Lanka dark
+    };
+
+    const b = biomes[chapter] ?? biomes[0];
+
+    if (groundMat) {
+      groundMat.albedoColor = new Color3(...b.groundColor);
+    }
+
+    this.scene.fogColor = new Color3(...b.fogColor);
+    this.scene.fogDensity = b.fogDensity;
+
+    // Update directional light (sun)
+    const sun = this.scene.getLightByName('sun');
+    if (sun && 'diffuse' in sun) {
+      (sun as any).diffuse = new Color3(...b.sunColor);
+      (sun as any).intensity = b.sunIntensity;
     }
   }
 }

@@ -262,6 +262,9 @@ export class Game {
       this.hud.showChapterBanner(chapter, title, subtitle);
       this.audio.play(SFX.BossRoar); // dramatic chapter transition sound
 
+      // Update world biome visuals for this chapter
+      this.world.setChapterBiome(chapter);
+
       // Update goal widget
       const goal = this.localSim!.chapterGoals[chapter];
       if (goal && goal.revealed) {
@@ -651,6 +654,9 @@ export class Game {
     }
 
     this.world.updateProjectiles(dt);
+    // Update NPC beacon animations (rotating diamonds, pulsing light pillars)
+    this.world.updateNPCBeacons(dt);
+
     if (this.localSim) {
       this.world.updatePickups(dt);
       // Update companion positions in world

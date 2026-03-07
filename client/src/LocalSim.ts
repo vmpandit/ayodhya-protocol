@@ -902,14 +902,14 @@ export class LocalSim {
       "With Sugriv's Vanara armies at your command, the march south begins. Jambavan the immortal bear-king and Sampati the wingless vulture await — ancient witnesses who carry wisdom no warrior can. But Ravana's demon scouts infest the path...");
 
     // Spawn Jambavan as story NPC in Chapter 4
-    const jambPos: Vec3 = { x: -20, y: 0, z: -30 };
+    const jambPos: Vec3 = { x: -40, y: 0, z: -95 };
     this.storyNPCs.push({
       id: 'jambavan', name: 'Jambavan', pos: jambPos,
       dialogueTreeId: 'ch4_jambavan', spoken: false,
     });
 
     // Spawn Sampati as story NPC in Chapter 4
-    const sampatiPos: Vec3 = { x: 30, y: 0, z: 25 };
+    const sampatiPos: Vec3 = { x: 15, y: 0, z: -105 };
     this.storyNPCs.push({
       id: 'sampati', name: 'Sampati', pos: sampatiPos,
       dialogueTreeId: 'ch4_sampati', spoken: false,
@@ -917,11 +917,11 @@ export class LocalSim {
     this.onMapWaypoint(jambPos.x, jambPos.z, 1, 'Jambavan', 4);
     this.onMapWaypoint(sampatiPos.x, sampatiPos.z, 1, 'Sampati', 4);
 
-    // Spawn 5 demon scouts (70 HP, faster)
+    // Spawn 5 demon scouts (70 HP, faster) in shore area
     const ch4Positions: Vec3[] = [
-      { x: -15, y: 0, z: -40 }, { x: 25, y: 0, z: -35 },
-      { x: 40, y: 0, z: -10 }, { x: -35, y: 0, z: 20 },
-      { x: 10, y: 0, z: 45 },
+      { x: -30, y: 0, z: -85 }, { x: 20, y: 0, z: -90 },
+      { x: 0, y: 0, z: -100 }, { x: -45, y: 0, z: -75 },
+      { x: 35, y: 0, z: -80 },
     ];
     for (const pos of ch4Positions) {
       const id = this.nextEnemyId++;
@@ -1236,16 +1236,16 @@ export class LocalSim {
       this.onMapReveal(0, -20, 25, 2, 'The Demon Guard patrols were mapped from battle');
 
       // Spawn Jatayu's Spirit as story NPC in Chapter 2
-      const jatayuPos: Vec3 = { x: -5, y: 0, z: -25 };
+      const jatayuPos: Vec3 = { x: -20, y: 0, z: -55 };
       this.storyNPCs.push({
         id: 'jatayu', name: 'Spirit of Jatayu', pos: jatayuPos,
         dialogueTreeId: 'ch2_jatayu', spoken: false,
       });
 
-      // Spawn 4 tougher enemies for chapter 2
+      // Spawn 4 tougher enemies for chapter 2 (south scorched zone)
       const chapter2Positions: Vec3[] = [
-        { x: -10, y: 0, z: -35 }, { x: 35, y: 0, z: 15 },
-        { x: 25, y: 0, z: 45 }, { x: -15, y: 0, z: 40 },
+        { x: -25, y: 0, z: -50 }, { x: 15, y: 0, z: -60 },
+        { x: -10, y: 0, z: -70 }, { x: 30, y: 0, z: -55 },
       ];
       for (const pos of chapter2Positions) {
         const id = this.nextEnemyId++;
@@ -1271,7 +1271,7 @@ export class LocalSim {
       this.onMapReveal(0, -15, 30, 3, 'Sugriv revealed paths through Kishkindha');
 
       // Spawn Sugriv as story NPC with dialogue tree
-      const sugrivPos: Vec3 = { x: 0, y: 0, z: -15 };
+      const sugrivPos: Vec3 = { x: -55, y: 0, z: -65 };
       this.storyNPCs.push({
         id: 'sugriv', name: 'Sugriv', pos: sugrivPos,
         dialogueTreeId: 'ch3_sugriv', spoken: false,
@@ -1298,7 +1298,7 @@ export class LocalSim {
       this.onMapReveal(this.player.pos.x, this.player.pos.z, 30, 5, 'Hanuman scouted the demon positions ahead');
 
       // Spawn Angad as story NPC in Chapter 5
-      const angadNpcPos: Vec3 = { x: this.player.pos.x + 5, y: 0, z: this.player.pos.z - 5 };
+      const angadNpcPos: Vec3 = { x: 55, y: 0, z: -35 };
       this.storyNPCs.push({
         id: 'angad_npc', name: 'Angad', pos: angadNpcPos,
         dialogueTreeId: 'ch5_angad', spoken: false,
@@ -1313,11 +1313,11 @@ export class LocalSim {
         ]);
       }, 5000);
 
-      // Spawn 5 elite demon warriors (90 HP)
+      // Spawn 5 elite demon warriors (90 HP) in eastern march
       const ch5Positions: Vec3[] = [
-        { x: -25, y: 0, z: -30 }, { x: 30, y: 0, z: -20 },
-        { x: 40, y: 0, z: 25 }, { x: -20, y: 0, z: 35 },
-        { x: 5, y: 0, z: -45 },
+        { x: 35, y: 0, z: -45 }, { x: 60, y: 0, z: -25 },
+        { x: 45, y: 0, z: -55 }, { x: 70, y: 0, z: -10 },
+        { x: 55, y: 0, z: -60 },
       ];
       for (const pos of ch5Positions) {
         const id = this.nextEnemyId++;
@@ -1361,7 +1361,7 @@ export class LocalSim {
       }, 5000);
 
       // Spawn Vibhishana as story NPC in Chapter 6
-      const vibhishanaPos: Vec3 = { x: 10, y: 0, z: -5 };
+      const vibhishanaPos: Vec3 = { x: 40, y: 0, z: 25 };
       this.storyNPCs.push({
         id: 'vibhishana', name: 'Vibhishana', pos: vibhishanaPos,
         dialogueTreeId: 'ch6_vibhishana', spoken: false,

@@ -42,6 +42,8 @@ export class World {
   private trailParticles: { mesh: Mesh; age: number; maxAge: number }[] = [];
   private trailSpawnAccum = 0;
   private treeInstances: InstancedMesh[] = [];
+  private emberParticles: ParticleSystem | null = null;
+  private ashParticles: ParticleSystem | null = null;
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -58,12 +60,23 @@ export class World {
   private playerSpriteTexture: Texture | null = null;
   private bossSpriteTexture: Texture | null = null;
 
+  /** Cached NPC ally sprite textures keyed by NPC id */
+  private npcSpriteTextures = new Map<string, Texture>();
+
   /** Cached VFX trail textures for special arrow projectiles */
   private vfxTextures = new Map<string, Texture>();
+
+  /** Map to store enemy types for visual differentiation */
+  private enemyTypes = new Map<number, 'soldier' | 'archer' | 'brute'>();
 
   constructor(renderer: Renderer) {
     this.renderer = renderer;
     this.scene = renderer.scene;
+  }
+
+  /** Store enemy type for visual differentiation */
+  setEnemyType(id: number, type: 'soldier' | 'archer' | 'brute'): void {
+    this.enemyTypes.set(id, type);
   }
 
   /** Call before build() to enable textured PBR materials */
@@ -76,6 +89,8 @@ export class World {
     this.buildGround();
     this.buildTrees();
     this.buildBossArena();
+    this.buildChapterLandmarks();
+    this.buildWaterFeatures();
     // Only build fallback skybox if TextureLoader didn't build one
     if (!this.assets) this.buildSkybox();
     this.buildGlowLayer();
@@ -143,6 +158,26 @@ export class World {
     } catch (err) {
       console.warn('Failed to load sprite_boss.png:', err);
       this.bossSpriteTexture = null;
+    }
+
+    // Load NPC ally sprites
+    const npcSpriteFiles: Record<string, string> = {
+      'sage': 'sprite_sage_agastya.png',
+      'jatayu': 'sprite_jatayu.png',
+      'sugriv': 'sprite_sugriv.png',
+      'jambavan': 'sprite_jambavan.png',
+      'sampati': 'sprite_sampati.png',
+      'angad': 'sprite_angad.png',
+      'vibhishana': 'sprite_vibhishana.png',
+      'hanuman': 'sprite_hanuman.png',
+      'lakshman': 'sprite_lakshman.png',
+    };
+    for (const [npcId, file] of Object.entries(npcSpriteFiles)) {
+      try {
+        this.npcSpriteTextures.set(npcId, await this.loadAndProcessSprite(file));
+      } catch (err) {
+        console.warn(`Failed to load NPC sprite ${file}:`, err);
+      }
     }
 
     // Load VFX trail textures
@@ -397,6 +432,7 @@ export class World {
     embers.updateSpeed  = 0.016;
     embers.blendMode    = ParticleSystem.BLENDMODE_ADD;
     embers.start();
+    this.emberParticles = embers;
 
     // ── Ash drift (slow-falling dark flakes) ─────────────────────────
     const ash = new ParticleSystem('ash', 120, this.scene);
@@ -420,6 +456,7 @@ export class World {
     ash.updateSpeed  = 0.014;
     ash.blendMode    = ParticleSystem.BLENDMODE_STANDARD;
     ash.start();
+    this.ashParticles = ash;
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -675,13 +712,36 @@ export class World {
         const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
         billboardPlane.parent = root;
         billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
-        billboardPlane.scaling.set(1.4, 2.5, 1);
+
+        // Apply type-specific scaling and positioning
+        const enemyType = this.enemyTypes.get(id);
+        if (enemyType === 'archer') {
+          billboardPlane.scaling.set(1.1, 2.8, 1);
+        } else if (enemyType === 'brute') {
+          billboardPlane.scaling.set(1.8, 2.2, 1);
+        } else {
+          // soldier (default)
+          billboardPlane.scaling.set(1.4, 2.5, 1);
+        }
+
         billboardPlane.position.y = 1.25; // offset so feet sit at root position
 
         const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
         billboardMat.diffuseTexture = spriteTexture;
         billboardMat.useAlphaFromDiffuseTexture = true;
-        billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1); // subtle self-illumination
+
+        // Apply type-specific tints
+        if (enemyType === 'archer') {
+          // Green tint for archer
+          billboardMat.emissiveColor = new Color3(0.15, 0.35, 0.15);
+        } else if (enemyType === 'brute') {
+          // Purple tint for brute
+          billboardMat.emissiveColor = new Color3(0.35, 0.15, 0.35);
+        } else {
+          // Default reddish tint for soldier
+          billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1);
+        }
+
         billboardMat.specularColor = new Color3(0, 0, 0); // no specular shine
         billboardMat.backFaceCulling = false;
         billboardPlane.material = billboardMat;
@@ -971,6 +1031,51 @@ export class World {
     this.projectileMeshes.set(proj.id, { mesh, vel: { ...proj.vel }, spawnTime: performance.now(), type: proj.type });
   }
 
+  spawnDeathBurst(pos: Vec3): void {
+    const WHITE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const burst = new ParticleSystem('deathBurst_' + Date.now(), 12, this.scene);
+    burst.particleTexture = new Texture(WHITE_PNG, this.scene);
+    burst.emitter = new Vector3(pos.x, pos.y + 1, pos.z);
+    burst.minEmitBox = Vector3.Zero();
+    burst.maxEmitBox = Vector3.Zero();
+    burst.color1 = new Color4(1, 0.3, 0.1, 1);
+    burst.color2 = new Color4(0.8, 0.1, 0.05, 1);
+    burst.colorDead = new Color4(0.3, 0.05, 0, 0);
+    burst.minSize = 0.15;
+    burst.maxSize = 0.35;
+    burst.minLifeTime = 0.3;
+    burst.maxLifeTime = 0.6;
+    burst.emitRate = 0;
+    burst.manualEmitCount = 12;
+    burst.direction1 = new Vector3(-2, 3, -2);
+    burst.direction2 = new Vector3(2, 5, 2);
+    burst.gravity = new Vector3(0, -15, 0);
+    burst.minEmitPower = 3;
+    burst.maxEmitPower = 6;
+    burst.blendMode = ParticleSystem.BLENDMODE_ADD;
+    burst.targetStopDuration = 0.7;
+    burst.disposeOnStop = true;
+    burst.start();
+  }
+
+  flashEnemyHit(enemyId: number): void {
+    const root = this.enemyMeshes.get(enemyId);
+    if (!root) return;
+    const children = root.getChildMeshes();
+    for (const child of children) {
+      if (child.material instanceof StandardMaterial) {
+        const origEmissive = child.material.emissiveColor.clone();
+        child.material.emissiveColor = new Color3(1, 0.3, 0.1);
+        setTimeout(() => {
+          if (child.material instanceof StandardMaterial) {
+            child.material.emissiveColor = origEmissive;
+          }
+        }, 100);
+        break; // Just flash the first child (billboard)
+      }
+    }
+  }
+
   spawnPickup(id: number, pos: Vec3, arrows: number): void {
     // Create a glowing golden arrow bundle on the ground
     const mesh = MeshBuilder.CreateCylinder(`pickup_${id}`, { height: 0.4, diameter: 0.15, tessellation: 6 }, this.scene);
@@ -1159,15 +1264,27 @@ export class World {
       beaconColor = new Color3(0.2, 0.8, 0.3); // Green for others
     }
 
-    // Create a larger colored billboard plane for the ally (2.2x3.8 instead of 1.6x2.8)
+    // Create billboard plane for the ally (2.2x3.8)
     const billboard = MeshBuilder.CreatePlane(`ally_billboard_${id}`, { width: 2.2, height: 3.8 }, this.scene);
     billboard.parent = root;
     billboard.position.y = 1.9;
     billboard.billboardMode = Mesh.BILLBOARDMODE_Y;
 
+    // Map NPC id to sprite key (e.g. 'angad_npc' → 'angad')
+    const spriteKey = id.replace(/_npc$/, '');
+    const spriteTex = this.npcSpriteTextures.get(spriteKey) || this.npcSpriteTextures.get(id);
     const mat = new StandardMaterial(`allyMat_${id}`, this.scene);
-    mat.emissiveColor = color.scale(0.6);
-    mat.diffuseColor = color;
+    if (spriteTex) {
+      // Use the generated sprite texture with transparency
+      mat.diffuseTexture = spriteTex;
+      mat.useAlphaFromDiffuseTexture = true;
+      mat.emissiveColor = new Color3(0.3, 0.3, 0.3); // slight self-illumination
+      mat.disableLighting = false;
+    } else {
+      // Fallback to colored plane if sprite not found
+      mat.emissiveColor = color.scale(0.6);
+      mat.diffuseColor = color;
+    }
     mat.specularColor = new Color3(0, 0, 0);
     mat.backFaceCulling = false;
     billboard.material = mat;
@@ -1339,6 +1456,542 @@ export class World {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  //  CHAPTER LANDMARKS (Ramayana-themed procedural structures per chapter)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  private buildChapterLandmarks(): void {
+    const rng = mulberry32(777); // seeded RNG for deterministic random offsets
+
+    // Ch0: Vishwamitra's Ashram (center, around 0, 0, -5)
+    this.buildChapter0Landmarks(rng);
+
+    // Ch1: Dandaka Forest (center-south, around 0, 0, -25)
+    this.buildChapter1Landmarks(rng);
+
+    // Ch2: Panchavati/Jatayu (south, around -20, 0, -55)
+    this.buildChapter2Landmarks(rng);
+
+    // Ch3: Kishkindha (southwest, around -55, 0, -65)
+    this.buildChapter3Landmarks(rng);
+
+    // Ch4: Southern Shore (far south, around -10, 0, -95)
+    this.buildChapter4Landmarks(rng);
+
+    // Ch5: Rama Setu (from (20, 0, -90) toward (45, 0, -60))
+    this.buildChapter5Landmarks(rng);
+
+    // Ch6: Lanka Outskirts (east, around 40, 0, 25)
+    this.buildChapter6Landmarks(rng);
+
+    // Ch7: Ravana's Palace (boss arena at (50, 0, 50) — ceremonial pillars only)
+    this.buildChapter7Landmarks(rng);
+  }
+
+  private buildChapter0Landmarks(rng: () => number): void {
+    const centerX = 0, centerZ = -5;
+
+    // 3 training posts: cylinders with cross-beams
+    for (let i = 0; i < 3; i++) {
+      const offsetX = (i - 1) * 4 + (rng() - 0.5) * 1.5;
+      const offsetZ = (rng() - 0.5) * 2;
+      const postX = centerX + offsetX;
+      const postZ = centerZ + offsetZ;
+
+      const post = MeshBuilder.CreateCylinder(`ch0_post_${i}`, { height: 3, diameter: 0.3, tessellation: 8 }, this.scene);
+      post.position.set(postX, 1.5, postZ);
+      const postMat = new StandardMaterial(`ch0_postMat_${i}`, this.scene);
+      postMat.diffuseColor = new Color3(0.45, 0.35, 0.2);
+      post.material = postMat;
+      this.renderer.shadowGenerator.addShadowCaster(post);
+
+      const beam = MeshBuilder.CreateBox(`ch0_beam_${i}`, { width: 1.5, height: 0.15, depth: 0.15 }, this.scene);
+      beam.position.set(postX, 2.5, postZ);
+      beam.material = postMat;
+      this.renderer.shadowGenerator.addShadowCaster(beam);
+    }
+
+    // Meditation circle: flat disc with surrounding stones
+    const discRadius = 3;
+    const disc = MeshBuilder.CreateDisc(`ch0_meditationDisc`, { radius: discRadius, tessellation: 32 }, this.scene);
+    disc.rotation.x = Math.PI / 2;
+    disc.position.set(centerX, 0.1, centerZ);
+    const discMat = new StandardMaterial(`ch0_discMat`, this.scene);
+    discMat.diffuseColor = new Color3(0.35, 0.3, 0.25);
+    disc.material = discMat;
+
+    // 6 small stone cylinders around meditation circle
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI * 2 / 6) * i;
+      const stoneX = centerX + Math.cos(angle) * (discRadius + 1.5);
+      const stoneZ = centerZ + Math.sin(angle) * (discRadius + 1.5);
+
+      const stone = MeshBuilder.CreateCylinder(`ch0_stone_${i}`, { height: 0.8, diameter: 0.4, tessellation: 8 }, this.scene);
+      stone.position.set(stoneX, 0.4, stoneZ);
+      const stoneMat = new StandardMaterial(`ch0_stoneMat_${i}`, this.scene);
+      stoneMat.diffuseColor = new Color3(0.5, 0.45, 0.4);
+      stone.material = stoneMat;
+      this.renderer.shadowGenerator.addShadowCaster(stone);
+    }
+
+    // Sacred fire: small box with orange light
+    const fireBox = MeshBuilder.CreateBox(`ch0_fireBox`, { width: 0.5, height: 0.3, depth: 0.5 }, this.scene);
+    fireBox.position.set(centerX, 0.2, centerZ - 2.5);
+    const fireMat = new StandardMaterial(`ch0_fireMat`, this.scene);
+    fireMat.diffuseColor = new Color3(0.8, 0.4, 0.1);
+    fireMat.emissiveColor = new Color3(0.8, 0.4, 0.1);
+    fireBox.material = fireMat;
+
+    const fireLight = new PointLight(`ch0_fireLight`, new Vector3(centerX, 1, centerZ - 2.5), this.scene);
+    fireLight.diffuse = new Color3(1.0, 0.6, 0.2);
+    fireLight.intensity = 2;
+    fireLight.range = 6;
+  }
+
+  private buildChapter1Landmarks(rng: () => number): void {
+    const centerX = 0, centerZ = -25;
+
+    // 4 ruin pillars: cylinders with moss-green tint
+    for (let i = 0; i < 4; i++) {
+      const offsetX = (i % 2 === 0 ? -1 : 1) * 6 + (rng() - 0.5) * 2;
+      const offsetZ = (Math.floor(i / 2) - 0.5) * 8 + (rng() - 0.5) * 2;
+      const pillarX = centerX + offsetX;
+      const pillarZ = centerZ + offsetZ;
+
+      const height = 4 + rng() * 3;
+      const diameter = 0.8 + rng() * 0.2;
+      const pillar = MeshBuilder.CreateCylinder(`ch1_pillar_${i}`, { height, diameter, tessellation: 8 }, this.scene);
+      pillar.position.set(pillarX, height / 2, pillarZ);
+
+      const pillarMat = new StandardMaterial(`ch1_pillarMat_${i}`, this.scene);
+      pillarMat.diffuseColor = new Color3(0.15, 0.25, 0.1);
+      pillar.material = pillarMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    // 2 fallen logs: boxes, dark brown
+    for (let i = 0; i < 2; i++) {
+      const offsetX = (i === 0 ? -8 : 8) + (rng() - 0.5) * 2;
+      const offsetZ = (rng() - 0.5) * 4;
+      const logX = centerX + offsetX;
+      const logZ = centerZ + offsetZ;
+
+      const logLength = 5 + rng() * 2;
+      const log = MeshBuilder.CreateBox(`ch1_log_${i}`, { width: 0.6, height: 0.5, depth: logLength }, this.scene);
+      log.position.set(logX, 0.4, logZ);
+      log.rotation.z = (rng() - 0.5) * 0.3;
+
+      const logMat = new StandardMaterial(`ch1_logMat_${i}`, this.scene);
+      logMat.diffuseColor = new Color3(0.25, 0.15, 0.08);
+      log.material = logMat;
+      this.renderer.shadowGenerator.addShadowCaster(log);
+    }
+
+    // Campfire: stone torus with orange light
+    const torus = MeshBuilder.CreateTorus(`ch1_campfireTorus`, { diameter: 1.6, thickness: 0.15, tessellation: 16 }, this.scene);
+    torus.position.set(centerX, 0.1, centerZ);
+    const torusMat = new StandardMaterial(`ch1_torusMat`, this.scene);
+    torusMat.diffuseColor = new Color3(0.4, 0.35, 0.3);
+    torus.material = torusMat;
+    this.renderer.shadowGenerator.addShadowCaster(torus);
+
+    const campfireLight = new PointLight(`ch1_campfireLight`, new Vector3(centerX, 1, centerZ), this.scene);
+    campfireLight.diffuse = new Color3(1.0, 0.5, 0.1);
+    campfireLight.intensity = 1.5;
+    campfireLight.range = 8;
+  }
+
+  private buildChapter2Landmarks(rng: () => number): void {
+    const centerX = -20, centerZ = -55;
+
+    // 4 charred stumps: black cylinders with emissive
+    for (let i = 0; i < 4; i++) {
+      const offsetX = (i % 2 === 0 ? -1 : 1) * 5 + (rng() - 0.5) * 2;
+      const offsetZ = (Math.floor(i / 2) - 0.5) * 6 + (rng() - 0.5) * 2;
+      const stumpX = centerX + offsetX;
+      const stumpZ = centerZ + offsetZ;
+
+      const height = 1.5 + rng() * 1.5;
+      const diameter = 0.5 + rng() * 0.5;
+      const stump = MeshBuilder.CreateCylinder(`ch2_stump_${i}`, { height, diameter, tessellation: 8 }, this.scene);
+      stump.position.set(stumpX, height / 2, stumpZ);
+
+      const stumpMat = new StandardMaterial(`ch2_stumpMat_${i}`, this.scene);
+      stumpMat.diffuseColor = new Color3(0.08, 0.06, 0.05);
+      stumpMat.emissiveColor = new Color3(0.02, 0.01, 0.0);
+      stump.material = stumpMat;
+      this.renderer.shadowGenerator.addShadowCaster(stump);
+    }
+
+    // Jatayu's perch: 3 stacked boxes
+    const basePerch = MeshBuilder.CreateBox(`ch2_perchBase`, { width: 4, height: 1, depth: 4 }, this.scene);
+    basePerch.position.set(centerX, 0.5, centerZ);
+    const perchMat = new StandardMaterial(`ch2_perchMat`, this.scene);
+    perchMat.diffuseColor = new Color3(0.5, 0.4, 0.3);
+    basePerch.material = perchMat;
+    this.renderer.shadowGenerator.addShadowCaster(basePerch);
+
+    const midPerch = MeshBuilder.CreateBox(`ch2_perchMid`, { width: 3, height: 1.5, depth: 3 }, this.scene);
+    midPerch.position.set(centerX, 1.25, centerZ);
+    midPerch.material = perchMat;
+    this.renderer.shadowGenerator.addShadowCaster(midPerch);
+
+    const topPerch = MeshBuilder.CreateBox(`ch2_perchTop`, { width: 2, height: 1, depth: 2 }, this.scene);
+    topPerch.position.set(centerX, 2.25, centerZ);
+    topPerch.material = perchMat;
+    this.renderer.shadowGenerator.addShadowCaster(topPerch);
+
+    // 2 battle markers: thin tall boxes, dark red
+    for (let i = 0; i < 2; i++) {
+      const offsetX = (i === 0 ? -3 : 3) + (rng() - 0.5);
+      const markerX = centerX + offsetX;
+
+      const marker = MeshBuilder.CreateBox(`ch2_marker_${i}`, { width: 0.25, height: 2, depth: 0.25 }, this.scene);
+      marker.position.set(markerX, 1, centerZ + 4);
+
+      const markerMat = new StandardMaterial(`ch2_markerMat_${i}`, this.scene);
+      markerMat.diffuseColor = new Color3(0.5, 0.1, 0.08);
+      marker.material = markerMat;
+      this.renderer.shadowGenerator.addShadowCaster(marker);
+    }
+
+    // 5 debris: small boxes scattered
+    for (let i = 0; i < 5; i++) {
+      const debrisX = centerX + (rng() - 0.5) * 10;
+      const debrisZ = centerZ + (rng() - 0.5) * 10;
+      const debrisSize = 0.3 + rng() * 0.2;
+
+      const debris = MeshBuilder.CreateBox(`ch2_debris_${i}`, { width: debrisSize, height: debrisSize, depth: debrisSize }, this.scene);
+      debris.position.set(debrisX, debrisSize / 2, debrisZ);
+
+      const debrisMat = new StandardMaterial(`ch2_debrisMat_${i}`, this.scene);
+      debrisMat.diffuseColor = new Color3(0.3, 0.2, 0.15);
+      debris.material = debrisMat;
+      this.renderer.shadowGenerator.addShadowCaster(debris);
+    }
+  }
+
+  private buildChapter3Landmarks(rng: () => number): void {
+    const centerX = -55, centerZ = -65;
+
+    // Cave entrance: 2 tall pillars + horizontal beam
+    const pillar1 = MeshBuilder.CreateBox(`ch3_pillar1`, { width: 1.5, height: 8, depth: 1.5 }, this.scene);
+    pillar1.position.set(centerX - 2.5, 4, centerZ);
+    const pillarMat = new StandardMaterial(`ch3_pillarMat`, this.scene);
+    pillarMat.diffuseColor = new Color3(0.4, 0.35, 0.3);
+    pillar1.material = pillarMat;
+    this.renderer.shadowGenerator.addShadowCaster(pillar1);
+
+    const pillar2 = MeshBuilder.CreateBox(`ch3_pillar2`, { width: 1.5, height: 8, depth: 1.5 }, this.scene);
+    pillar2.position.set(centerX + 2.5, 4, centerZ);
+    pillar2.material = pillarMat;
+    this.renderer.shadowGenerator.addShadowCaster(pillar2);
+
+    const lintel = MeshBuilder.CreateBox(`ch3_lintel`, { width: 6, height: 1, depth: 1.5 }, this.scene);
+    lintel.position.set(centerX, 8, centerZ);
+    lintel.material = pillarMat;
+    this.renderer.shadowGenerator.addShadowCaster(lintel);
+
+    // Rock throne: 3 stacked boxes with golden tint
+    const throneBase = MeshBuilder.CreateBox(`ch3_throneBase`, { width: 3, height: 1, depth: 3 }, this.scene);
+    throneBase.position.set(centerX, 0.5, centerZ + 8);
+    const throneMat = new StandardMaterial(`ch3_throneMat`, this.scene);
+    throneMat.diffuseColor = new Color3(0.7, 0.55, 0.2);
+    throneBase.material = throneMat;
+    this.renderer.shadowGenerator.addShadowCaster(throneBase);
+
+    const throneMid = MeshBuilder.CreateBox(`ch3_throneMid`, { width: 2, height: 1.5, depth: 2 }, this.scene);
+    throneMid.position.set(centerX, 1.25, centerZ + 8);
+    throneMid.material = throneMat;
+    this.renderer.shadowGenerator.addShadowCaster(throneMid);
+
+    const throneTop = MeshBuilder.CreateBox(`ch3_throneTop`, { width: 1.5, height: 0.5, depth: 1.5 }, this.scene);
+    throneTop.position.set(centerX, 2.0, centerZ + 8);
+    throneTop.material = throneMat;
+    this.renderer.shadowGenerator.addShadowCaster(throneTop);
+
+    // 2 mountain walls: large boxes flanking the area
+    const wallMat = new StandardMaterial(`ch3_wallMat`, this.scene);
+    wallMat.diffuseColor = new Color3(0.42, 0.38, 0.32);
+
+    const wall1 = MeshBuilder.CreateBox(`ch3_wall1`, { width: 8, height: 12, depth: 1.5 }, this.scene);
+    wall1.position.set(centerX - 15, 6, centerZ);
+    wall1.material = wallMat;
+    this.renderer.shadowGenerator.addShadowCaster(wall1);
+
+    const wall2 = MeshBuilder.CreateBox(`ch3_wall2`, { width: 8, height: 12, depth: 1.5 }, this.scene);
+    wall2.position.set(centerX + 15, 6, centerZ);
+    wall2.material = wallMat;
+    this.renderer.shadowGenerator.addShadowCaster(wall2);
+
+    // 3 banner poles: cylinders with colored flag boxes
+    for (let i = 0; i < 3; i++) {
+      const offsetX = (i - 1) * 5 + (rng() - 0.5) * 1;
+      const poleX = centerX + offsetX;
+
+      const pole = MeshBuilder.CreateCylinder(`ch3_pole_${i}`, { height: 5, diameter: 0.15, tessellation: 8 }, this.scene);
+      pole.position.set(poleX, 2.5, centerZ - 8);
+      const poleMat = new StandardMaterial(`ch3_poleMat_${i}`, this.scene);
+      poleMat.diffuseColor = new Color3(0.3, 0.25, 0.2);
+      pole.material = poleMat;
+      this.renderer.shadowGenerator.addShadowCaster(pole);
+
+      const flag = MeshBuilder.CreateBox(`ch3_flag_${i}`, { width: 0.3, height: 0.6, depth: 0.05 }, this.scene);
+      flag.position.set(poleX, 5.2, centerZ - 8);
+      const flagMat = new StandardMaterial(`ch3_flagMat_${i}`, this.scene);
+      flagMat.diffuseColor = new Color3(1.0, 0.65, 0.2);
+      flag.material = flagMat;
+      this.renderer.shadowGenerator.addShadowCaster(flag);
+    }
+  }
+
+  private buildChapter4Landmarks(rng: () => number): void {
+    const centerX = -10, centerZ = -95;
+
+    // 6 coastal boulders: spheres partially buried
+    const boulderMat = new StandardMaterial(`ch4_boulderMat`, this.scene);
+    boulderMat.diffuseColor = new Color3(0.4, 0.38, 0.35);
+
+    for (let i = 0; i < 6; i++) {
+      const offsetX = (i % 3 === 0 ? -1 : (i % 3 === 1 ? 1 : 0)) * 8 + (rng() - 0.5) * 3;
+      const offsetZ = (Math.floor(i / 3) - 0.5) * 6 + (rng() - 0.5) * 2;
+      const boulderX = centerX + offsetX;
+      const boulderZ = centerZ + offsetZ;
+
+      const diameter = 2 + rng() * 1.5;
+      const boulder = MeshBuilder.CreateSphere(`ch4_boulder_${i}`, { diameter, segments: 12 }, this.scene);
+      boulder.position.set(boulderX, -0.3 + rng() * 0.6, boulderZ);
+      boulder.material = boulderMat;
+      this.renderer.shadowGenerator.addShadowCaster(boulder);
+    }
+
+    // 2 driftwood: angled boxes, lighter brown
+    const driftMat = new StandardMaterial(`ch4_driftMat`, this.scene);
+    driftMat.diffuseColor = new Color3(0.5, 0.4, 0.3);
+
+    for (let i = 0; i < 2; i++) {
+      const offsetX = (i === 0 ? -5 : 5) + (rng() - 0.5) * 2;
+      const driftX = centerX + offsetX;
+      const driftZ = centerZ + (rng() - 0.5) * 4;
+
+      const drift = MeshBuilder.CreateBox(`ch4_drift_${i}`, { width: 0.5, height: 0.4, depth: 3 }, this.scene);
+      drift.position.set(driftX, 0.2, driftZ);
+      drift.rotation.z = (rng() - 0.5) * 0.4;
+      drift.material = driftMat;
+      this.renderer.shadowGenerator.addShadowCaster(drift);
+    }
+
+    // Shore marker pole with flag
+    const markerPole = MeshBuilder.CreateCylinder(`ch4_markerPole`, { height: 4, diameter: 0.2, tessellation: 8 }, this.scene);
+    markerPole.position.set(centerX, 2, centerZ - 6);
+    const markerPoleMat = new StandardMaterial(`ch4_markerPoleMat`, this.scene);
+    markerPoleMat.diffuseColor = new Color3(0.35, 0.3, 0.25);
+    markerPole.material = markerPoleMat;
+    this.renderer.shadowGenerator.addShadowCaster(markerPole);
+
+    const markerFlag = MeshBuilder.CreateBox(`ch4_markerFlag`, { width: 0.4, height: 0.7, depth: 0.05 }, this.scene);
+    markerFlag.position.set(centerX, 4, centerZ - 6);
+    const markerFlagMat = new StandardMaterial(`ch4_markerFlagMat`, this.scene);
+    markerFlagMat.diffuseColor = new Color3(1.0, 0.5, 0.1);
+    markerFlag.material = markerFlagMat;
+    this.renderer.shadowGenerator.addShadowCaster(markerFlag);
+  }
+
+  private buildChapter5Landmarks(rng: () => number): void {
+    // THE BRIDGE: Rama Setu from (20, 0, -90) toward (42, 0, -62)
+    const startX = 20, startZ = -90;
+    const endX = 42, endZ = -62;
+    const deltaX = endX - startX;
+    const deltaZ = endZ - startZ;
+    const bridgeLength = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+    const numStones = 12;
+
+    const stoneMat = new StandardMaterial(`ch5_stoneMat`, this.scene);
+    stoneMat.diffuseColor = new Color3(0.7, 0.6, 0.35);
+    stoneMat.specularColor = new Color3(0.3, 0.3, 0.3);
+
+    for (let i = 0; i < numStones; i++) {
+      const t = i / (numStones - 1);
+      const stoneX = startX + deltaX * t;
+      const stoneZ = startZ + deltaZ * t;
+
+      const stone = MeshBuilder.CreateBox(`ch5_bridgeStone_${i}`, { width: 3, height: 0.8, depth: 3 }, this.scene);
+      stone.position.set(stoneX, 0.3, stoneZ);
+      stone.material = stoneMat;
+      this.renderer.shadowGenerator.addShadowCaster(stone);
+    }
+
+    // 3 floating pillars next to bridge
+    const pillarMat = new StandardMaterial(`ch5_pillarMat`, this.scene);
+    pillarMat.diffuseColor = new Color3(0.5, 0.45, 0.4);
+
+    for (let i = 0; i < 3; i++) {
+      const t = 0.2 + i * 0.3;
+      const pillarX = startX + deltaX * t + (rng() - 0.5) * 3;
+      const pillarZ = startZ + deltaZ * t + (rng() - 0.5) * 3;
+
+      const pillar = MeshBuilder.CreateCylinder(`ch5_pillar_${i}`, { height: 2.5, diameter: 1.2, tessellation: 12 }, this.scene);
+      pillar.position.set(pillarX, -0.5, pillarZ);
+      pillar.material = pillarMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    // 2 camp tents: angled boxes forming A-shape
+    const tentMat = new StandardMaterial(`ch5_tentMat`, this.scene);
+    tentMat.diffuseColor = new Color3(0.5, 0.35, 0.2);
+
+    for (let i = 0; i < 2; i++) {
+      const tentCenterX = startX + (i === 0 ? -8 : 8) + (rng() - 0.5) * 2;
+      const tentCenterZ = startZ + (rng() - 0.5) * 4;
+
+      // Left side of tent
+      const tentL = MeshBuilder.CreateBox(`ch5_tentL_${i}`, { width: 0.3, height: 2, depth: 2.5 }, this.scene);
+      tentL.position.set(tentCenterX - 1, 1, tentCenterZ);
+      tentL.rotation.z = Math.PI / 6;
+      tentL.material = tentMat;
+      this.renderer.shadowGenerator.addShadowCaster(tentL);
+
+      // Right side of tent
+      const tentR = MeshBuilder.CreateBox(`ch5_tentR_${i}`, { width: 0.3, height: 2, depth: 2.5 }, this.scene);
+      tentR.position.set(tentCenterX + 1, 1, tentCenterZ);
+      tentR.rotation.z = -Math.PI / 6;
+      tentR.material = tentMat;
+      this.renderer.shadowGenerator.addShadowCaster(tentR);
+    }
+  }
+
+  private buildChapter6Landmarks(rng: () => number): void {
+    const centerX = 40, centerZ = 25;
+
+    // 2 watch towers: dark cylinders with red lights
+    const towerMat = new StandardMaterial(`ch6_towerMat`, this.scene);
+    towerMat.diffuseColor = new Color3(0.12, 0.08, 0.08);
+
+    for (let i = 0; i < 2; i++) {
+      const offsetX = (i === 0 ? -8 : 8) + (rng() - 0.5) * 2;
+      const towerX = centerX + offsetX;
+
+      const tower = MeshBuilder.CreateCylinder(`ch6_tower_${i}`, { height: 10, diameter: 2, tessellation: 12 }, this.scene);
+      tower.position.set(towerX, 5, centerZ);
+      tower.material = towerMat;
+      this.renderer.shadowGenerator.addShadowCaster(tower);
+
+      const towerLight = new PointLight(`ch6_towerLight_${i}`, new Vector3(towerX, 9.5, centerZ), this.scene);
+      towerLight.diffuse = new Color3(1.0, 0.2, 0.1);
+      towerLight.intensity = 1.5;
+      towerLight.range = 8;
+    }
+
+    // 3 fortress walls: dark boxes with some lower ones for "damaged" effect
+    const wallMat = new StandardMaterial(`ch6_wallMat`, this.scene);
+    wallMat.diffuseColor = new Color3(0.2, 0.15, 0.1);
+
+    for (let i = 0; i < 3; i++) {
+      const offsetX = (i - 1) * 10 + (rng() - 0.5) * 2;
+      const wallX = centerX + offsetX;
+      const wallHeight = (i === 1 ? 3 : 4);
+
+      const wall = MeshBuilder.CreateBox(`ch6_wall_${i}`, { width: 6, height: wallHeight, depth: 1 }, this.scene);
+      wall.position.set(wallX, wallHeight / 2, centerZ - 8);
+      wall.material = wallMat;
+      this.renderer.shadowGenerator.addShadowCaster(wall);
+    }
+
+    // 2 lava channels: long planes with emissive
+    const lavaMatBase = new StandardMaterial(`ch6_lavaMat_0`, this.scene);
+    lavaMatBase.diffuseColor = new Color3(1.0, 0.4, 0.1);
+    lavaMatBase.emissiveColor = new Color3(1.0, 0.3, 0.05);
+    lavaMatBase.alpha = 0.7;
+
+    for (let i = 0; i < 2; i++) {
+      const offsetZ = (i === 0 ? -4 : 4) + (rng() - 0.5) * 1;
+      const lavaChannelZ = centerZ + offsetZ;
+
+      const lavaChannel = MeshBuilder.CreatePlane(`ch6_lavaChannel_${i}`, { width: 1.5, height: 8 }, this.scene);
+      lavaChannel.rotation.x = Math.PI / 2;
+      lavaChannel.position.set(centerX, 0.01, lavaChannelZ);
+      const lavaMat = new StandardMaterial(`ch6_lavaMat_${i}`, this.scene);
+      lavaMat.diffuseColor = new Color3(1.0, 0.4, 0.1);
+      lavaMat.emissiveColor = new Color3(1.0, 0.3, 0.05);
+      lavaMat.alpha = 0.7;
+      lavaChannel.material = lavaMat;
+    }
+
+    // 2 totems: cylinders with octahedron tops
+    const totemPoleMat = new StandardMaterial(`ch6_totemPoleMat`, this.scene);
+    totemPoleMat.diffuseColor = new Color3(0.25, 0.15, 0.1);
+
+    for (let i = 0; i < 2; i++) {
+      const offsetX = (i === 0 ? -6 : 6) + (rng() - 0.5) * 2;
+      const totemX = centerX + offsetX;
+      const totemZ = centerZ + 6;
+
+      const totemPole = MeshBuilder.CreateCylinder(`ch6_totemPole_${i}`, { height: 3, diameter: 0.2, tessellation: 8 }, this.scene);
+      totemPole.position.set(totemX, 1.5, totemZ);
+      totemPole.material = totemPoleMat;
+      this.renderer.shadowGenerator.addShadowCaster(totemPole);
+
+      const totemHead = MeshBuilder.CreatePolyhedron(`ch6_totemHead_${i}`, { type: 1, size: 0.5 }, this.scene);
+      totemHead.position.set(totemX, 3.2, totemZ);
+      const totemHeadMat = new StandardMaterial(`ch6_totemHeadMat_${i}`, this.scene);
+      totemHeadMat.diffuseColor = new Color3(0.6, 0.1, 0.08);
+      totemHead.material = totemHeadMat;
+      this.renderer.shadowGenerator.addShadowCaster(totemHead);
+    }
+  }
+
+  private buildChapter7Landmarks(rng: () => number): void {
+    // Ch7: 4 ceremonial pillars flanking south approach to boss arena
+    const positions = [
+      { x: 48, z: 38 },
+      { x: 52, z: 38 },
+      { x: 48, z: 44 },
+      { x: 52, z: 44 },
+    ];
+
+    const pillarMat = new StandardMaterial(`ch7_pillarMat`, this.scene);
+    pillarMat.diffuseColor = new Color3(0.75, 0.6, 0.15);
+    pillarMat.specularColor = new Color3(0.5, 0.5, 0.5);
+
+    for (let i = 0; i < positions.length; i++) {
+      const pos = positions[i];
+      const pillar = MeshBuilder.CreateCylinder(`ch7_ceremonialPillar_${i}`, { height: 8, diameter: 1.2, tessellation: 12 }, this.scene);
+      pillar.position.set(pos.x, 4, pos.z);
+      pillar.material = pillarMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  WATER FEATURES
+  // ══════════════════════════════════════════════════════════════════════════
+
+  private buildWaterFeatures(): void {
+    // River: flowing water across the landscape
+    const river = MeshBuilder.CreatePlane(`waterRiver`, { width: 4, height: 60 }, this.scene);
+    river.rotation.x = Math.PI / 2;
+    river.position.set(10, 0.08, -30);
+
+    const riverMat = new StandardMaterial(`riverMat`, this.scene);
+    riverMat.diffuseColor = new Color3(0.1, 0.3, 0.55);
+    riverMat.emissiveColor = new Color3(0.05, 0.15, 0.3);
+    riverMat.alpha = 0.35;
+    riverMat.backFaceCulling = false;
+    river.material = riverMat;
+
+    // Ocean: large water plane at far south
+    const ocean = MeshBuilder.CreatePlane(`waterOcean`, { width: 120, height: 40 }, this.scene);
+    ocean.rotation.x = Math.PI / 2;
+    ocean.position.set(0, 0.04, -110);
+
+    const oceanMat = new StandardMaterial(`oceanMat`, this.scene);
+    oceanMat.diffuseColor = new Color3(0.05, 0.15, 0.4);
+    oceanMat.emissiveColor = new Color3(0.02, 0.08, 0.22);
+    oceanMat.alpha = 0.45;
+    oceanMat.backFaceCulling = false;
+    ocean.material = oceanMat;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   //  CHAPTER BIOME SYSTEM
   // ══════════════════════════════════════════════════════════════════════════
 
@@ -1373,6 +2026,44 @@ export class World {
     if (sun && 'diffuse' in sun) {
       (sun as any).diffuse = new Color3(...b.sunColor);
       (sun as any).intensity = b.sunIntensity;
+    }
+
+    // Update ambient particle colors per chapter biome
+    if (this.emberParticles) {
+      if (chapter <= 2) {
+        // Forest: warm fireflies
+        this.emberParticles.color1 = new Color4(0.4, 0.9, 0.2, 0.8);
+        this.emberParticles.color2 = new Color4(0.3, 0.7, 0.1, 0.6);
+        this.emberParticles.emitRate = 25;
+      } else if (chapter === 3) {
+        // Mountains: dust motes
+        this.emberParticles.color1 = new Color4(0.6, 0.45, 0.2, 0.7);
+        this.emberParticles.color2 = new Color4(0.5, 0.4, 0.25, 0.5);
+        this.emberParticles.emitRate = 20;
+      } else if (chapter <= 5) {
+        // Coast: ocean mist
+        this.emberParticles.color1 = new Color4(0.7, 0.8, 0.95, 0.6);
+        this.emberParticles.color2 = new Color4(0.5, 0.65, 0.85, 0.4);
+        this.emberParticles.emitRate = 30;
+      } else {
+        // Lanka: intense embers
+        this.emberParticles.color1 = new Color4(1.0, 0.25, 0.05, 1.0);
+        this.emberParticles.color2 = new Color4(0.9, 0.15, 0.02, 0.85);
+        this.emberParticles.emitRate = 50;
+      }
+    }
+    if (this.ashParticles) {
+      if (chapter <= 2) {
+        this.ashParticles.color1 = new Color4(0.2, 0.35, 0.15, 0.5);
+        this.ashParticles.color2 = new Color4(0.15, 0.25, 0.1, 0.3);
+      } else if (chapter <= 5) {
+        this.ashParticles.color1 = new Color4(0.3, 0.35, 0.4, 0.5);
+        this.ashParticles.color2 = new Color4(0.2, 0.25, 0.3, 0.35);
+      } else {
+        this.ashParticles.color1 = new Color4(0.15, 0.1, 0.08, 0.8);
+        this.ashParticles.color2 = new Color4(0.1, 0.07, 0.05, 0.6);
+        this.ashParticles.emitRate = 20;
+      }
     }
   }
 }

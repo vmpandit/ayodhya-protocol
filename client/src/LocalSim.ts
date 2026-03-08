@@ -35,6 +35,7 @@ interface LocalEnemy {
   behaviorTimer: number;    // Time until next behavior change
   strafeDir: number;        // 1 = clockwise, -1 = counter-clockwise
   preferredRange: number;   // Ideal combat distance (8-20)
+  enemyType: 'soldier' | 'archer' | 'brute';  // Enemy type for behavior and visual differentiation
 }
 
 interface LocalBoss {
@@ -110,6 +111,12 @@ export class LocalSim {
   // Story NPCs (non-combatant NPCs with dialogue trees)
   public storyNPCs: StoryNPC[] = [];
 
+  /** Helper: push a story NPC and fire the spawn callback for visual rendering */
+  private addStoryNPC(npc: StoryNPC): void {
+    this.storyNPCs.push(npc);
+    this.onStoryNPCSpawned(npc.id, npc.name, npc.pos);
+  }
+
   // Dialogue system
   public dialogueInProgress = false;
   private currentDialogueTree: DialogueTree | null = null;
@@ -127,6 +134,15 @@ export class LocalSim {
 
   // Lone Warrior buff (if Lakshman declined)
   public loneWarriorBuff = false;
+
+  // Divine Blessings (Phase 4)
+  public blessings: Set<string> = new Set();
+  public blessingDamageMultiplier = 1.0;
+  public sprintBonusMultiplier = 1.0;
+  public arrowSpeedMultiplier = 1.0;
+  public dodgeDurationBonus = 0.0;
+  public bossDamageMultiplier = 1.0;
+  public dharmaGraceEnd = 0;
 
   // Tutorial system (Chapter 0)
   private tutorialSteps: Record<string, boolean> = {
@@ -186,9 +202,10 @@ export class LocalSim {
     7: { description: 'Strike the Amrita in Ravana\'s navel with the Brahmastra — restore Dharma to the three worlds', revealed: true, completed: false },
   };
 
-  // Damage multiplier (affected by Lone Warrior)
+  // Damage multiplier (affected by Lone Warrior and Blessings)
   public get damageMultiplier(): number {
-    return this.loneWarrierBuff_internal ? 1.3 : 1.0;
+    const baseMultiplier = this.loneWarrierBuff_internal ? 1.3 : 1.0;
+    return baseMultiplier * this.blessingDamageMultiplier;
   }
   private get loneWarrierBuff_internal(): boolean { return this.loneWarriorBuff; }
 
@@ -214,6 +231,7 @@ export class LocalSim {
   public onPickupCollected: (id: number) => void = () => {};
   public onChapterChange: (chapter: number, title: string, subtitle: string) => void = () => {};
   public onAllyMet: (id: string, name: string, message: string) => void = () => {};
+  public onStoryNPCSpawned: (id: string, name: string, pos: Vec3) => void = () => {};
   public onCompanionJoined: (id: string, name: string, pos: Vec3) => void = () => {};
   public onMeditationStateChanged: (active: boolean) => void = () => {};
   public onLakshmanChoice: () => void = () => {};
@@ -228,6 +246,8 @@ export class LocalSim {
   public onMapReveal: (cx: number, cz: number, radius: number, chapter: number, note?: string) => void = () => {};
   public onMapWaypoint: (x: number, z: number, type: number, label: string, chapter: number) => void = () => {};
   public onEnemyDroppedMap: (enemyId: number, cx: number, cz: number, radius: number) => void = () => {};
+  public onBlessingReceived: (name: string, description: string) => void = () => {};
+  public onDharmaGrace: () => void = () => {};
 
   constructor() {
     this.player = {
@@ -254,12 +274,13 @@ export class LocalSim {
         behaviorTimer: 0,
         strafeDir: Math.random() > 0.5 ? 1 : -1,
         preferredRange: 10 + Math.random() * 10,
+        enemyType: 'soldier',
       });
     }
 
     // Spawn Sage Agastya as story NPC in Chapter 0 (tutorial guide)
     const sagePos: Vec3 = { x: -5, y: 0, z: -10 };
-    this.storyNPCs.push({
+    this.addStoryNPC({
       id: 'sage', name: 'Sage Agastya', pos: sagePos,
       dialogueTreeId: 'ch1_sage', spoken: false,
     });
@@ -368,6 +389,8 @@ export class LocalSim {
       const npc = this.storyNPCs.find(n => n.id === this.nearbyNPCId);
       if (npc) {
         npc.spoken = true;
+        // Apply blessing from this NPC
+        this.applyBlessing(npc.id);
         // NPC reveals a large map area + waypoint
         this.onMapWaypoint(npc.pos.x, npc.pos.z, 1, npc.name, this.chapter); // NPCLocation = 1
         this.onMapReveal(npc.pos.x, npc.pos.z, 25, this.chapter, `${npc.name} shared knowledge of the surrounding lands`);
@@ -383,6 +406,89 @@ export class LocalSim {
   getNearbyNPC(): StoryNPC | null {
     if (!this.nearbyNPCId) return null;
     return this.storyNPCs.find(n => n.id === this.nearbyNPCId) || null;
+  }
+
+  // Get enemy type for visual differentiation
+  getEnemyType(enemyId: number): 'soldier' | 'archer' | 'brute' {
+    const enemy = this.enemies.find(e => e.state.id === enemyId);
+    return enemy ? enemy.enemyType : 'soldier';
+  }
+
+  // ── Divine Blessings (Phase 4) ────────────────────────────
+  private applyBlessing(npcId: string): void {
+    const blessingMap: Record<string, { key: string; name: string; desc: string; apply: () => void }> = {
+      'sage': {
+        key: 'sage_blessing',
+        name: "Agastya's Protection",
+        desc: '+15 Max HP',
+        apply: () => {
+          this.player.maxHp += 15;
+          this.player.hp = Math.min(this.player.hp + 15, this.player.maxHp);
+        }
+      },
+      'jatayu': {
+        key: 'jatayu_blessing',
+        name: "Jatayu's Resolve",
+        desc: '+10% Arrow Damage',
+        apply: () => {
+          this.blessingDamageMultiplier += 0.10;
+        }
+      },
+      'sugriv': {
+        key: 'sugriv_blessing',
+        name: 'Vanara Agility',
+        desc: '+20% Sprint Speed',
+        apply: () => {
+          this.sprintBonusMultiplier += 0.20;
+        }
+      },
+      'jambavan': {
+        key: 'jambavan_blessing',
+        name: "Bear King's Endurance",
+        desc: '+25 Max Stamina',
+        apply: () => {
+          this.player.stamina = Math.min(this.player.stamina + 25, C.PLAYER_MAX_STAMINA + 25);
+        }
+      },
+      'sampati': {
+        key: 'sampati_blessing',
+        name: "Eagle's Sight",
+        desc: '+15% Arrow Speed',
+        apply: () => {
+          this.arrowSpeedMultiplier += 0.15;
+        }
+      },
+      'angad': {
+        key: 'angad_blessing',
+        name: 'Immovable Stance',
+        desc: '+0.15s Dodge Duration',
+        apply: () => {
+          this.dodgeDurationBonus += 0.15;
+        }
+      },
+      'angad_npc': {
+        key: 'angad_blessing',
+        name: 'Immovable Stance',
+        desc: '+0.15s Dodge Duration',
+        apply: () => {
+          this.dodgeDurationBonus += 0.15;
+        }
+      },
+      'vibhishana': {
+        key: 'vibhishana_blessing',
+        name: "Ravana's Secret",
+        desc: '+15% Boss Damage',
+        apply: () => {
+          this.bossDamageMultiplier += 0.15;
+        }
+      },
+    };
+    const b = blessingMap[npcId];
+    if (b && !this.blessings.has(b.key)) {
+      this.blessings.add(b.key);
+      b.apply();
+      this.onBlessingReceived(b.name, b.desc);
+    }
   }
 
   // ── Lakshman Choice ──────────────────────────────────────────
@@ -621,10 +727,12 @@ export class LocalSim {
   private applyShockwave(): void {
     const origin = this.player.pos;
     const mult = this.damageMultiplier;
+    const now = performance.now();
     for (const enemy of this.enemies) {
       if (enemy.state.aiState === EnemyAIState.Dead) continue;
       if (dist3(origin, enemy.state.pos) <= C.SHOCKWAVE_RADIUS) {
-        const dmg = C.SHOCKWAVE_DAMAGE * mult;
+        let dmg = C.SHOCKWAVE_DAMAGE * mult;
+        if (now < this.dharmaGraceEnd) dmg *= 1.5;
         enemy.state.hp -= dmg;
         this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
         if (enemy.state.hp <= 0) {
@@ -638,7 +746,8 @@ export class LocalSim {
     }
     if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
       if (dist3(origin, this.boss.state.pos) <= C.SHOCKWAVE_RADIUS) {
-        const dmg = C.SHOCKWAVE_DAMAGE * mult;
+        let dmg = C.SHOCKWAVE_DAMAGE * mult * this.bossDamageMultiplier;
+        if (now < this.dharmaGraceEnd) dmg *= 1.5;
         this.boss.state.hp -= dmg;
         this.onDamage(DamageTargetType.Boss, 0, dmg, 1);
         this.checkBossPhase();
@@ -648,7 +757,11 @@ export class LocalSim {
 
   private spawnProjectile(ownerId: number, type: ProjectileType, origin: Vec3, dir: Vec3, damage: number, speed?: number): void {
     const id = this.nextProjId++;
-    const projSpeed = speed ?? C.ARROW_SPEED;
+    let projSpeed = speed ?? C.ARROW_SPEED;
+    // Apply arrow speed multiplier from blessings for basic arrows
+    if ((type === ProjectileType.Arrow || type === ProjectileType.FireArrow) && !speed) {
+      projSpeed *= this.arrowSpeedMultiplier;
+    }
     const l = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) || 1;
     const vel: Vec3 = { x: (dir.x / l) * projSpeed, y: (dir.y / l) * projSpeed, z: (dir.z / l) * projSpeed };
     const pos: Vec3 = { x: origin.x, y: origin.y + 1.2, z: origin.z };
@@ -725,8 +838,10 @@ export class LocalSim {
         for (const enemy of this.enemies) {
           if (enemy.state.aiState === EnemyAIState.Dead) continue;
           if (dist3(proj.state.pos, enemy.state.pos) < 1.2) {
-            enemy.state.hp -= proj.state.damage;
-            this.onDamage(DamageTargetType.Enemy, enemy.state.id, proj.state.damage, 1);
+            let dmg = proj.state.damage;
+            if (now < this.dharmaGraceEnd) dmg *= 1.5;
+            enemy.state.hp -= dmg;
+            this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
             if (enemy.state.hp <= 0) {
               enemy.state.hp = 0;
               enemy.state.aiState = EnemyAIState.Dead;
@@ -745,8 +860,10 @@ export class LocalSim {
         if (projToRemove.includes(id)) continue;
         if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
           if (dist3(proj.state.pos, this.boss.state.pos) < 2.5) {
-            this.boss.state.hp -= proj.state.damage;
-            this.onDamage(DamageTargetType.Boss, 0, proj.state.damage, 1);
+            let dmg = proj.state.damage * this.bossDamageMultiplier;
+            if (now < this.dharmaGraceEnd) dmg *= 1.5;
+            this.boss.state.hp -= dmg;
+            this.onDamage(DamageTargetType.Boss, 0, dmg, 1);
             this.checkBossPhase();
             projToRemove.push(id);
           }
@@ -757,9 +874,15 @@ export class LocalSim {
       if (proj.state.type === ProjectileType.EnemyProjectile || proj.state.type === ProjectileType.BossProjectile ||
           proj.state.type === ProjectileType.EnemyAgniAstra || proj.state.type === ProjectileType.EnemyVayuAstra ||
           proj.state.type === ProjectileType.EnemyNagaAstra) {
-        if (this.player.status === PlayerStatus.Alive && !this.player.isDodging) {
+        if (this.player.status === PlayerStatus.Alive) {
           if (dist3(proj.state.pos, this.player.pos) < 1.0) {
-            this.damagePlayer(proj.state.damage, proj.state.ownerId);
+            if (this.player.isDodging) {
+              // Perfect dodge activates Dharma's Grace
+              this.dharmaGraceEnd = now + 2000;
+              this.onDharmaGrace();
+            } else {
+              this.damagePlayer(proj.state.damage, proj.state.ownerId);
+            }
             projToRemove.push(id);
           }
         }
@@ -863,8 +986,9 @@ export class LocalSim {
         } else if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
           const bd = dist3(comp.pos, this.boss.state.pos);
           if (bd < comp.range) {
-            this.boss.state.hp -= comp.damage;
-            this.onDamage(DamageTargetType.Boss, 0, comp.damage, 100);
+            const dmg = comp.damage * this.bossDamageMultiplier;
+            this.boss.state.hp -= dmg;
+            this.onDamage(DamageTargetType.Boss, 0, dmg, 100);
             this.checkBossPhase();
             comp.lastAttackTime = now;
           }
@@ -903,21 +1027,22 @@ export class LocalSim {
 
     // Spawn Jambavan as story NPC in Chapter 4
     const jambPos: Vec3 = { x: -40, y: 0, z: -95 };
-    this.storyNPCs.push({
+    this.addStoryNPC({
       id: 'jambavan', name: 'Jambavan', pos: jambPos,
       dialogueTreeId: 'ch4_jambavan', spoken: false,
     });
 
     // Spawn Sampati as story NPC in Chapter 4
     const sampatiPos: Vec3 = { x: 15, y: 0, z: -105 };
-    this.storyNPCs.push({
+    this.addStoryNPC({
       id: 'sampati', name: 'Sampati', pos: sampatiPos,
       dialogueTreeId: 'ch4_sampati', spoken: false,
     });
     this.onMapWaypoint(jambPos.x, jambPos.z, 1, 'Jambavan', 4);
     this.onMapWaypoint(sampatiPos.x, sampatiPos.z, 1, 'Sampati', 4);
 
-    // Spawn 5 demon scouts (70 HP, faster) in shore area
+    // Spawn 5 demon scouts in shore area
+    // Mix: 40% soldier, 30% archer, 30% brute
     const ch4Positions: Vec3[] = [
       { x: -30, y: 0, z: -85 }, { x: 20, y: 0, z: -90 },
       { x: 0, y: 0, z: -100 }, { x: -45, y: 0, z: -75 },
@@ -925,13 +1050,36 @@ export class LocalSim {
     ];
     for (const pos of ch4Positions) {
       const id = this.nextEnemyId++;
+      const rand = Math.random();
+      let enemyType: 'soldier' | 'archer' | 'brute';
+      let hp: number;
+      let preferredRange: number;
+
+      if (rand < 0.4) {
+        // Soldier
+        enemyType = 'soldier';
+        hp = 70;
+        preferredRange = 10 + Math.random() * 10;
+      } else if (rand < 0.7) {
+        // Archer
+        enemyType = 'archer';
+        hp = C.ENEMY_ARCHER_HP;
+        preferredRange = 20 + Math.random() * 5;
+      } else {
+        // Brute
+        enemyType = 'brute';
+        hp = C.ENEMY_BRUTE_HP;
+        preferredRange = 3 + Math.random() * 2;
+      }
+
       this.enemies.push({
-        state: { id, pos: { ...pos }, yaw: 0, hp: 70, maxHp: 70, aiState: EnemyAIState.Patrol, targetId: 0 },
+        state: { id, pos: { ...pos }, yaw: 0, hp, maxHp: hp, aiState: EnemyAIState.Patrol, targetId: 0 },
         patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
         meleeCdEnd: 0, rangedCdEnd: 0,
         behaviorTimer: 0,
         strafeDir: Math.random() > 0.5 ? 1 : -1,
-        preferredRange: 10 + Math.random() * 10,
+        preferredRange,
+        enemyType,
       });
     }
   }
@@ -970,8 +1118,14 @@ export class LocalSim {
         const dx = px - enemy.state.pos.x;
         const dz = pz - enemy.state.pos.z;
         const l = Math.sqrt(dx * dx + dz * dz) || 1;
-        enemy.state.pos.x += (dx / l) * C.ENEMY_PATROL_SPEED * dt;
-        enemy.state.pos.z += (dz / l) * C.ENEMY_PATROL_SPEED * dt;
+
+        // Use type-specific patrol speed
+        let patrolSpeed = C.ENEMY_PATROL_SPEED;
+        if (enemy.enemyType === 'archer') patrolSpeed = C.ENEMY_ARCHER_PATROL_SPEED;
+        else if (enemy.enemyType === 'brute') patrolSpeed = C.ENEMY_BRUTE_PATROL_SPEED;
+
+        enemy.state.pos.x += (dx / l) * patrolSpeed * dt;
+        enemy.state.pos.z += (dz / l) * patrolSpeed * dt;
         enemy.state.yaw = Math.atan2(dx, dz);
         this.pushOutOfObstacles(enemy.state.pos);
         // Tutorial dummies don't chase — stay in patrol forever
@@ -1000,28 +1154,67 @@ export class LocalSim {
 
         // Roll new behavior when timer expires
         if (enemy.behaviorTimer <= 0) {
-          if (d > enemy.preferredRange * 1.5) {
-            enemy.state.aiState = EnemyAIState.Chase;
-          } else if (d < enemy.preferredRange * 0.5) {
-            const roll = Math.random();
-            if (roll < 0.4) {
+          // Behavior logic varies by enemy type
+          if (enemy.enemyType === 'archer') {
+            // Archer: keeps distance, prefers ranged combat, always retreats if too close
+            if (d < 10) {
+              // Always retreat if too close
               enemy.state.aiState = EnemyAIState.Retreat;
-            } else if (roll < 0.7) {
-              enemy.state.aiState = EnemyAIState.Strafe;
+            } else if (d >= 10 && d <= 24) {
+              // Preferred ranged zone: 70% strafe/ranged, 20% retreat, 10% chase
+              const roll = Math.random();
+              if (roll < 0.7) {
+                enemy.state.aiState = Math.random() < 0.5 ? EnemyAIState.Strafe : EnemyAIState.RangedAttack;
+              } else if (roll < 0.9) {
+                enemy.state.aiState = EnemyAIState.Retreat;
+              } else {
+                enemy.state.aiState = EnemyAIState.Chase;
+              }
             } else {
+              // Too far: chase to get into range
               enemy.state.aiState = EnemyAIState.Chase;
             }
-          } else {
-            // In optimal range
-            const roll = Math.random();
-            if (roll < 0.4) {
-              enemy.state.aiState = EnemyAIState.Strafe;
-            } else if (roll < 0.7) {
-              enemy.state.aiState = EnemyAIState.RangedAttack;
-            } else if (roll < 0.85) {
-              enemy.state.aiState = EnemyAIState.Flank;
-            } else {
+          } else if (enemy.enemyType === 'brute') {
+            // Brute: aggressive melee, almost never ranged, prefers flanking
+            if (d > enemy.preferredRange * 1.5) {
+              // Chase if too far
               enemy.state.aiState = EnemyAIState.Chase;
+            } else {
+              // In combat range: 80% chase, 15% flank, 5% strafe (almost never ranged)
+              const roll = Math.random();
+              if (roll < 0.8) {
+                enemy.state.aiState = EnemyAIState.Chase;
+              } else if (roll < 0.95) {
+                enemy.state.aiState = EnemyAIState.Flank;
+              } else {
+                enemy.state.aiState = EnemyAIState.Strafe;
+              }
+            }
+          } else {
+            // Soldier (default): balanced behavior
+            if (d > enemy.preferredRange * 1.5) {
+              enemy.state.aiState = EnemyAIState.Chase;
+            } else if (d < enemy.preferredRange * 0.5) {
+              const roll = Math.random();
+              if (roll < 0.4) {
+                enemy.state.aiState = EnemyAIState.Retreat;
+              } else if (roll < 0.7) {
+                enemy.state.aiState = EnemyAIState.Strafe;
+              } else {
+                enemy.state.aiState = EnemyAIState.Chase;
+              }
+            } else {
+              // In optimal range
+              const roll = Math.random();
+              if (roll < 0.4) {
+                enemy.state.aiState = EnemyAIState.Strafe;
+              } else if (roll < 0.7) {
+                enemy.state.aiState = EnemyAIState.RangedAttack;
+              } else if (roll < 0.85) {
+                enemy.state.aiState = EnemyAIState.Flank;
+              } else {
+                enemy.state.aiState = EnemyAIState.Chase;
+              }
             }
           }
           enemy.behaviorTimer = 1.5 + Math.random() * 2;
@@ -1030,16 +1223,39 @@ export class LocalSim {
 
         // Execute current behavior
         if (enemy.state.aiState === EnemyAIState.Chase) {
-          enemy.state.pos.x += (dx / d) * C.ENEMY_CHASE_SPEED * dt;
-          enemy.state.pos.z += (dz / d) * C.ENEMY_CHASE_SPEED * dt;
+          // Use type-specific chase speed
+          let chaseSpeed = C.ENEMY_CHASE_SPEED;
+          if (enemy.enemyType === 'archer') chaseSpeed = C.ENEMY_ARCHER_CHASE_SPEED;
+          else if (enemy.enemyType === 'brute') chaseSpeed = C.ENEMY_BRUTE_CHASE_SPEED;
+
+          enemy.state.pos.x += (dx / d) * chaseSpeed * dt;
+          enemy.state.pos.z += (dz / d) * chaseSpeed * dt;
         } else if (enemy.state.aiState === EnemyAIState.Strafe) {
           // Perpendicular movement (rotated 90°)
           const perpX = -dz / d * enemy.strafeDir;
           const perpZ = dx / d * enemy.strafeDir;
-          enemy.state.pos.x += perpX * C.ENEMY_CHASE_SPEED * 0.8 * dt;
-          enemy.state.pos.z += perpZ * C.ENEMY_CHASE_SPEED * 0.8 * dt;
+
+          // Use type-specific chase speed for strafe
+          let chaseSpeed = C.ENEMY_CHASE_SPEED;
+          if (enemy.enemyType === 'archer') chaseSpeed = C.ENEMY_ARCHER_CHASE_SPEED;
+          else if (enemy.enemyType === 'brute') chaseSpeed = C.ENEMY_BRUTE_CHASE_SPEED;
+
+          enemy.state.pos.x += perpX * chaseSpeed * 0.8 * dt;
+          enemy.state.pos.z += perpZ * chaseSpeed * 0.8 * dt;
+
+          // Determine ranged range and cooldown based on type
+          let rangedRange = C.ENEMY_RANGED_RANGE;
+          let rangedCooldown = C.ENEMY_RANGED_COOLDOWN_MS;
+          if (enemy.enemyType === 'archer') {
+            rangedRange = C.ENEMY_ARCHER_RANGED_RANGE;
+            rangedCooldown = C.ENEMY_ARCHER_RANGED_COOLDOWN_MS;
+          } else if (enemy.enemyType === 'brute') {
+            rangedRange = C.ENEMY_BRUTE_RANGED_RANGE;
+            rangedCooldown = C.ENEMY_BRUTE_RANGED_COOLDOWN_MS;
+          }
+
           // Still fire when able
-          if (d <= C.ENEMY_RANGED_RANGE && now >= enemy.rangedCdEnd) {
+          if (d <= rangedRange && now >= enemy.rangedCdEnd) {
             const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
             dir.y += 0.1;
             if (Math.random() < 0.3) {
@@ -1061,22 +1277,43 @@ export class LocalSim {
             } else {
               this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
             }
-            enemy.rangedCdEnd = now + C.ENEMY_RANGED_COOLDOWN_MS;
+            enemy.rangedCdEnd = now + rangedCooldown;
           }
         } else if (enemy.state.aiState === EnemyAIState.Retreat) {
-          enemy.state.pos.x -= (dx / d) * C.ENEMY_CHASE_SPEED * 0.6 * dt;
-          enemy.state.pos.z -= (dz / d) * C.ENEMY_CHASE_SPEED * 0.6 * dt;
+          // Use type-specific chase speed for retreat
+          let chaseSpeed = C.ENEMY_CHASE_SPEED;
+          if (enemy.enemyType === 'archer') chaseSpeed = C.ENEMY_ARCHER_CHASE_SPEED;
+          else if (enemy.enemyType === 'brute') chaseSpeed = C.ENEMY_BRUTE_CHASE_SPEED;
+
+          enemy.state.pos.x -= (dx / d) * chaseSpeed * 0.6 * dt;
+          enemy.state.pos.z -= (dz / d) * chaseSpeed * 0.6 * dt;
           if (d >= enemy.preferredRange) {
             enemy.state.aiState = EnemyAIState.Strafe;
             enemy.behaviorTimer = 1.5 + Math.random() * 2;
           }
         } else if (enemy.state.aiState === EnemyAIState.Flank) {
+          // Use type-specific chase speed for flanking
+          let chaseSpeed = C.ENEMY_CHASE_SPEED;
+          if (enemy.enemyType === 'archer') chaseSpeed = C.ENEMY_ARCHER_CHASE_SPEED;
+          else if (enemy.enemyType === 'brute') chaseSpeed = C.ENEMY_BRUTE_CHASE_SPEED;
+
           const angle = Math.atan2(dx, dz) + (Math.PI / 4) * enemy.strafeDir;
-          enemy.state.pos.x += Math.sin(angle) * C.ENEMY_CHASE_SPEED * dt;
-          enemy.state.pos.z += Math.cos(angle) * C.ENEMY_CHASE_SPEED * dt;
+          enemy.state.pos.x += Math.sin(angle) * chaseSpeed * dt;
+          enemy.state.pos.z += Math.cos(angle) * chaseSpeed * dt;
         } else if (enemy.state.aiState === EnemyAIState.RangedAttack) {
           // Stay still and shoot
-          if (d <= C.ENEMY_RANGED_RANGE && now >= enemy.rangedCdEnd) {
+          // Determine ranged range and cooldown based on type
+          let rangedRange = C.ENEMY_RANGED_RANGE;
+          let rangedCooldown = C.ENEMY_RANGED_COOLDOWN_MS;
+          if (enemy.enemyType === 'archer') {
+            rangedRange = C.ENEMY_ARCHER_RANGED_RANGE;
+            rangedCooldown = C.ENEMY_ARCHER_RANGED_COOLDOWN_MS;
+          } else if (enemy.enemyType === 'brute') {
+            rangedRange = C.ENEMY_BRUTE_RANGED_RANGE;
+            rangedCooldown = C.ENEMY_BRUTE_RANGED_COOLDOWN_MS;
+          }
+
+          if (d <= rangedRange && now >= enemy.rangedCdEnd) {
             const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
             dir.y += 0.1;
             if (Math.random() < 0.3) {
@@ -1098,17 +1335,31 @@ export class LocalSim {
             } else {
               this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
             }
-            enemy.rangedCdEnd = now + C.ENEMY_RANGED_COOLDOWN_MS;
+            enemy.rangedCdEnd = now + rangedCooldown;
           }
         }
 
         this.pushOutOfObstacles(enemy.state.pos);
 
         // Melee attack when in range
-        if (nearestDist <= C.ENEMY_MELEE_RANGE) {
+        // Determine melee range, damage, and cooldown based on type
+        let meleeRange = C.ENEMY_MELEE_RANGE;
+        let meleeDamage = C.ENEMY_MELEE_DAMAGE;
+        let meleeCooldown = C.ENEMY_MELEE_COOLDOWN_MS;
+
+        if (enemy.enemyType === 'archer') {
+          meleeDamage = C.ENEMY_ARCHER_MELEE_DAMAGE;
+          meleeCooldown = C.ENEMY_ARCHER_MELEE_COOLDOWN_MS;
+        } else if (enemy.enemyType === 'brute') {
+          meleeRange = C.ENEMY_BRUTE_MELEE_RANGE;
+          meleeDamage = C.ENEMY_BRUTE_MELEE_DAMAGE;
+          meleeCooldown = C.ENEMY_BRUTE_MELEE_COOLDOWN_MS;
+        }
+
+        if (nearestDist <= meleeRange) {
           if (now >= enemy.meleeCdEnd && !this.player.isDodging) {
-            this.damagePlayer(C.ENEMY_MELEE_DAMAGE, 200 + enemy.state.id);
-            enemy.meleeCdEnd = now + C.ENEMY_MELEE_COOLDOWN_MS;
+            this.damagePlayer(meleeDamage, 200 + enemy.state.id);
+            enemy.meleeCdEnd = now + meleeCooldown;
             // 20% chance to trigger retreat after melee
             if (Math.random() < 0.2) {
               enemy.state.aiState = EnemyAIState.Retreat;
@@ -1237,26 +1488,43 @@ export class LocalSim {
 
       // Spawn Jatayu's Spirit as story NPC in Chapter 2
       const jatayuPos: Vec3 = { x: -20, y: 0, z: -55 };
-      this.storyNPCs.push({
+      this.addStoryNPC({
         id: 'jatayu', name: 'Spirit of Jatayu', pos: jatayuPos,
         dialogueTreeId: 'ch2_jatayu', spoken: false,
       });
 
       // Spawn 4 tougher enemies for chapter 2 (south scorched zone)
+      // Mix: 60% soldier, 40% archer
       const chapter2Positions: Vec3[] = [
         { x: -25, y: 0, z: -50 }, { x: 15, y: 0, z: -60 },
         { x: -10, y: 0, z: -70 }, { x: 30, y: 0, z: -55 },
       ];
       for (const pos of chapter2Positions) {
         const id = this.nextEnemyId++;
-        this.enemies.push({
-          state: { id, pos: { ...pos }, yaw: 0, hp: 80, maxHp: 80, aiState: EnemyAIState.Patrol, targetId: 0 },
-          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-          meleeCdEnd: 0, rangedCdEnd: 0,
-          behaviorTimer: 0,
-          strafeDir: Math.random() > 0.5 ? 1 : -1,
-          preferredRange: 10 + Math.random() * 10,
-        });
+        const rand = Math.random();
+        const isArcher = rand < 0.4;
+
+        if (isArcher) {
+          this.enemies.push({
+            state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_ARCHER_HP, maxHp: C.ENEMY_ARCHER_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
+            patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+            meleeCdEnd: 0, rangedCdEnd: 0,
+            behaviorTimer: 0,
+            strafeDir: Math.random() > 0.5 ? 1 : -1,
+            preferredRange: 20 + Math.random() * 5,
+            enemyType: 'archer',
+          });
+        } else {
+          this.enemies.push({
+            state: { id, pos: { ...pos }, yaw: 0, hp: 80, maxHp: 80, aiState: EnemyAIState.Patrol, targetId: 0 },
+            patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+            meleeCdEnd: 0, rangedCdEnd: 0,
+            behaviorTimer: 0,
+            strafeDir: Math.random() > 0.5 ? 1 : -1,
+            preferredRange: 10 + Math.random() * 10,
+            enemyType: 'soldier',
+          });
+        }
       }
     }
     // Chapter 2 → 3 (Kishkindha — meet Sugriv): 4 elites killed
@@ -1272,7 +1540,7 @@ export class LocalSim {
 
       // Spawn Sugriv as story NPC with dialogue tree
       const sugrivPos: Vec3 = { x: -55, y: 0, z: -65 };
-      this.storyNPCs.push({
+      this.addStoryNPC({
         id: 'sugriv', name: 'Sugriv', pos: sugrivPos,
         dialogueTreeId: 'ch3_sugriv', spoken: false,
       });
@@ -1299,7 +1567,7 @@ export class LocalSim {
 
       // Spawn Angad as story NPC in Chapter 5
       const angadNpcPos: Vec3 = { x: 55, y: 0, z: -35 };
-      this.storyNPCs.push({
+      this.addStoryNPC({
         id: 'angad_npc', name: 'Angad', pos: angadNpcPos,
         dialogueTreeId: 'ch5_angad', spoken: false,
       });
@@ -1313,7 +1581,8 @@ export class LocalSim {
         ]);
       }, 5000);
 
-      // Spawn 5 elite demon warriors (90 HP) in eastern march
+      // Spawn 5 elite demon warriors in eastern march
+      // Mix: 20% soldier, 40% archer, 40% brute
       const ch5Positions: Vec3[] = [
         { x: 35, y: 0, z: -45 }, { x: 60, y: 0, z: -25 },
         { x: 45, y: 0, z: -55 }, { x: 70, y: 0, z: -10 },
@@ -1321,13 +1590,36 @@ export class LocalSim {
       ];
       for (const pos of ch5Positions) {
         const id = this.nextEnemyId++;
+        const rand = Math.random();
+        let enemyType: 'soldier' | 'archer' | 'brute';
+        let hp: number;
+        let preferredRange: number;
+
+        if (rand < 0.2) {
+          // Soldier
+          enemyType = 'soldier';
+          hp = 90;
+          preferredRange = 10 + Math.random() * 10;
+        } else if (rand < 0.6) {
+          // Archer
+          enemyType = 'archer';
+          hp = C.ENEMY_ARCHER_HP;
+          preferredRange = 20 + Math.random() * 5;
+        } else {
+          // Brute
+          enemyType = 'brute';
+          hp = C.ENEMY_BRUTE_HP;
+          preferredRange = 3 + Math.random() * 2;
+        }
+
         this.enemies.push({
-          state: { id, pos: { ...pos }, yaw: 0, hp: 90, maxHp: 90, aiState: EnemyAIState.Patrol, targetId: 0 },
+          state: { id, pos: { ...pos }, yaw: 0, hp, maxHp: hp, aiState: EnemyAIState.Patrol, targetId: 0 },
           patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
           meleeCdEnd: 0, rangedCdEnd: 0,
           behaviorTimer: 0,
           strafeDir: Math.random() > 0.5 ? 1 : -1,
-          preferredRange: 10 + Math.random() * 10,
+          preferredRange,
+          enemyType,
         });
       }
     }
@@ -1362,7 +1654,7 @@ export class LocalSim {
 
       // Spawn Vibhishana as story NPC in Chapter 6
       const vibhishanaPos: Vec3 = { x: 40, y: 0, z: 25 };
-      this.storyNPCs.push({
+      this.addStoryNPC({
         id: 'vibhishana', name: 'Vibhishana', pos: vibhishanaPos,
         dialogueTreeId: 'ch6_vibhishana', spoken: false,
       });
@@ -1455,20 +1747,37 @@ export class LocalSim {
     this.nextEnemyId = 1;
 
     // Spawn Chapter 1 enemies
+    // Mix: 60% soldier, 40% archer
     const chapter1Positions: Vec3[] = [
       { x: -20, y: 0, z: -20 }, { x: 20, y: 0, z: -25 },
       { x: -30, y: 0, z: 10 }, { x: 15, y: 0, z: 30 },
     ];
     for (const pos of chapter1Positions) {
       const id = this.nextEnemyId++;
-      this.enemies.push({
-        state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_HP, maxHp: C.ENEMY_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
-        patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-        meleeCdEnd: 0, rangedCdEnd: 0,
-        behaviorTimer: 0,
-        strafeDir: Math.random() > 0.5 ? 1 : -1,
-        preferredRange: 10 + Math.random() * 10,
-      });
+      const rand = Math.random();
+      const isArcher = rand < 0.4;
+
+      if (isArcher) {
+        this.enemies.push({
+          state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_ARCHER_HP, maxHp: C.ENEMY_ARCHER_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
+          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+          meleeCdEnd: 0, rangedCdEnd: 0,
+          behaviorTimer: 0,
+          strafeDir: Math.random() > 0.5 ? 1 : -1,
+          preferredRange: 20 + Math.random() * 5,
+          enemyType: 'archer',
+        });
+      } else {
+        this.enemies.push({
+          state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_HP, maxHp: C.ENEMY_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
+          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+          meleeCdEnd: 0, rangedCdEnd: 0,
+          behaviorTimer: 0,
+          strafeDir: Math.random() > 0.5 ? 1 : -1,
+          preferredRange: 10 + Math.random() * 10,
+          enemyType: 'soldier',
+        });
+      }
     }
   }
 

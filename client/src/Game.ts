@@ -41,6 +41,9 @@ export class Game {
   // ── Hit-stop: freeze the sim briefly on a successful enemy hit ──────
   private hitStopEnd = 0;
 
+  // ── Kill slowdown: slow down time when enemy dies ──────────────────
+  private killSlowdownTimer = 0;
+
   // ── Boss phase tracking for phase-shift events ─────────────────────
   private lastBossPhase: BossPhase | null = null;
 
@@ -220,6 +223,8 @@ export class Game {
         } else if (targetType === DamageTargetType.Enemy) {
           this.haptics.play(HapticMotif.ArrowHitEnemy);
           this.audio.play(SFX.ArrowHit);
+          // Enemy hit flash
+          this.world.flashEnemyHit(targetId);
           // Check for enemy kill → kill feed
           const snap = this.lastSnapshot;
           if (snap) {
@@ -227,6 +232,9 @@ export class Game {
             if (enemy && enemy.hp - damage <= 0) {
               this.hud.addKillFeedEntry(`Sentinel #${targetId} eliminated`, '#ff6633');
               this.audio.play(SFX.EnemyDeath);
+              // Trigger kill slowdown and death burst
+              this.killSlowdownTimer = 0.08;
+              this.world.spawnDeathBurst(enemy.pos);
             }
           }
         }
@@ -241,6 +249,19 @@ export class Game {
       this.audio.play(won ? SFX.Victory : SFX.Defeat);
       if (won) {
         this.hud.addKillFeedEntry('DHARMA PREVAILS — RAVANA DEFEATED', '#ffd700');
+      }
+    };
+
+    this.localSim.onBlessingReceived = (name, desc) => {
+      this.hud.showBlessingReceived(name, desc);
+      this.audio.play(SFX.UIStart);
+    };
+
+    this.localSim.onDharmaGrace = () => {
+      const el = document.getElementById('dharmaGrace');
+      if (el) {
+        el.style.opacity = '1';
+        setTimeout(() => { el.style.opacity = '0'; }, 2000);
       }
     };
 
@@ -284,6 +305,10 @@ export class Game {
       // Show the dialogue node with speaker name and text
       this.hud.showDialogueNode(node, isEnd);
       this.audio.play(SFX.BossRoar); // reuse for dramatic effect
+    };
+
+    this.localSim.onStoryNPCSpawned = (id, name, pos) => {
+      this.world.spawnAllyNPC(id, name, pos);
     };
 
     this.localSim.onCompanionJoined = (id, name, pos) => {
@@ -358,6 +383,11 @@ export class Game {
       this.mapRenderer.revealLargeArea(cx, cz, radius, this.localSim!.chapter, 'Map fragment recovered from fallen enemy');
       this.hud.showNotification('MAP FRAGMENT FOUND');
     };
+
+    // Spawn visual meshes for any story NPCs already created during LocalSim constructor
+    for (const npc of this.localSim.storyNPCs) {
+      this.world.spawnAllyNPC(npc.id, npc.name, npc.pos);
+    }
 
     // Initial waypoints — spawn point and tutorial area
     this.mapRenderer.addWaypoint({
@@ -468,8 +498,15 @@ export class Game {
 
   private gameLoop(): void {
     if (!this.running) return;
-    const dt = this.renderer.engine.getDeltaTime() / 1000;
+    const realDt = this.renderer.engine.getDeltaTime() / 1000;
+    let dt = realDt;
     this.frameIndex++;
+
+    // ── Kill slowdown: slow down time when enemy dies ──────────────────
+    if (this.killSlowdownTimer > 0) {
+      dt *= 0.3;
+      this.killSlowdownTimer -= realDt;
+    }
 
     // ── Performance monitoring ─────────────────────────────────
     this.perfManager.update(dt);
@@ -733,7 +770,14 @@ export class Game {
       const yawOverride = isLocal && this.controller ? this.controller.getVisualYaw() : undefined;
       this.world.updatePlayerMesh(ps, isLocal, yawOverride);
     }
-    for (const es of snap.enemies) this.world.updateEnemyMesh(es);
+    for (const es of snap.enemies) {
+      // Set enemy type for visual differentiation
+      if (this.localSim) {
+        const enemyType = this.localSim.getEnemyType(es.id);
+        this.world.setEnemyType(es.id, enemyType);
+      }
+      this.world.updateEnemyMesh(es);
+    }
     if (snap.boss) this.world.updateBossMesh(snap.boss);
 
     const local = snap.players.find(p => p.id === this.localPlayerId);

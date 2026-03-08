@@ -60,7 +60,7 @@ export const DODGE_STAMINA_COST = 25;
 export const REVIVE_DURATION_MS = 3000;
 export const REVIVE_RANGE = 3;
 
-// Enemy
+// Enemy — Soldier (default)
 export const ENEMY_PATROL_SPEED = 2;
 export const ENEMY_CHASE_SPEED = 4.5;
 export const ENEMY_AGGRO_RANGE = 15;
@@ -72,6 +72,25 @@ export const ENEMY_RANGED_RANGE = 18;
 export const ENEMY_RANGED_DAMAGE = 8;
 export const ENEMY_RANGED_COOLDOWN_MS = 2500;
 export const ENEMY_HP = 60;
+
+// Enemy — Archer
+export const ENEMY_ARCHER_HP = 45;
+export const ENEMY_ARCHER_PATROL_SPEED = 2.5;
+export const ENEMY_ARCHER_CHASE_SPEED = 5.0;
+export const ENEMY_ARCHER_MELEE_DAMAGE = 8;
+export const ENEMY_ARCHER_MELEE_COOLDOWN_MS = 2000;
+export const ENEMY_ARCHER_RANGED_RANGE = 24;
+export const ENEMY_ARCHER_RANGED_COOLDOWN_MS = 800;
+
+// Enemy — Brute
+export const ENEMY_BRUTE_HP = 100;
+export const ENEMY_BRUTE_PATROL_SPEED = 1.5;
+export const ENEMY_BRUTE_CHASE_SPEED = 3.5;
+export const ENEMY_BRUTE_MELEE_DAMAGE = 20;
+export const ENEMY_BRUTE_MELEE_COOLDOWN_MS = 1200;
+export const ENEMY_BRUTE_MELEE_RANGE = 3.5;
+export const ENEMY_BRUTE_RANGED_RANGE = 10;
+export const ENEMY_BRUTE_RANGED_COOLDOWN_MS = 3000;
 
 // Boss
 export const BOSS_HP_BASE = 500;

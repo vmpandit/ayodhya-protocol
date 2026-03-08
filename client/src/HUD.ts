@@ -135,6 +135,23 @@ export class HUD {
     }
   }
 
+  showBlessingReceived(name: string, description: string): void {
+    const el = document.getElementById('blessingNotification');
+    const nameEl = document.getElementById('blessingName');
+    const descEl = document.getElementById('blessingDesc');
+    if (el && nameEl && descEl) {
+      nameEl.textContent = name;
+      descEl.textContent = description;
+      el.style.opacity = '1';
+      setTimeout(() => { el.style.opacity = '0'; }, 4000);
+    }
+  }
+
+  updateDharmaGrace(active: boolean): void {
+    const el = document.getElementById('dharmaGrace');
+    if (el) el.style.opacity = active ? '1' : '0';
+  }
+
   updatePlayerBars(hp: number, maxHp: number, stamina: number): void {
     const hpPct = Math.max(0, (hp / maxHp) * 100);
     this.hpBar.style.width = `${hpPct}%`;

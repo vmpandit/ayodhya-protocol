@@ -14,6 +14,11 @@ export const enum WaypointType {
   Landmark = 5,         // Rock, tree cluster, etc.
   ChapterGate = 6,      // Chapter transition zone
   CompanionMet = 7,     // Where you met a companion
+  Bridge = 8,           // Bridge crossing
+  Temple = 9,           // Temple or shrine
+  Cave = 10,            // Cave entrance
+  BattleSite = 11,      // Important battle location
+  WaterCrossing = 12,   // River/water crossing
 }
 
 export interface MapWaypoint {
@@ -74,6 +79,11 @@ const WAYPOINT_ICONS: Record<WaypointType, { symbol: string; color: string; size
   [WaypointType.Landmark]: { symbol: '▲', color: INK_LIGHT, size: 7 },
   [WaypointType.ChapterGate]: { symbol: '⊕', color: BLUE_INK, size: 9 },
   [WaypointType.CompanionMet]: { symbol: '★', color: GOLD_COLOR, size: 9 },
+  [WaypointType.Bridge]: { symbol: '⌇', color: GOLD_COLOR, size: 10 },
+  [WaypointType.Temple]: { symbol: '◎', color: GOLD_COLOR, size: 9 },
+  [WaypointType.Cave]: { symbol: '◉', color: '#6b4226', size: 8 },
+  [WaypointType.BattleSite]: { symbol: '⚔', color: RED_INK, size: 9 },
+  [WaypointType.WaterCrossing]: { symbol: '≈', color: BLUE_INK, size: 9 },
 };
 
 export class MapRenderer {
@@ -209,6 +219,9 @@ export class MapRenderer {
     // Fog of war
     this.drawFogOfWar(ctx, w, h);
 
+    // Chapter zone labels
+    this.drawChapterZoneLabels(ctx, w, h);
+
     // Breadcrumb trail
     this.drawBreadcrumbs(ctx, w, h);
 
@@ -319,7 +332,60 @@ export class MapRenderer {
       }
     }
 
-    // River / water (wavy line)
+    // River (matches World.ts water at (10, 0.08, -30), 4 wide, 60 long)
+    // Draw from (10, 0) to (10, -60)
+    if (this.isRevealed(10, 0) || this.isRevealed(10, -30) || this.isRevealed(10, -60)) {
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = BLUE_INK;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([4, 3]); // dashed pattern
+      ctx.beginPath();
+      const riverStart = this.worldToCanvas(10, 0, w, h);
+      const riverEnd = this.worldToCanvas(10, -60, w, h);
+      ctx.moveTo(riverStart.x, riverStart.y);
+      ctx.lineTo(riverEnd.x, riverEnd.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Ocean (matches World.ts water at (0, 0.04, -110), 120 wide, 40 long)
+    // Fill rectangle from z=-90 to z=-130 (southern edge), x=-60 to x=60
+    // Clamp to visible map bounds
+    {
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = BLUE_INK;
+      const oceanTop = this.worldToCanvas(-60, -90, w, h);
+      const oceanBot = this.worldToCanvas(60, -130, w, h);
+      // Clamp to canvas bounds
+      const oceanY = Math.max(oceanBot.y, 0);
+      const oceanH = Math.min(oceanTop.y - oceanY, h);
+      ctx.fillRect(oceanTop.x, oceanY, oceanBot.x - oceanTop.x, oceanH);
+    }
+
+    // Rama Setu Bridge (from world (20, -90) to (42, -62))
+    if (this.isRevealed(20, -90) || this.isRevealed(42, -62) || this.isRevealed(31, -76)) {
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = GOLD_COLOR;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]); // dotted pattern
+      ctx.beginPath();
+      const bridgeStart = this.worldToCanvas(20, -90, w, h);
+      const bridgeEnd = this.worldToCanvas(42, -62, w, h);
+      ctx.moveTo(bridgeStart.x, bridgeStart.y);
+      ctx.lineTo(bridgeEnd.x, bridgeEnd.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Label "Rama Setu" at midpoint
+      const bridgeMid = this.worldToCanvas(31, -76, w, h);
+      ctx.globalAlpha = 0.5;
+      ctx.font = 'italic 10px "Cinzel", serif';
+      ctx.fillStyle = GOLD_COLOR;
+      ctx.textAlign = 'center';
+      ctx.fillText('Rama Setu', bridgeMid.x, bridgeMid.y - 6);
+    }
+
+    // River / water (wavy line) - original decorative feature
     if (this.isRevealed(0, -45) || this.isRevealed(0, 45)) {
       ctx.globalAlpha = 0.2;
       ctx.strokeStyle = BLUE_INK;
@@ -403,6 +469,35 @@ export class MapRenderer {
 
     // Composite fog onto main canvas
     ctx.drawImage(fogCanvas, 0, 0);
+  }
+
+  private drawChapterZoneLabels(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    // Chapter zone labels at their center positions
+    const zones: Array<{ label: string; x: number; z: number }> = [
+      { label: 'Dandaka Forest', x: 0, z: -15 },
+      { label: 'Panchavati', x: -20, z: -55 },
+      { label: 'Kishkindha', x: -55, z: -65 },
+      { label: 'Southern Shore', x: -10, z: -95 },
+      { label: 'Rama Setu', x: 31, z: -76 },
+      { label: 'Lanka Gates', x: 40, z: 25 },
+      { label: 'Ravana\'s Palace', x: 50, z: 50 },
+    ];
+
+    for (const zone of zones) {
+      // Only draw in revealed regions
+      if (!this.isRevealed(zone.x, zone.z)) continue;
+
+      const p = this.worldToCanvas(zone.x, zone.z, w, h);
+
+      ctx.font = 'italic 11px "Cinzel", serif';
+      ctx.fillStyle = INK_COLOR;
+      ctx.globalAlpha = 0.6;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(zone.label, p.x, p.y);
+    }
+
+    ctx.globalAlpha = 1;
   }
 
   private drawBreadcrumbs(ctx: CanvasRenderingContext2D, w: number, h: number): void {

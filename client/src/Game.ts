@@ -282,6 +282,27 @@ export class Game {
       this.audio.play(SFX.ArrowHit); // pickup sound
     };
 
+    // ── Headshot & Critical hit feedback ────────────────────────────
+    this.localSim.onHeadshot = (enemyId: number) => {
+      this.hud.addKillFeedEntry('HEADSHOT!', '#ff4444');
+      this.hud.triggerScreenShake();
+    };
+
+    this.localSim.onCriticalHit = (_targetType: DamageTargetType, _targetId: number, damage: number) => {
+      this.hud.addKillFeedEntry(`CRITICAL HIT — ${damage} DMG`, '#ffd700');
+    };
+
+    // ── Health pickup system ────────────────────────────────────────
+    this.localSim.onHealthPickupSpawned = (id, pos, _healAmount) => {
+      this.world.spawnPickup(id, pos, 0); // reuse pickup mesh (0 arrows = health)
+    };
+
+    this.localSim.onHealthPickupCollected = (id) => {
+      this.world.removePickup(id);
+      this.hud.showNotification('+15 HP');
+      this.audio.play(SFX.UIStart);
+    };
+
     this.localSim.onChapterChange = (chapter, title, subtitle) => {
       // Update chapter indicator in HUD corner
       const chapterEl = document.getElementById('chapterIndicator');
@@ -773,6 +794,8 @@ export class Game {
     }
 
     this.world.updateProjectiles(dt);
+    // Update water shimmer/flow animation
+    this.world.updateWater(dt);
     // Update NPC beacon animations (rotating diamonds, pulsing light pillars)
     this.world.updateNPCBeacons(dt);
 

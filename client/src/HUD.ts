@@ -41,6 +41,7 @@ export class HUD {
   private dialogueHint: HTMLElement | null;
   private tutorialChecklist: HTMLElement | null;
   private backstoryOverlay: HTMLElement | null;
+  private renderCanvas: HTMLElement | null;
 
   // ── Dialogue choice callback ──────────────────────────────
   public onChoiceSelected: (index: number) => void = () => {};
@@ -92,6 +93,7 @@ export class HUD {
     this.dialogueHint = document.getElementById('dialogueHint');
     this.tutorialChecklist = document.getElementById('tutorialChecklist');
     this.backstoryOverlay = document.getElementById('backstoryOverlay');
+    this.renderCanvas = document.getElementById('renderCanvas');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
@@ -156,6 +158,18 @@ export class HUD {
 
   updatePlayerBars(hp: number, maxHp: number, stamina: number): void {
     const hpPct = Math.max(0, (hp / maxHp) * 100);
+    const prevHpPct = parseFloat(this.hpBar.style.width) || 100;
+
+    // Damage flash effect: briefly show red before transitioning
+    if (hpPct < prevHpPct) {
+      this.hpBar.style.background = 'linear-gradient(90deg, #ff0000, #ff6666)';
+      this.hpBar.style.boxShadow = 'inset 0 1px 2px rgba(255,255,255,0.1), 0 0 12px rgba(255,0,0,0.8)';
+      setTimeout(() => {
+        this.hpBar.style.background = 'linear-gradient(90deg, #c0392b, #e74c3c)';
+        this.hpBar.style.boxShadow = 'inset 0 1px 2px rgba(255,255,255,0.1)';
+      }, 150);
+    }
+
     this.hpBar.style.width = `${hpPct}%`;
     this.hpLabel.textContent = `${Math.round(hp)} / ${Math.round(maxHp)}`;
 
@@ -240,6 +254,14 @@ export class HUD {
     this.damageVignette.classList.add('flash');
   }
 
+  triggerScreenShake(): void {
+    if (!this.renderCanvas) return;
+    this.renderCanvas.classList.add('shaking');
+    setTimeout(() => {
+      this.renderCanvas?.classList.remove('shaking');
+    }, 150);
+  }
+
   /** Increment combo counter (call when player lands a hit on enemy/boss). */
   registerHit(): void {
     this.comboCount++;
@@ -322,14 +344,16 @@ export class HUD {
   showChapterBanner(chapter: number, title: string, subtitle: string): void {
     if (!this.chapterOverlay) return;
     const chapterNum = this.chapterOverlay.querySelector('.chapter-num') as HTMLElement;
-    const chapterTitle = this.chapterOverlay.querySelector('.chapter-title') as HTMLElement;
-    const chapterSub = this.chapterOverlay.querySelector('.chapter-subtitle') as HTMLElement;
+    const chapterTitle = this.chapterOverlay.querySelector('#chapterTitle') as HTMLElement;
+    const chapterSub = this.chapterOverlay.querySelector('#chapterSubtitle') as HTMLElement;
 
     if (chapterNum) chapterNum.textContent = `Chapter ${chapter}`;
     if (chapterTitle) chapterTitle.textContent = title;
     if (chapterSub) chapterSub.textContent = subtitle;
 
     this.chapterOverlay.classList.add('visible');
+
+    // Fade out after 4 seconds with cinematic effect
     setTimeout(() => {
       this.chapterOverlay?.classList.remove('visible');
     }, 4000);

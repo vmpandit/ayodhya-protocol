@@ -48,6 +48,8 @@ export class World {
   private torchMesh: Mesh | null = null;
   private campfireLight: PointLight | null = null;
   private campfireMesh: Mesh | null = null;
+  private riverSegments: Mesh[] = [];
+  private oceanMesh: Mesh | null = null;
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -275,30 +277,70 @@ export class World {
     groundMat.roughness = 0.95;
     ground.material = groundMat;
 
-    // Add scattered ground cover: small flat discs for grass patches
+    // Add scattered ground cover: upright triangular grass blades
     const rng = mulberry32(9999);
-    const grassMat = new StandardMaterial('grassMat', this.scene);
-    grassMat.diffuseColor = new Color3(0.18, 0.38, 0.12);
-    grassMat.specularColor = new Color3(0, 0, 0);
-    grassMat.backFaceCulling = false;
 
-    for (let i = 0; i < 120; i++) {
+    // Grass blade patches (~200 blades for scattered coverage)
+    for (let i = 0; i < 200; i++) {
       const x = (rng() - 0.5) * C.WORLD_SIZE;
       const z = (rng() - 0.5) * C.WORLD_SIZE;
       // Skip near spawn
       if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
 
-      const patch = MeshBuilder.CreateDisc(`grass_${i}`, {
-        radius: 0.3 + rng() * 0.5,
-        tessellation: 6,
+      // Create upright plane blade
+      const blade = MeshBuilder.CreatePlane(`grassBlade_${i}`, {
+        width: 0.08,
+        height: 0.3 + rng() * 0.2, // 0.3-0.5 height
       }, this.scene);
-      patch.rotation.x = Math.PI / 2;
-      patch.position.set(x, 0.02 + rng() * 0.02, z);
-      const patchMat = new StandardMaterial(`grassMat_${i}`, this.scene);
-      patchMat.diffuseColor = new Color3(0.12 + rng() * 0.12, 0.3 + rng() * 0.2, 0.06 + rng() * 0.08);
-      patchMat.specularColor = new Color3(0, 0, 0);
-      patchMat.backFaceCulling = false;
-      patch.material = patchMat;
+
+      // Keep blade upright (no rotation.x), slight random tilt around Y
+      blade.rotation.y = rng() * Math.PI * 2;
+      blade.position.set(x, 0.15 + rng() * 0.05, z);
+
+      const bladeMat = new StandardMaterial(`grassBladeMat_${i}`, this.scene);
+      // Various shades of green
+      bladeMat.diffuseColor = new Color3(
+        0.08 + rng() * 0.08,
+        0.25 + rng() * 0.25,
+        0.04 + rng() * 0.08
+      );
+      bladeMat.specularColor = new Color3(0, 0, 0);
+      bladeMat.backFaceCulling = false;
+      blade.material = bladeMat;
+    }
+
+    // Add flower patches: small colored spheres in clusters
+    for (let cluster = 0; cluster < 8; cluster++) {
+      const cx = (rng() - 0.5) * C.WORLD_SIZE * 0.8;
+      const cz = (rng() - 0.5) * C.WORLD_SIZE * 0.8;
+      // Skip near spawn
+      if (Math.abs(cx) < 10 && Math.abs(cz) < 10) continue;
+
+      // 3-5 flowers per cluster
+      const flowerCount = 3 + Math.floor(rng() * 3);
+      const colors = [
+        new Color3(1.0, 0.2, 0.4),    // pink
+        new Color3(1.0, 0.85, 0.2),   // yellow
+        new Color3(1.0, 1.0, 1.0),    // white
+      ];
+
+      for (let f = 0; f < flowerCount; f++) {
+        const flower = MeshBuilder.CreateSphere(`flower_${cluster}_${f}`, {
+          diameter: 0.1,
+          segments: 6,
+        }, this.scene);
+
+        flower.position.set(
+          cx + (rng() - 0.5) * 1.0,
+          0.05,
+          cz + (rng() - 0.5) * 1.0
+        );
+
+        const flowerMat = new StandardMaterial(`flowerMat_${cluster}_${f}`, this.scene);
+        flowerMat.diffuseColor = colors[Math.floor(rng() * colors.length)];
+        flowerMat.specularColor = new Color3(0.2, 0.2, 0.2);
+        flower.material = flowerMat;
+      }
     }
 
     // Rocks scattered around (small gray boulders)
@@ -486,13 +528,49 @@ export class World {
   }
 
   private buildSkybox(): void {
-    const skybox = MeshBuilder.CreateBox('skybox', { size: 500 }, this.scene);
+    // Create gradient hemisphere dome skybox using DynamicTexture
+    const textureSize = 512;
+    const domeTexture = new DynamicTexture('skyDomeTexture', textureSize, this.scene);
+    const ctx = domeTexture.getContext();
+
+    // Paint vertical gradient from dark indigo at top to warm amber at horizon
+    for (let y = 0; y < textureSize; y++) {
+      const t = y / textureSize;
+
+      // Interpolate from dark indigo (top) to warm amber (horizon)
+      const r = 0.1 + t * 0.8;     // 0.1 to 0.9
+      const g = 0.05 + t * 0.6;    // 0.05 to 0.65
+      const b = 0.3 - t * 0.2;     // 0.3 to 0.1
+
+      const color = `rgb(${Math.floor(r * 255)}, ${Math.floor(g * 255)}, ${Math.floor(b * 255)})`;
+      ctx.fillStyle = color;
+      ctx.fillRect(0, y, textureSize, 1);
+    }
+
+    // Add ~70 small white star dots randomly placed in upper half
+    const rng = mulberry32(777);
+    ctx.fillStyle = 'white';
+    for (let i = 0; i < 70; i++) {
+      const x = rng() * textureSize;
+      const y = rng() * textureSize * 0.5; // Only upper half
+      const radius = 0.5 + rng() * 1.0;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    domeTexture.update();
+
+    // Create hemisphere dome mesh
+    const skybox = MeshBuilder.CreateSphere('skybox', { diameter: 1000, segments: 32 }, this.scene);
+    skybox.scaling.y = 0.5; // Make it flatter (dome shape)
+
     const skyMat = new StandardMaterial('skyMat', this.scene);
+    skyMat.emissiveTexture = domeTexture;
     skyMat.backFaceCulling = false;
     skyMat.disableLighting = true;
-    skyMat.diffuseColor = new Color3(0, 0, 0);
     skyMat.specularColor = new Color3(0, 0, 0);
-    skyMat.emissiveColor = new Color3(0.02, 0.02, 0.06);
+
     skybox.material = skyMat;
     skybox.infiniteDistance = true;
   }
@@ -2184,6 +2262,7 @@ export class World {
     ];
 
     const riverWidth = 3.5;
+    this.riverSegments = []; // Reset river segments array
     for (let i = 0; i < riverPath.length - 1; i++) {
       const p0 = riverPath[i];
       const p1 = riverPath[i + 1];
@@ -2203,6 +2282,9 @@ export class World {
       segMat.alpha = 0.32 + Math.sin(i * 1.2) * 0.05;
       segMat.backFaceCulling = false;
       seg.material = segMat;
+
+      // Store reference for water animation
+      this.riverSegments.push(seg);
     }
 
     // ── River bank vegetation: small green sphere bushes ──────────────────
@@ -2246,6 +2328,9 @@ export class World {
     oceanMat.alpha = 0.45;
     oceanMat.backFaceCulling = false;
     ocean.material = oceanMat;
+
+    // Store reference for water animation
+    this.oceanMesh = ocean;
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2318,6 +2403,46 @@ export class World {
   updateCampfireFlicker(): void {
     if (this.campfireLight) {
       this.campfireLight.intensity = 4.5 + Math.random() * 1.5;
+    }
+  }
+
+  /**
+   * Water animation: gently oscillates river alpha, shifts Y positions for flowing effect,
+   * and undulates ocean alpha and Y.
+   */
+  public updateWater(dt: number): void {
+    let time = (Date.now() % 10000) / 1000; // Cycle every 10 seconds
+
+    // Animate river segments
+    for (let i = 0; i < this.riverSegments.length; i++) {
+      const seg = this.riverSegments[i];
+      const mat = seg.material as StandardMaterial;
+
+      // Oscillate alpha between 0.28 and 0.42 using sin waves at different phases
+      const alphaCycle = 2.0; // seconds per full cycle
+      const phase = (i / this.riverSegments.length) * Math.PI * 2; // Stagger by segment
+      const alpha = 0.35 + Math.sin(time / alphaCycle * Math.PI * 2 + phase) * 0.07;
+      mat.alpha = alpha;
+
+      // Slowly shift Y position for flowing feel (±0.03)
+      const yBobAmount = 0.03;
+      const yPhase = (i / this.riverSegments.length) * Math.PI * 2;
+      const yShift = Math.sin(time * 0.5 + yPhase) * yBobAmount;
+      seg.position.y = 0.06 + Math.sin(i * 0.7) * 0.03 + yShift;
+    }
+
+    // Animate ocean mesh
+    if (this.oceanMesh) {
+      const oceanMat = this.oceanMesh.material as StandardMaterial;
+
+      // Slow undulating alpha
+      const oceanAlphaCycle = 3.0;
+      const oceanAlpha = 0.42 + Math.sin(time / oceanAlphaCycle * Math.PI * 2) * 0.08;
+      oceanMat.alpha = oceanAlpha;
+
+      // Subtle Y bob
+      const oceanYBob = 0.02;
+      this.oceanMesh.position.y = 0.04 + Math.sin(time * 0.3) * oceanYBob;
     }
   }
 

@@ -30,6 +30,7 @@ interface LocalEnemy {
   patrolAngle: number;
   meleeCdEnd: number;
   rangedCdEnd: number;
+  telegraphEnd: number;     // Time when telegraph period ends; 0 if not telegraphing
   respawnTime?: number;  // For tutorial dummies
   originalMaxHp?: number;  // For tutorial dummies
   behaviorTimer: number;    // Time until next behavior change
@@ -52,6 +53,12 @@ interface Pickup {
   id: number;
   pos: Vec3;
   arrows: number;
+}
+
+interface HealthPickup {
+  id: number;
+  pos: Vec3;
+  healAmount: number;
 }
 
 export interface Companion {
@@ -99,6 +106,8 @@ export class LocalSim {
   // Pickups on the ground
   private pickups: Pickup[] = [];
   private nextPickupId = 1;
+  private healthPickups: HealthPickup[] = [];
+  private nextHealthPickupId = 1;
 
   // Chapter tracking (0 = tutorial, 1-7 main chapters)
   public chapter = 0;
@@ -237,6 +246,10 @@ export class LocalSim {
   public onEnemySpecialArrow: (arrowName: string) => void = () => {};
   public onPickupSpawned: (id: number, pos: Vec3, arrows: number) => void = () => {};
   public onPickupCollected: (id: number) => void = () => {};
+  public onHeadshot?: (enemyId: number) => void;
+  public onCriticalHit?: (targetType: DamageTargetType, targetId: number, damage: number) => void;
+  public onHealthPickupSpawned?: (id: number, pos: Vec3, healAmount: number) => void;
+  public onHealthPickupCollected?: (id: number) => void;
   public onChapterChange: (chapter: number, title: string, subtitle: string) => void = () => {};
   public onAllyMet: (id: string, name: string, message: string) => void = () => {};
   public onStoryNPCSpawned: (id: string, name: string, pos: Vec3) => void = () => {};
@@ -277,7 +290,7 @@ export class LocalSim {
       this.enemies.push({
         state: { id, pos: { ...pos }, yaw: 0, hp: 30, maxHp: 30, aiState: EnemyAIState.Patrol, targetId: 0 },
         patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-        meleeCdEnd: 0, rangedCdEnd: 0,
+        meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
         originalMaxHp: 30,
         behaviorTimer: 0,
         strafeDir: Math.random() > 0.5 ? 1 : -1,
@@ -870,6 +883,19 @@ export class LocalSim {
           if (enemy.state.aiState === EnemyAIState.Dead) continue;
           if (dist3(proj.state.pos, enemy.state.pos) < 1.2) {
             let dmg = proj.state.damage;
+
+            // Headshot bonus: arrow Y above enemy head height (Y + 1.8)
+            if (proj.state.pos.y > enemy.state.pos.y + 1.8) {
+              dmg *= 1.5;
+              if (this.onHeadshot) this.onHeadshot(enemy.state.id);
+            }
+
+            // Critical hit: 10% chance for 2x damage
+            if (Math.random() < 0.1) {
+              dmg *= 2;
+              if (this.onCriticalHit) this.onCriticalHit(DamageTargetType.Enemy, enemy.state.id, dmg);
+            }
+
             if (now < this.dharmaGraceEnd) dmg *= 1.5;
             enemy.state.hp -= dmg;
             this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
@@ -882,6 +908,10 @@ export class LocalSim {
                 enemy.respawnTime = now + 3000;
               } else {
                 this.spawnPickup(enemy.state.pos);
+                // 30% chance to drop health pickup
+                if (Math.random() < 0.3) {
+                  this.spawnHealthPickup(enemy.state.pos);
+                }
               }
               this.checkChapterProgress();
             }
@@ -954,6 +984,17 @@ export class LocalSim {
       }
     }
     this.pickups = this.pickups.filter(p => !pickupsToRemove.includes(p.id));
+
+    // Collect health pickups
+    const healthPickupsToRemove: number[] = [];
+    for (const hpickup of this.healthPickups) {
+      if (dist3(this.player.pos, hpickup.pos) < 2.0) {
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + hpickup.healAmount);
+        if (this.onHealthPickupCollected) this.onHealthPickupCollected(hpickup.id);
+        healthPickupsToRemove.push(hpickup.id);
+      }
+    }
+    this.healthPickups = this.healthPickups.filter(h => !healthPickupsToRemove.includes(h.id));
 
     // Update boss
     this.updateBoss(dt, now);
@@ -1110,7 +1151,7 @@ export class LocalSim {
       this.enemies.push({
         state: { id, pos: { ...pos }, yaw: 0, hp, maxHp: hp, aiState: EnemyAIState.Patrol, targetId: 0 },
         patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-        meleeCdEnd: 0, rangedCdEnd: 0,
+        meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
         behaviorTimer: 0,
         strafeDir: Math.random() > 0.5 ? 1 : -1,
         preferredRange,
@@ -1186,6 +1227,21 @@ export class LocalSim {
         const dz = this.player.pos.z - enemy.state.pos.z;
         const d = Math.sqrt(dx * dx + dz * dz) || 1;
         enemy.state.yaw = Math.atan2(dx, dz);
+
+        // Pack behavior: when 3+ enemies within 15 units are chasing the same player, increase spread
+        let nearbyAllies = 0;
+        for (const other of this.enemies) {
+          if (other === enemy || other.state.aiState === EnemyAIState.Dead) continue;
+          if (other.state.targetId === 1) { // Also chasing player
+            const allyDist = dist3(enemy.state.pos, other.state.pos);
+            if (allyDist < 15) nearbyAllies++;
+          }
+        }
+
+        // If in a pack of 3+, increase preferred range to spread out more
+        if (nearbyAllies >= 2) { // 2 allies + self = 3+ enemies
+          enemy.preferredRange = Math.min(20, enemy.preferredRange + 3);
+        }
 
         // Roll new behavior when timer expires
         if (enemy.behaviorTimer <= 0) {
@@ -1349,28 +1405,38 @@ export class LocalSim {
           }
 
           if (d <= rangedRange && now >= enemy.rangedCdEnd) {
-            const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
-            dir.y += 0.1;
-            if (Math.random() < 0.3) {
-              const specialArrowRoll = Math.random();
-              let specialType: ProjectileType;
-              let arrowName: string;
-              if (specialArrowRoll < 0.33) {
-                specialType = ProjectileType.EnemyAgniAstra;
-                arrowName = "Agni Astra";
-              } else if (specialArrowRoll < 0.66) {
-                specialType = ProjectileType.EnemyVayuAstra;
-                arrowName = "Vayu Astra";
+            // Telegraph period: 600ms before ranged attack
+            if (now >= enemy.telegraphEnd) {
+              // If telegraph hasn't been set yet for this attack, set it
+              if (enemy.telegraphEnd === 0) {
+                enemy.telegraphEnd = now + 600;
               } else {
-                specialType = ProjectileType.EnemyNagaAstra;
-                arrowName = "Naga Astra";
+                // Telegraph period has ended, execute the attack
+                const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
+                dir.y += 0.1;
+                if (Math.random() < 0.3) {
+                  const specialArrowRoll = Math.random();
+                  let specialType: ProjectileType;
+                  let arrowName: string;
+                  if (specialArrowRoll < 0.33) {
+                    specialType = ProjectileType.EnemyAgniAstra;
+                    arrowName = "Agni Astra";
+                  } else if (specialArrowRoll < 0.66) {
+                    specialType = ProjectileType.EnemyVayuAstra;
+                    arrowName = "Vayu Astra";
+                  } else {
+                    specialType = ProjectileType.EnemyNagaAstra;
+                    arrowName = "Naga Astra";
+                  }
+                  this.spawnProjectile(200 + enemy.state.id, specialType, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE, ENEMY_SPECIAL_ARROW_SPEED);
+                  this.onEnemySpecialArrow(arrowName);
+                } else {
+                  this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
+                }
+                enemy.rangedCdEnd = now + rangedCooldown;
+                enemy.telegraphEnd = 0; // Reset telegraph
               }
-              this.spawnProjectile(200 + enemy.state.id, specialType, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE, ENEMY_SPECIAL_ARROW_SPEED);
-              this.onEnemySpecialArrow(arrowName);
-            } else {
-              this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
             }
-            enemy.rangedCdEnd = now + rangedCooldown;
           }
         }
 
@@ -1393,12 +1459,22 @@ export class LocalSim {
 
         if (nearestDist <= meleeRange) {
           if (now >= enemy.meleeCdEnd && !this.player.isDodging) {
-            this.damagePlayer(meleeDamage, 200 + enemy.state.id);
-            enemy.meleeCdEnd = now + meleeCooldown;
-            // 20% chance to trigger retreat after melee
-            if (Math.random() < 0.2) {
-              enemy.state.aiState = EnemyAIState.Retreat;
-              enemy.behaviorTimer = 1.5 + Math.random() * 2;
+            // Telegraph period: 400ms before melee attack
+            if (now >= enemy.telegraphEnd) {
+              // If telegraph hasn't been set yet for this attack, set it
+              if (enemy.telegraphEnd === 0) {
+                enemy.telegraphEnd = now + 400;
+              } else {
+                // Telegraph period has ended, execute the attack
+                this.damagePlayer(meleeDamage, 200 + enemy.state.id);
+                enemy.meleeCdEnd = now + meleeCooldown;
+                enemy.telegraphEnd = 0; // Reset telegraph
+                // 20% chance to trigger retreat after melee
+                if (Math.random() < 0.2) {
+                  enemy.state.aiState = EnemyAIState.Retreat;
+                  enemy.behaviorTimer = 1.5 + Math.random() * 2;
+                }
+              }
             }
           }
         }
@@ -1511,6 +1587,14 @@ export class LocalSim {
     }
   }
 
+  private spawnHealthPickup(pos: Vec3): void {
+    const healthPickupId = this.nextHealthPickupId++;
+    const healAmount = 15;
+    const healthPickup: HealthPickup = { id: healthPickupId, pos: { ...pos }, healAmount };
+    this.healthPickups.push(healthPickup);
+    if (this.onHealthPickupSpawned) this.onHealthPickupSpawned(healthPickupId, healthPickup.pos, healAmount);
+  }
+
   private checkChapterProgress(): void {
     // Chapter 1 → 2: 4 sentinels killed
     if (this.chapter === 1 && this.chapterEnemiesKilled >= 4) {
@@ -1543,7 +1627,7 @@ export class LocalSim {
           this.enemies.push({
             state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_ARCHER_HP, maxHp: C.ENEMY_ARCHER_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
             patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-            meleeCdEnd: 0, rangedCdEnd: 0,
+            meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
             behaviorTimer: 0,
             strafeDir: Math.random() > 0.5 ? 1 : -1,
             preferredRange: 20 + Math.random() * 5,
@@ -1553,7 +1637,7 @@ export class LocalSim {
           this.enemies.push({
             state: { id, pos: { ...pos }, yaw: 0, hp: 80, maxHp: 80, aiState: EnemyAIState.Patrol, targetId: 0 },
             patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-            meleeCdEnd: 0, rangedCdEnd: 0,
+            meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
             behaviorTimer: 0,
             strafeDir: Math.random() > 0.5 ? 1 : -1,
             preferredRange: 10 + Math.random() * 10,
@@ -1650,7 +1734,7 @@ export class LocalSim {
         this.enemies.push({
           state: { id, pos: { ...pos }, yaw: 0, hp, maxHp: hp, aiState: EnemyAIState.Patrol, targetId: 0 },
           patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-          meleeCdEnd: 0, rangedCdEnd: 0,
+          meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
           behaviorTimer: 0,
           strafeDir: Math.random() > 0.5 ? 1 : -1,
           preferredRange,
@@ -1796,7 +1880,7 @@ export class LocalSim {
         this.enemies.push({
           state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_ARCHER_HP, maxHp: C.ENEMY_ARCHER_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
           patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-          meleeCdEnd: 0, rangedCdEnd: 0,
+          meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
           behaviorTimer: 0,
           strafeDir: Math.random() > 0.5 ? 1 : -1,
           preferredRange: 20 + Math.random() * 5,
@@ -1806,7 +1890,7 @@ export class LocalSim {
         this.enemies.push({
           state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_HP, maxHp: C.ENEMY_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
           patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-          meleeCdEnd: 0, rangedCdEnd: 0,
+          meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
           behaviorTimer: 0,
           strafeDir: Math.random() > 0.5 ? 1 : -1,
           preferredRange: 10 + Math.random() * 10,

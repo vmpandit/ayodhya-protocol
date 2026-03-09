@@ -8,6 +8,15 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; font-family: 'Segoe UI', sans-serif; -webkit-user-select: none; user-select: none; }
     #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+    @keyframes screenShake {
+      0%, 100% { transform: translate(0,0); }
+      10% { transform: translate(-3px, 2px); }
+      20% { transform: translate(3px, -2px); }
+      30% { transform: translate(-2px, -1px); }
+      40% { transform: translate(2px, 2px); }
+      50% { transform: translate(-1px, 1px); }
+    }
+    #renderCanvas.shaking { animation: screenShake 0.15s ease-out; }
     #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display: none; }
     #hud.visible { display: block; }
     #hud > * { pointer-events: auto; }
@@ -15,9 +24,13 @@
     /* Health / Stamina bars */
     #playerBars { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; }
     .bar-container { width: 300px; height: 18px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden; position: relative; }
-    #hpBar { height: 100%; background: linear-gradient(90deg, #c0392b, #e74c3c); transition: width 0.15s; }
+    #hpBar { height: 100%; background: linear-gradient(90deg, #c0392b, #e74c3c); transition: width 0.15s; box-shadow: inset 0 1px 2px rgba(255,255,255,0.1); }
     #staminaBar { height: 100%; background: linear-gradient(90deg, #2980b9, #3498db); transition: width 0.15s; }
     .bar-label { position: absolute; width: 100%; text-align: center; color: #fff; font-size: 11px; line-height: 18px; text-shadow: 1px 1px 2px #000; top: 0; }
+    @keyframes lowHpPulse {
+      0%, 100% { background: linear-gradient(90deg, #8b0000, #cc2222); box-shadow: inset 0 1px 2px rgba(255,255,255,0.1), 0 0 8px rgba(255,0,0,0.3); }
+      50% { background: linear-gradient(90deg, #cc2222, #ff4444); box-shadow: inset 0 1px 2px rgba(255,255,255,0.1), 0 0 16px rgba(255,0,0,0.6); }
+    }
 
     /* Cooldowns */
     #cooldowns { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; margin-top: 10px; }
@@ -79,6 +92,13 @@
     #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,200,50,0.85); }
     #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
     #crosshair::after  { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+    #crosshairDot {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      width: 4px; height: 4px; border-radius: 50%;
+      background: rgba(255,200,50,0.9);
+      box-shadow: 0 0 4px rgba(255,200,50,0.5);
+      pointer-events: none;
+    }
 
     /* Target reticle — spinning diamond that tracks the locked enemy */
     #targetReticle {
@@ -201,9 +221,35 @@
     }
 
     /* Chapter overlay */
+    #chapterOverlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0); pointer-events: none; z-index: 300;
+      opacity: 0; transition: opacity 1.2s ease;
+    }
     #chapterOverlay.visible {
       opacity: 1 !important;
-      background: radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 60%, transparent 100%);
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.5) 60%, transparent 100%);
+    }
+    #chapterTitle {
+      font-family: 'Cinzel', serif; font-size: 42px; color: #ffd700;
+      text-shadow: 0 0 30px rgba(255,165,0,0.6), 0 0 60px rgba(255,165,0,0.3);
+      letter-spacing: 8px; text-transform: uppercase;
+      animation: chapterTitleIn 1.5s ease-out;
+    }
+    #chapterSubtitle {
+      font-family: 'Rajdhani', monospace; font-size: 16px; color: #ddc88a;
+      letter-spacing: 4px; margin-top: 12px;
+      animation: chapterSubIn 2s ease-out;
+    }
+    @keyframes chapterTitleIn {
+      0% { opacity: 0; transform: scale(0.8) translateY(20px); letter-spacing: 20px; }
+      100% { opacity: 1; transform: scale(1) translateY(0); letter-spacing: 8px; }
+    }
+    @keyframes chapterSubIn {
+      0% { opacity: 0; transform: translateY(10px); }
+      50% { opacity: 0; }
+      100% { opacity: 1; transform: translateY(0); }
     }
 
     /* Dialogue overlay */
@@ -417,7 +463,7 @@
       width: 140px; height: 140px; border-radius: 50%;
       background: rgba(0,0,0,0.5);
       border: 2px solid #b8860b;
-      box-shadow: 0 0 12px rgba(184,134,11,0.3), inset 0 0 6px rgba(0,0,0,0.5);
+      box-shadow: 0 0 8px rgba(212,160,23,0.3), inset 0 0 4px rgba(0,0,0,0.5), 0 0 12px rgba(184,134,11,0.3);
       z-index: 55; cursor: pointer;
       overflow: hidden;
     }
@@ -513,11 +559,6 @@
       #mapButtons { flex-wrap: wrap; justify-content: center; }
     }
 
-    /* Low HP pulse animation */
-    @keyframes lowHpPulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.6; }
-    }
 
     /* Downed overlay */
     #downedOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(139,0,0,0.3); display: none; justify-content: center; align-items: center; }
@@ -676,7 +717,7 @@
 
   <div id="hud">
     <div id="damageVignette"></div>
-    <div id="crosshair"></div>
+    <div id="crosshair"><div id="crosshairDot"></div></div>
     <div id="pointerLockNote" style="display:none; position:absolute; bottom:80px; left:50%; transform:translateX(-50%); color:rgba(255,200,50,0.8); font-size:14px; letter-spacing:2px; pointer-events:none; text-shadow:0 0 6px rgba(0,0,0,0.8);">CLICK TO RESUME</div>
     <div id="targetReticle"></div>
     <div id="chargeRing"></div>
@@ -793,10 +834,10 @@
       <div class="backstory-continue">Press Space to continue</div>
     </div>
 
-    <div id="chapterOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; z-index:200; opacity:0; transition:opacity 0.8s ease;">
+    <div id="chapterOverlay">
       <div class="chapter-num" style="font-family:'Rajdhani',monospace; font-size:16px; letter-spacing:6px; text-transform:uppercase; color:#c89b3c; margin-bottom:8px;">Chapter 1</div>
-      <div class="chapter-title" style="font-family:'Cinzel',serif,'Rajdhani',monospace; font-size:42px; font-weight:bold; color:#ffd700; text-shadow:0 0 20px rgba(255,165,0,0.6), 0 2px 4px rgba(0,0,0,0.8); margin-bottom:12px;">The Forest of Lanka</div>
-      <div class="chapter-subtitle" style="font-family:'Rajdhani',monospace; font-size:18px; color:#ccaa66; font-style:italic; max-width:500px; text-align:center;">Rakshasa sentinels lurk among the ancient trees...</div>
+      <div id="chapterTitle">The Forest of Lanka</div>
+      <div id="chapterSubtitle">Rakshasa sentinels lurk among the ancient trees...</div>
     </div>
   </div>
 

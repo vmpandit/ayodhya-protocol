@@ -144,6 +144,14 @@ export class LocalSim {
   public bossDamageMultiplier = 1.0;
   public dharmaGraceEnd = 0;
 
+  // Torch system
+  public torchLit = false;
+  public torchUnlocked = false;
+  public campfirePos: Vec3 | null = null;
+  public onTorchToggle: (lit: boolean) => void = () => {};
+  public onCampfirePlaced: (pos: Vec3) => void = () => {};
+  public onCampfirePickedUp: () => void = () => {};
+
   // Tutorial system (Chapter 0)
   private tutorialSteps: Record<string, boolean> = {
     move: false,
@@ -260,9 +268,9 @@ export class LocalSim {
 
     // Chapter 0 (Tutorial): Spawn 3 training dummies that don't attack
     const tutorialDummyPositions: Vec3[] = [
-      { x: 5, y: 0, z: -8 },
-      { x: -6, y: 0, z: -12 },
-      { x: 8, y: 0, z: -15 },
+      { x: 8, y: 0, z: -6 },
+      { x: -10, y: 0, z: -10 },
+      { x: 12, y: 0, z: -18 },
     ];
     for (const pos of tutorialDummyPositions) {
       const id = this.nextEnemyId++;
@@ -279,7 +287,7 @@ export class LocalSim {
     }
 
     // Spawn Sage Agastya as story NPC in Chapter 0 (tutorial guide)
-    const sagePos: Vec3 = { x: -5, y: 0, z: -10 };
+    const sagePos: Vec3 = { x: 0, y: 0, z: -30 };
     this.addStoryNPC({
       id: 'sage', name: 'Sage Agastya', pos: sagePos,
       dialogueTreeId: 'ch1_sage', spoken: false,
@@ -298,6 +306,8 @@ export class LocalSim {
   }
 
   get playerId(): number { return 1; }
+
+  getPlayerState(): PlayerState { return this.player; }
 
   // ── Goal System ─────────────────────────────────────────────────
   revealGoal(chapter: number): void {
@@ -372,12 +382,7 @@ export class LocalSim {
       const isEnd = !nextNode.choices || nextNode.choices.length === 0;
       this.onDialogueNode(nextNode, isEnd);
 
-      // Auto-end dialogue if this is the last node (no more choices)
-      if (isEnd) {
-        setTimeout(() => {
-          this.endDialogue();
-        }, 5000);
-      }
+      // End node: player must press Space or click "Continue" — no auto-close
     }
   }
 
@@ -424,6 +429,7 @@ export class LocalSim {
         apply: () => {
           this.player.maxHp += 15;
           this.player.hp = Math.min(this.player.hp + 15, this.player.maxHp);
+          this.torchUnlocked = true;
         }
       },
       'jatayu': {
@@ -489,6 +495,31 @@ export class LocalSim {
       b.apply();
       this.onBlessingReceived(b.name, b.desc);
     }
+  }
+
+  toggleTorch(): void {
+    if (!this.torchUnlocked) return;
+    this.torchLit = !this.torchLit;
+    this.onTorchToggle(this.torchLit);
+  }
+
+  placeCampfire(): void {
+    if (!this.torchLit) return;
+    // Pick up existing campfire if close enough
+    if (this.campfirePos) {
+      const dx = this.player.pos.x - this.campfirePos.x;
+      const dz = this.player.pos.z - this.campfirePos.z;
+      if (Math.sqrt(dx * dx + dz * dz) < 3) {
+        this.campfirePos = null;
+        this.onCampfirePickedUp();
+        return;
+      }
+    }
+    // Drop campfire at player position
+    this.campfirePos = { x: this.player.pos.x, y: 0, z: this.player.pos.z };
+    this.torchLit = false;
+    this.onTorchToggle(false);
+    this.onCampfirePlaced(this.campfirePos);
   }
 
   // ── Lakshman Choice ──────────────────────────────────────────
@@ -895,10 +926,14 @@ export class LocalSim {
 
     // Handle tutorial dummy respawns
     if (this.chapter === 0) {
+      const tutorialDone = this.tutorialSteps.move && this.tutorialSteps.sprint && this.tutorialSteps.jump && this.tutorialSteps.dodge && this.tutorialSteps.shoot;
       for (const enemy of this.enemies) {
         if (enemy.state.aiState === EnemyAIState.Dead && enemy.respawnTime !== undefined) {
-          if (now >= enemy.respawnTime) {
-            // Respawn the dummy
+          if (tutorialDone) {
+            // Tutorial complete — dummies stay dead
+            delete enemy.respawnTime;
+          } else if (now >= enemy.respawnTime) {
+            // Respawn the dummy during tutorial
             enemy.state.hp = enemy.originalMaxHp || 30;
             enemy.state.maxHp = enemy.originalMaxHp || 30;
             enemy.state.aiState = EnemyAIState.Patrol;

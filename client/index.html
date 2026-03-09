@@ -58,6 +58,14 @@
       color: #90ee90;
     }
 
+    /* Chapter indicator in corner */
+    #chapterIndicator {
+      position: absolute; top: 12px; right: 20px;
+      font-family: 'Cinzel', serif; font-size: 12px;
+      color: rgba(212,160,23,0.7); letter-spacing: 2px;
+      text-transform: uppercase; pointer-events: none;
+    }
+
     /* Boss bar */
     #bossBar { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 4px; }
     #bossBar.visible { display: flex; }
@@ -200,10 +208,10 @@
 
     /* Dialogue overlay */
     #dialogueOverlay {
-      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
-      width: 500px; max-width: 90vw; padding: 18px 24px;
-      background: rgba(0,0,0,0.85); border: 1px solid rgba(212,160,23,0.4);
-      border-radius: 10px; z-index: 180; pointer-events: none;
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      width: 520px; max-width: 90vw; padding: 18px 24px;
+      background: rgba(0,0,0,0.9); border: 2px solid rgba(212,160,23,0.5);
+      border-radius: 10px; z-index: 180; pointer-events: auto;
       opacity: 0; transition: opacity 0.6s ease;
     }
     #dialogueOverlay.visible { opacity: 1; }
@@ -219,25 +227,52 @@
 
     /* Dialogue choices */
     #dialogueChoices {
-      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
-      width: 500px; max-width: 90vw; padding: 16px 20px;
-      background: rgba(0,0,0,0.9); border: 2px solid #d4a017;
-      border-radius: 10px; z-index: 180; pointer-events: none;
+      position: fixed; bottom: 180px; left: 50%; transform: translateX(-50%);
+      width: 520px; max-width: 90vw; padding: 16px 20px;
+      background: rgba(0,0,0,0.92); border: 2px solid #d4a017;
+      border-radius: 10px; z-index: 200; pointer-events: none;
       opacity: 0; transition: opacity 0.4s ease;
-      margin-top: 200px;
+      display: block;
     }
     #dialogueChoices.visible { opacity: 1; pointer-events: auto; }
+    .dialogue-choice-header {
+      font-family: 'Cinzel', serif; font-size: 11px; color: #c0a030;
+      letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px;
+      text-align: center; opacity: 0.8;
+    }
     .dialogue-choice {
-      background: rgba(212,160,23,0.1); border: 1px solid rgba(212,160,23,0.5);
-      border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;
-      color: #d4a017; font-family: 'Rajdhani', monospace; font-size: 13px;
+      background: rgba(212,160,23,0.08); border: 2px solid rgba(212,160,23,0.5);
+      border-radius: 8px; padding: 12px 16px; margin-bottom: 10px;
+      color: #e8c840; font-family: 'Rajdhani', monospace; font-size: 14px;
       cursor: pointer; transition: all 0.2s ease;
+      display: flex; align-items: center; gap: 10px;
+      animation: choicePulse 2s infinite ease-in-out;
     }
     .dialogue-choice:hover {
-      background: rgba(212,160,23,0.25); border-color: #d4a017;
-      box-shadow: 0 0 8px rgba(212,160,23,0.3);
+      background: rgba(212,160,23,0.3); border-color: #ffd700;
+      box-shadow: 0 0 12px rgba(212,160,23,0.4);
+      transform: translateX(4px);
     }
     .dialogue-choice:last-child { margin-bottom: 0; }
+    .dialogue-choice .choice-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+      background: rgba(212,160,23,0.25); border: 1px solid #d4a017;
+      font-weight: bold; font-size: 15px; color: #ffd700;
+    }
+    .dialogue-end-hint {
+      text-align: center; padding: 14px 16px; margin-top: 8px;
+      background: rgba(212,160,23,0.08); border: 2px solid rgba(212,160,23,0.4);
+      border-radius: 8px; color: #d4a017; font-family: 'Rajdhani', monospace;
+      font-size: 14px; cursor: pointer; animation: choicePulse 2s infinite ease-in-out;
+    }
+    .dialogue-end-hint:hover {
+      background: rgba(212,160,23,0.25); border-color: #ffd700;
+    }
+    @keyframes choicePulse {
+      0%, 100% { box-shadow: 0 0 4px rgba(212,160,23,0.15); }
+      50% { box-shadow: 0 0 10px rgba(212,160,23,0.35); }
+    }
 
     /* Talk prompt */
     #talkPrompt {
@@ -249,6 +284,17 @@
       text-shadow: 0 0 8px rgba(255,215,0,0.4);
     }
     #talkPrompt.visible { display: block; }
+
+    /* Dialogue conversation hint (center screen flash) */
+    #dialogueHint {
+      position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.75); border: 1px solid rgba(212,160,23,0.5);
+      border-radius: 8px; padding: 12px 24px;
+      color: #ffd700; font-family: 'Cinzel', serif; font-size: 15px;
+      z-index: 190; pointer-events: none;
+      opacity: 0; transition: opacity 0.4s ease;
+    }
+    #dialogueHint.visible { opacity: 1; }
 
     /* Meditation bar */
     #meditationBar {
@@ -647,6 +693,8 @@
     <div id="comboDisplay"><div id="comboCount">0</div><div id="comboLabel">COMBO</div></div>
     <div id="teamBars"></div>
 
+    <div id="chapterIndicator"></div>
+
     <div id="goalWidget">
       <div id="goalLabel">CHAPTER GOAL</div>
       <div id="goalText">???</div>
@@ -698,11 +746,11 @@
     </div>
 
     <!-- Dialogue choices -->
-    <div id="dialogueChoices" style="display:none;">
-      <div class="dialogue-choice" data-index="0"></div>
-      <div class="dialogue-choice" data-index="1"></div>
-      <div class="dialogue-choice" data-index="2"></div>
+    <div id="dialogueChoices">
     </div>
+
+    <!-- Dialogue hint -->
+    <div id="dialogueHint"></div>
 
     <!-- Talk prompt ("Press F to Talk") -->
     <div id="talkPrompt"></div>

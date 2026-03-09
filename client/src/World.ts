@@ -44,6 +44,10 @@ export class World {
   private treeInstances: InstancedMesh[] = [];
   private emberParticles: ParticleSystem | null = null;
   private ashParticles: ParticleSystem | null = null;
+  private torchLight: PointLight | null = null;
+  private torchMesh: Mesh | null = null;
+  private campfireLight: PointLight | null = null;
+  private campfireMesh: Mesh | null = null;
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -95,6 +99,7 @@ export class World {
     if (!this.assets) this.buildSkybox();
     this.buildGlowLayer();
     this.buildAmbientParticles();
+    this.buildWildlife();
   }
 
   /** Spawn terrain obstacles (rocks/pillars) in the world */
@@ -242,145 +247,242 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   private buildGround(): void {
-    const ground = MeshBuilder.CreateGround('ground_main', { width: C.WORLD_SIZE * 2, height: C.WORLD_SIZE * 2, subdivisions: 64 }, this.scene);
-    const mat = this.getMat('ground_jungle', 'groundMat', 0.12, 0.18, 0.08, 0, 0.95);
-    // UV tiling for ground textures
-    if (mat.albedoTexture) {
-      (mat.albedoTexture as Texture).uScale = 24; (mat.albedoTexture as Texture).vScale = 24;
-      if (mat.bumpTexture) { (mat.bumpTexture as Texture).uScale = 24; (mat.bumpTexture as Texture).vScale = 24; }
-      if (mat.microSurfaceTexture) { (mat.microSurfaceTexture as Texture).uScale = 24; (mat.microSurfaceTexture as Texture).vScale = 24; }
-      if (mat.metallicTexture) { (mat.metallicTexture as Texture).uScale = 24; (mat.metallicTexture as Texture).vScale = 24; }
-    }
-    mat.ambientColor = new Color3(0.1, 0.1, 0.1);
-    ground.material = mat;
+    // Subdivided ground for vertex color variation (pseudo-terrain)
+    const ground = MeshBuilder.CreateGround('ground_main', {
+      width: C.WORLD_SIZE * 1.2,
+      height: C.WORLD_SIZE * 1.2,
+      subdivisions: 40,
+      updatable: false,
+    }, this.scene);
+    ground.position.y = 0;
     ground.receiveShadows = true;
+
+    // PBR ground material
+    const groundMat = new PBRMaterial('groundMat', this.scene);
+    const groundPBR = this.assets?.materials.get('ground_jungle');
+    if (groundPBR?.albedoTexture) {
+      groundMat.albedoTexture = groundPBR.albedoTexture;
+      (groundMat.albedoTexture as Texture).uScale = 12;
+      (groundMat.albedoTexture as Texture).vScale = 12;
+    }
+    if (groundPBR?.bumpTexture) {
+      groundMat.bumpTexture = groundPBR.bumpTexture;
+      (groundMat.bumpTexture as Texture).uScale = 12;
+      (groundMat.bumpTexture as Texture).vScale = 12;
+    }
+    groundMat.albedoColor = new Color3(0.15, 0.28, 0.1); // lush green base
+    groundMat.metallic = 0.0;
+    groundMat.roughness = 0.95;
+    ground.material = groundMat;
+
+    // Add scattered ground cover: small flat discs for grass patches
+    const rng = mulberry32(9999);
+    const grassMat = new StandardMaterial('grassMat', this.scene);
+    grassMat.diffuseColor = new Color3(0.18, 0.38, 0.12);
+    grassMat.specularColor = new Color3(0, 0, 0);
+    grassMat.backFaceCulling = false;
+
+    for (let i = 0; i < 120; i++) {
+      const x = (rng() - 0.5) * C.WORLD_SIZE;
+      const z = (rng() - 0.5) * C.WORLD_SIZE;
+      // Skip near spawn
+      if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
+
+      const patch = MeshBuilder.CreateDisc(`grass_${i}`, {
+        radius: 0.3 + rng() * 0.5,
+        tessellation: 6,
+      }, this.scene);
+      patch.rotation.x = Math.PI / 2;
+      patch.position.set(x, 0.02 + rng() * 0.02, z);
+      const patchMat = new StandardMaterial(`grassMat_${i}`, this.scene);
+      patchMat.diffuseColor = new Color3(0.12 + rng() * 0.12, 0.3 + rng() * 0.2, 0.06 + rng() * 0.08);
+      patchMat.specularColor = new Color3(0, 0, 0);
+      patchMat.backFaceCulling = false;
+      patch.material = patchMat;
+    }
+
+    // Rocks scattered around (small gray boulders)
+    const rockMat = new StandardMaterial('rockMat', this.scene);
+    rockMat.diffuseColor = new Color3(0.4, 0.38, 0.35);
+    rockMat.specularColor = new Color3(0.1, 0.1, 0.1);
+
+    for (let i = 0; i < 30; i++) {
+      const x = (rng() - 0.5) * C.WORLD_SIZE;
+      const z = (rng() - 0.5) * C.WORLD_SIZE;
+      if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+
+      const rock = MeshBuilder.CreateSphere(`rock_${i}`, {
+        diameter: 0.4 + rng() * 0.8,
+        segments: 5,
+      }, this.scene);
+      rock.position.set(x, 0.15, z);
+      rock.scaling.set(1, 0.5 + rng() * 0.3, 1); // flatten to boulder shape
+      rock.rotation.y = rng() * Math.PI * 2;
+      rock.material = rockMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(rock);
+    }
   }
 
   private buildTrees(): void {
-    const trunk = MeshBuilder.CreateCylinder('treeTrunk', { height: 4, diameter: 0.6, tessellation: 8 }, this.scene);
-    trunk.position.y = 2;
-    const trunkMat = this.getMat('tree_bark', 'trunkMat', 0.35, 0.2, 0.1, 0, 0.9);
-    trunk.material = trunkMat;
+    const rng = mulberry32(12345);
+    const treeCount = C.TREE_COUNT;
+    const half = C.WORLD_SIZE / 2;
 
-    const foliage = MeshBuilder.CreateSphere('treeFoliage', { diameter: 3.5, segments: 6 }, this.scene);
-    foliage.position.y = 5;
-    const foliageMat = this.getMat('tree_foliage', 'foliageMat', 0.1, 0.35, 0.08, 0, 0.85);
-    foliage.material = foliageMat;
+    // Master tree mesh (better looking: trunk + 3 layered canopy spheres)
+    const masterTrunk = MeshBuilder.CreateCylinder('masterTrunk', { height: 3.0, diameterTop: 0.3, diameterBottom: 0.5, tessellation: 8 }, this.scene);
+    masterTrunk.position.y = 1.5;
+    masterTrunk.setEnabled(false);
 
-    this.renderer.shadowGenerator.addShadowCaster(trunk);
-    this.renderer.shadowGenerator.addShadowCaster(foliage);
+    const trunkMat = new StandardMaterial('treeTrunkMat', this.scene);
+    trunkMat.diffuseColor = new Color3(0.35, 0.22, 0.1);
+    trunkMat.specularColor = new Color3(0, 0, 0);
+    masterTrunk.material = trunkMat;
 
-    const rng = mulberry32(42);
-    for (let i = 0; i < C.TREE_COUNT; i++) {
-      const x = (rng() - 0.5) * C.WORLD_SIZE * 1.6;
-      const z = (rng() - 0.5) * C.WORLD_SIZE * 1.6;
-      const dx = x - C.BOSS_ARENA_CENTER.x;
-      const dz = z - C.BOSS_ARENA_CENTER.z;
-      if (Math.sqrt(dx * dx + dz * dz) < C.BOSS_ARENA_RADIUS + 5) continue;
-
-      const scale = 0.8 + rng() * 0.6;
-      const ti = trunk.createInstance(`trunk_${i}`);
-      ti.position.set(x, 2 * scale, z);
-      ti.scaling.setAll(scale);
-
-      const fi = foliage.createInstance(`foliage_${i}`);
-      fi.position.set(x, 5 * scale, z);
-      fi.scaling.setAll(scale);
-
-      this.treeInstances.push(ti, fi);
+    // Three canopy layers (lower=wider, upper=smaller) for a more natural look
+    const canopyMats: StandardMaterial[] = [];
+    const canopyShades = [
+      new Color3(0.12, 0.35, 0.08),  // dark green base
+      new Color3(0.18, 0.45, 0.12),  // medium green middle
+      new Color3(0.22, 0.55, 0.15),  // light green top
+    ];
+    for (let i = 0; i < 3; i++) {
+      const m = new StandardMaterial(`canopyMat_${i}`, this.scene);
+      m.diffuseColor = canopyShades[i];
+      m.specularColor = new Color3(0, 0, 0);
+      canopyMats.push(m);
     }
 
-    trunk.isVisible = false;
-    foliage.isVisible = false;
+    const masterCanopy0 = MeshBuilder.CreateSphere('masterCanopy0', { diameter: 3.5, segments: 6 }, this.scene);
+    masterCanopy0.position.y = 3.5;
+    masterCanopy0.scaling.y = 0.7; // flatten slightly
+    masterCanopy0.material = canopyMats[0];
+    masterCanopy0.setEnabled(false);
+
+    const masterCanopy1 = MeshBuilder.CreateSphere('masterCanopy1', { diameter: 2.8, segments: 6 }, this.scene);
+    masterCanopy1.position.y = 4.4;
+    masterCanopy1.scaling.y = 0.65;
+    masterCanopy1.material = canopyMats[1];
+    masterCanopy1.setEnabled(false);
+
+    const masterCanopy2 = MeshBuilder.CreateSphere('masterCanopy2', { diameter: 1.8, segments: 6 }, this.scene);
+    masterCanopy2.position.y = 5.1;
+    masterCanopy2.scaling.y = 0.6;
+    masterCanopy2.material = canopyMats[2];
+    masterCanopy2.setEnabled(false);
+
+    // Place trees
+    for (let i = 0; i < treeCount; i++) {
+      const x = (rng() - 0.5) * C.WORLD_SIZE;
+      const z = (rng() - 0.5) * C.WORLD_SIZE;
+
+      // Skip near spawn, boss arena, and river path
+      if (Math.abs(x) < 5 && Math.abs(z) < 5) continue;
+      const dBoss = Math.sqrt((x - C.BOSS_ARENA_CENTER.x) ** 2 + (z - C.BOSS_ARENA_CENTER.z) ** 2);
+      if (dBoss < C.BOSS_ARENA_RADIUS + 5) continue;
+      // Skip near river path
+      const nearRiver = Math.abs(x - (8 + z * -0.12)) < 5 && z > -85 && z < 10;
+      if (nearRiver) continue;
+
+      const scale = 0.7 + rng() * 0.8; // tree size variation
+      const yRot = rng() * Math.PI * 2;
+
+      // Trunk instance
+      const trunk = masterTrunk.createInstance(`tree_trunk_${i}`);
+      trunk.position.set(x, 1.5 * scale, z);
+      trunk.scaling.setAll(scale);
+      trunk.rotation.y = yRot;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(trunk);
+      this.treeInstances.push(trunk);
+
+      // Canopy instances (3 layers)
+      const c0 = masterCanopy0.createInstance(`tree_c0_${i}`);
+      c0.position.set(x, 3.5 * scale, z);
+      c0.scaling.set(scale * (0.9 + rng() * 0.3), scale * 0.7, scale * (0.9 + rng() * 0.3));
+      c0.rotation.y = yRot;
+      this.treeInstances.push(c0);
+
+      const c1 = masterCanopy1.createInstance(`tree_c1_${i}`);
+      c1.position.set(x, 4.4 * scale, z);
+      c1.scaling.set(scale * (0.85 + rng() * 0.25), scale * 0.65, scale * (0.85 + rng() * 0.25));
+      c1.rotation.y = yRot + 0.5;
+      this.treeInstances.push(c1);
+
+      const c2 = masterCanopy2.createInstance(`tree_c2_${i}`);
+      c2.position.set(x, 5.1 * scale, z);
+      c2.scaling.set(scale * (0.8 + rng() * 0.2), scale * 0.6, scale * (0.8 + rng() * 0.2));
+      c2.rotation.y = yRot + 1.0;
+      this.treeInstances.push(c2);
+    }
   }
 
   private buildBossArena(): void {
-    // ── ELEVATED PLATFORM (main arena disc at y=2.5) ───────────────────────────
-    const arena = MeshBuilder.CreateDisc('bossArena', { radius: C.BOSS_ARENA_RADIUS, tessellation: 48 }, this.scene);
-    arena.rotation.x = Math.PI / 2;
-    arena.position.set(C.BOSS_ARENA_CENTER.x, 2.5, C.BOSS_ARENA_CENTER.z);
-    const arenaMatProps = this.getMat('ground_arena', 'arenaMat', 0.1, 0.03, 0.08, 0.4, 0.7, 0.08, 0.01, 0.01);
-    if (arenaMatProps.albedoTexture) {
-      (arenaMatProps.albedoTexture as Texture).uScale = 4; (arenaMatProps.albedoTexture as Texture).vScale = 4;
-      if (arenaMatProps.bumpTexture) { (arenaMatProps.bumpTexture as Texture).uScale = 4; (arenaMatProps.bumpTexture as Texture).vScale = 4; }
-      if (arenaMatProps.microSurfaceTexture) { (arenaMatProps.microSurfaceTexture as Texture).uScale = 4; (arenaMatProps.microSurfaceTexture as Texture).vScale = 4; }
-      if (arenaMatProps.metallicTexture) { (arenaMatProps.metallicTexture as Texture).uScale = 4; (arenaMatProps.metallicTexture as Texture).vScale = 4; }
-    }
-    arena.material = arenaMatProps;
-    this.renderer.shadowGenerator.addShadowCaster(arena);
+    const c = C.BOSS_ARENA_CENTER;
+    const r = C.BOSS_ARENA_RADIUS;
 
-    // ── STAIRS/RAMP (5 box steps leading up from south side) ────────────────────
-    for (let i = 0; i < 5; i++) {
-      const y = 0.5 + i * 0.5;
-      const z = C.BOSS_ARENA_CENTER.z + (25 - i * 0.8);
-      const step = MeshBuilder.CreateBox(`stair_${i}`, { width: 4, height: 1, depth: 1 }, this.scene);
-      step.position.set(C.BOSS_ARENA_CENTER.x, y, z);
-      const stepMat = this.getMat('stairs_stone', `stairMat_${i}`, 0.25, 0.2, 0.15, 0.2, 0.65);
-      step.material = stepMat;
-      this.renderer.shadowGenerator.addShadowCaster(step);
-    }
+    // Arena floor — dark volcanic stone disc
+    const floor = MeshBuilder.CreateDisc('bossArenaFloor', { radius: r, tessellation: 32 }, this.scene);
+    floor.rotation.x = Math.PI / 2;
+    floor.position.set(c.x, 0.05, c.z);
+    const floorMat = new StandardMaterial('arenaFloorMat', this.scene);
+    floorMat.diffuseColor = new Color3(0.15, 0.08, 0.06);
+    floorMat.emissiveColor = new Color3(0.04, 0.01, 0.01);
+    floorMat.specularColor = new Color3(0.1, 0.05, 0.05);
+    floor.material = floorMat;
 
-    // ── FORTRESS WALLS (12 segments in a circle with gaps at cardinal directions) ────
-    const wallRadius = 22;
-    const wallCount = 12;
-    const gapAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]; // N, E, S, W
-    const isGap = (angle: number): boolean => {
-      const angleDeg = (angle * 180) / Math.PI;
-      return gapAngles.some(g => Math.abs(((g * 180) / Math.PI) - angleDeg) < 15);
-    };
+    // Raised edge ring (torus)
+    const ring = MeshBuilder.CreateTorus('bossArenaRing', { diameter: r * 2, thickness: 0.8, tessellation: 32 }, this.scene);
+    ring.position.set(c.x, 0.3, c.z);
+    const ringMat = new StandardMaterial('arenaRingMat', this.scene);
+    ringMat.diffuseColor = new Color3(0.25, 0.12, 0.08);
+    ringMat.emissiveColor = new Color3(0.15, 0.04, 0.02);
+    ring.material = ringMat;
 
-    for (let i = 0; i < wallCount; i++) {
-      const angle = (Math.PI * 2 / wallCount) * i;
-      if (isGap(angle)) continue; // Skip gaps
+    // Center platform (raised disc)
+    const centerPlat = MeshBuilder.CreateCylinder('bossCenterPlat', { height: 0.4, diameter: 5, tessellation: 16 }, this.scene);
+    centerPlat.position.set(c.x, 0.2, c.z);
+    const centerMat = new StandardMaterial('centerPlatMat', this.scene);
+    centerMat.diffuseColor = new Color3(0.2, 0.1, 0.08);
+    centerMat.emissiveColor = new Color3(0.1, 0.03, 0.02);
+    centerPlat.material = centerMat;
 
-      const x = C.BOSS_ARENA_CENTER.x + Math.cos(angle) * wallRadius;
-      const z = C.BOSS_ARENA_CENTER.z + Math.sin(angle) * wallRadius;
-      const wall = MeshBuilder.CreateBox(`wall_${i}`, { width: 3, height: 8, depth: 0.8 }, this.scene);
-      wall.position.set(x, 4, z);
-      wall.rotation.y = angle;
-      const wallMat = this.getMat('wall_stone', `wallMat_${i}`, 0.2, 0.15, 0.1, 0.3, 0.6);
-      wall.material = wallMat;
-      this.renderer.shadowGenerator.addShadowCaster(wall);
-    }
+    // Arena pillars around the edge (8 pillars)
+    const pillarMat = new StandardMaterial('arenaPillarMat', this.scene);
+    pillarMat.diffuseColor = new Color3(0.3, 0.15, 0.1);
+    pillarMat.emissiveColor = new Color3(0.08, 0.02, 0.01);
 
-    // ── 4 TOWERS (at diagonal positions: NE, NW, SE, SW) ───────────────────────
-    const diagonalAngles = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
-    const towerGoldMat = this.getMat('tower_gold', 'towerGoldMat', 0.7, 0.55, 0.1, 0.8, 0.2);
-    for (let i = 0; i < diagonalAngles.length; i++) {
-      const angle = diagonalAngles[i];
-      const x = C.BOSS_ARENA_CENTER.x + Math.cos(angle) * wallRadius;
-      const z = C.BOSS_ARENA_CENTER.z + Math.sin(angle) * wallRadius;
-      const tower = MeshBuilder.CreateCylinder(`tower_${i}`, { height: 15, diameter: 3, tessellation: 12 }, this.scene);
-      tower.position.set(x, 7.5, z);
-      tower.material = towerGoldMat;
-      this.renderer.shadowGenerator.addShadowCaster(tower);
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const px = c.x + Math.cos(angle) * (r - 1);
+      const pz = c.z + Math.sin(angle) * (r - 1);
+
+      const pillar = MeshBuilder.CreateCylinder(`arenaPillar_${i}`, { height: 6, diameter: 0.8, tessellation: 8 }, this.scene);
+      pillar.position.set(px, 3, pz);
+      pillar.material = pillarMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pillar);
+
+      // Flame orb atop each pillar
+      const orb = MeshBuilder.CreateSphere(`arenaOrb_${i}`, { diameter: 0.6, segments: 6 }, this.scene);
+      orb.position.set(px, 6.5, pz);
+      const orbMat = new StandardMaterial(`arenaOrbMat_${i}`, this.scene);
+      orbMat.emissiveColor = new Color3(0.9, 0.3, 0.05);
+      orbMat.disableLighting = true;
+      orb.material = orbMat;
     }
 
-    // ── THRONE (raised disc at center) ──────────────────────────────────────────
-    const throne = MeshBuilder.CreateDisc('throneDisc', { radius: 3, tessellation: 32 }, this.scene);
-    throne.rotation.x = Math.PI / 2;
-    throne.position.set(C.BOSS_ARENA_CENTER.x, 3.0, C.BOSS_ARENA_CENTER.z);
-    const throneMat = this.getMat('throne_gold', 'throneMat', 0.85, 0.7, 0.15, 0.85, 0.15);
-    throne.material = throneMat;
-    this.renderer.shadowGenerator.addShadowCaster(throne);
-
-    // ── FIRE BOWLS (4 point lights at entry gaps) ──────────────────────────────
-    for (let i = 0; i < gapAngles.length; i++) {
-      const angle = gapAngles[i];
-      const x = C.BOSS_ARENA_CENTER.x + Math.cos(angle) * wallRadius;
-      const z = C.BOSS_ARENA_CENTER.z + Math.sin(angle) * wallRadius;
-      const fireBowl = new PointLight(`fireBowl_${i}`, new Vector3(x, 6, z), this.scene);
-      fireBowl.intensity = 2.0;
-      fireBowl.diffuse = new Color3(1.0, 0.5, 0.1);
-      fireBowl.range = 12;
+    // Lava veins (thin glowing lines radiating from center)
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const vein = MeshBuilder.CreatePlane(`lavaVein_${i}`, { width: 0.3, height: r * 0.8 }, this.scene);
+      vein.rotation.x = Math.PI / 2;
+      vein.rotation.y = angle;
+      vein.position.set(c.x + Math.cos(angle) * r * 0.4, 0.07, c.z + Math.sin(angle) * r * 0.4);
+      const veinMat = new StandardMaterial(`lavaVeinMat_${i}`, this.scene);
+      veinMat.emissiveColor = new Color3(0.8, 0.2, 0.02);
+      veinMat.disableLighting = true;
+      veinMat.alpha = 0.6;
+      veinMat.backFaceCulling = false;
+      vein.material = veinMat;
     }
-
-    // ── ATMOSPHERIC PURPLE POINT LIGHT (elevated and stronger) ────────────────────
-    const arenaLight = new PointLight('arenaLight',
-      new Vector3(C.BOSS_ARENA_CENTER.x, 6, C.BOSS_ARENA_CENTER.z), this.scene);
-    arenaLight.intensity = 3.0;
-    arenaLight.diffuse   = new Color3(0.7, 0.1, 0.9);
-    arenaLight.range     = C.BOSS_ARENA_RADIUS * 2.5;
   }
 
   private buildSkybox(): void {
@@ -410,27 +512,27 @@ export class World {
     // Try to use loaded ember texture
     const emberTex = this.assets?.textures.get('particle_ember_albedo') ?? null;
 
-    // ── Embers (hot sparks drifting upward) ──────────────────────────
+    // ── Dust/Fireflies (soft floating particles) ──────────────────────────
     const embers = new ParticleSystem('embers', 250, this.scene);
     embers.particleTexture = emberTex ?? new Texture(WHITE_PNG, this.scene);
     embers.emitter = new Vector3(0, 1, 0);
     embers.minEmitBox = new Vector3(-C.WORLD_SIZE * 0.65, 0, -C.WORLD_SIZE * 0.65);
     embers.maxEmitBox = new Vector3( C.WORLD_SIZE * 0.65, 4,  C.WORLD_SIZE * 0.65);
-    embers.color1      = new Color4(1.0, 0.45, 0.1, 1.0);
-    embers.color2      = new Color4(1.0, 0.65, 0.2, 0.85);
-    embers.colorDead   = new Color4(0.3, 0.1, 0.05, 0.0);
-    embers.minSize     = 0.04;
-    embers.maxSize     = 0.13;
-    embers.minLifeTime = 3.5;
-    embers.maxLifeTime = 7.0;
-    embers.emitRate    = 35;
-    embers.direction1  = new Vector3(-0.15, 0.7, -0.15);
-    embers.direction2  = new Vector3( 0.15, 1.3,  0.15);
-    embers.gravity     = new Vector3(0, -0.04, 0);
-    embers.minEmitPower = 0.4;
-    embers.maxEmitPower = 1.4;
+    embers.color1      = new Color4(0.8, 0.75, 0.6, 0.6);
+    embers.color2      = new Color4(0.9, 0.85, 0.7, 0.5);
+    embers.colorDead   = new Color4(0.7, 0.65, 0.5, 0.0);
+    embers.minSize     = 0.02;
+    embers.maxSize     = 0.08;
+    embers.minLifeTime = 3;
+    embers.maxLifeTime = 6;
+    embers.emitRate    = 15;
+    embers.direction1  = new Vector3(-0.05, 0.1, -0.05);
+    embers.direction2  = new Vector3( 0.05, 0.3,  0.05);
+    embers.gravity     = new Vector3(0, -0.01, 0);
+    embers.minEmitPower = 0.1;
+    embers.maxEmitPower = 0.3;
     embers.updateSpeed  = 0.016;
-    embers.blendMode    = ParticleSystem.BLENDMODE_ADD;
+    embers.blendMode    = ParticleSystem.BLENDMODE_STANDARD;
     embers.start();
     this.emberParticles = embers;
 
@@ -1281,27 +1383,29 @@ export class World {
       mat.emissiveColor = new Color3(0.3, 0.3, 0.3); // slight self-illumination
       mat.disableLighting = false;
     } else {
-      // Fallback to colored plane if sprite not found
-      mat.emissiveColor = color.scale(0.6);
-      mat.diffuseColor = color;
+      // Fallback: build a detailed primitive humanoid instead of colored plane
+      billboard.dispose(); // Remove the flat billboard
+      this.buildHumanoidNPC(root, id, color);
     }
-    mat.specularColor = new Color3(0, 0, 0);
-    mat.backFaceCulling = false;
-    billboard.material = mat;
+    if (billboard && !billboard.isDisposed()) {
+      mat.specularColor = new Color3(0, 0, 0);
+      mat.backFaceCulling = false;
+      billboard.material = mat;
+    }
 
     // ── BEACON PILLAR (glowing cylinder above NPC) ────────────────────────────
-    const beacon = MeshBuilder.CreateCylinder(`beacon_${id}`, { height: 20, diameter: 0.6, tessellation: 16 }, this.scene);
+    const beacon = MeshBuilder.CreateCylinder(`beacon_${id}`, { height: 12, diameter: 0.3, tessellation: 16 }, this.scene);
     beacon.parent = root;
-    beacon.position.y = 10; // centered at height 10
+    beacon.position.y = 6; // centered lower to not overwhelm sprite
     const beaconMat = new StandardMaterial(`beaconMat_${id}`, this.scene);
     beaconMat.emissiveColor = beaconColor;
     beaconMat.diffuseColor = beaconColor.scale(0.5);
-    beaconMat.alpha = 0.3;
+    beaconMat.alpha = 0.12;
     beaconMat.backFaceCulling = false;
     beacon.material = beaconMat;
 
     // ── FLOATING DIAMOND MARKER (octahedron above NPC head) ────────────────────
-    const diamond = MeshBuilder.CreatePolyhedron(`diamond_${id}`, { type: 1, size: 0.4 }, this.scene);
+    const diamond = MeshBuilder.CreatePolyhedron(`diamond_${id}`, { type: 1, size: 0.25 }, this.scene);
     diamond.parent = root;
     diamond.position.y = 4;
     const diamondMat = new StandardMaterial(`diamondMat_${id}`, this.scene);
@@ -1335,10 +1439,115 @@ export class World {
     // Marker glow (point light) — increased intensity and range
     const light = new PointLight(`allyLight_${id}`, new Vector3(pos.x, pos.y + 2, pos.z), this.scene);
     light.diffuse = color;
-    light.intensity = 3.0;
-    light.range = 15;
+    light.intensity = 1.5;
+    light.range = 10;
 
     this.allyNPCMeshes.set(id, root);
+  }
+
+  private buildHumanoidNPC(parent: TransformNode, id: string, baseColor: Color3): void {
+    const mat = new StandardMaterial(`humanoidMat_${id}`, this.scene);
+    mat.diffuseColor = baseColor;
+    mat.specularColor = new Color3(0, 0, 0);
+
+    const skinMat = new StandardMaterial(`humanoidSkin_${id}`, this.scene);
+    skinMat.diffuseColor = new Color3(0.6, 0.45, 0.3);
+    skinMat.specularColor = new Color3(0, 0, 0);
+
+    // ── Torso ────────────────────────────────────────
+    const torso = MeshBuilder.CreateBox(`npcTorso_${id}`, { width: 0.7, height: 1.0, depth: 0.4 }, this.scene);
+    torso.parent = parent;
+    torso.position.y = 1.8;
+    torso.material = mat;
+
+    // ── Head ─────────────────────────────────────────
+    const head = MeshBuilder.CreateSphere(`npcHead_${id}`, { diameter: 0.45, segments: 8 }, this.scene);
+    head.parent = parent;
+    head.position.y = 2.6;
+    head.material = skinMat;
+
+    // ── Arms (2 cylinders) ──────────────────────────
+    for (const side of [-1, 1]) {
+      const arm = MeshBuilder.CreateCylinder(`npcArm_${id}_${side}`, { height: 0.9, diameter: 0.18 }, this.scene);
+      arm.parent = parent;
+      arm.position.set(side * 0.5, 1.7, 0);
+      arm.rotation.z = side * 0.15;
+      arm.material = mat;
+    }
+
+    // ── Legs (2 cylinders) ──────────────────────────
+    for (const side of [-1, 1]) {
+      const leg = MeshBuilder.CreateCylinder(`npcLeg_${id}_${side}`, { height: 1.0, diameter: 0.22 }, this.scene);
+      leg.parent = parent;
+      leg.position.set(side * 0.22, 0.7, 0);
+      leg.material = mat;
+    }
+
+    // ── NPC-specific details ────────────────────────
+    if (id === 'sage' || id === 'sage_agastya') {
+      // Saffron robes — extend torso with a "robe" box
+      const robe = MeshBuilder.CreateBox(`npcRobe_${id}`, { width: 0.85, height: 0.5, depth: 0.5 }, this.scene);
+      robe.parent = parent;
+      robe.position.y = 1.2;
+      const robeMat = new StandardMaterial(`robeMat_${id}`, this.scene);
+      robeMat.diffuseColor = new Color3(0.85, 0.5, 0.1);
+      robeMat.specularColor = new Color3(0, 0, 0);
+      robe.material = robeMat;
+      // White beard
+      const beard = MeshBuilder.CreateSphere(`npcBeard_${id}`, { diameter: 0.25, segments: 6 }, this.scene);
+      beard.parent = parent;
+      beard.position.set(0, 2.3, -0.2);
+      const beardMat = new StandardMaterial(`beardMat_${id}`, this.scene);
+      beardMat.diffuseColor = new Color3(0.9, 0.9, 0.85);
+      beardMat.specularColor = new Color3(0, 0, 0);
+      beard.material = beardMat;
+    } else if (id === 'sugriv' || id === 'angad' || id === 'angad_npc' || id === 'hanuman') {
+      // Vanara allies — broader build, golden-brown
+      torso.scaling.set(1.2, 1.0, 1.1);
+      mat.diffuseColor = new Color3(0.6, 0.4, 0.15);
+      // Tail
+      const tail = MeshBuilder.CreateCylinder(`npcTail_${id}`, { height: 1.2, diameter: 0.08, arc: 0.5 }, this.scene);
+      tail.parent = parent;
+      tail.position.set(0, 1.5, 0.35);
+      tail.rotation.x = 0.8;
+      tail.material = mat;
+    } else if (id === 'jatayu' || id === 'sampati') {
+      // Bird-like: wider "wing" boxes at shoulders
+      for (const side of [-1, 1]) {
+        const wing = MeshBuilder.CreateBox(`npcWing_${id}_${side}`, { width: 1.2, height: 0.1, depth: 0.6 }, this.scene);
+        wing.parent = parent;
+        wing.position.set(side * 0.9, 2.1, 0);
+        wing.rotation.z = side * 0.3;
+        const wingMat = new StandardMaterial(`wingMat_${id}_${side}`, this.scene);
+        wingMat.diffuseColor = new Color3(0.5, 0.45, 0.35);
+        wingMat.specularColor = new Color3(0, 0, 0);
+        wing.material = wingMat;
+      }
+    } else if (id === 'vibhishana') {
+      // Taller, thinner, pale blue-gray
+      torso.scaling.set(0.85, 1.2, 0.85);
+      mat.diffuseColor = new Color3(0.5, 0.55, 0.65);
+      // Crown/horns
+      const horn = MeshBuilder.CreateCylinder(`npcHorn_${id}`, { height: 0.4, diameter: 0.1, diameterTop: 0.02 }, this.scene);
+      horn.parent = parent;
+      horn.position.y = 2.85;
+      const hornMat = new StandardMaterial(`hornMat_${id}`, this.scene);
+      hornMat.diffuseColor = new Color3(0.8, 0.7, 0.3);
+      hornMat.specularColor = new Color3(0, 0, 0);
+      horn.material = hornMat;
+    } else if (id === 'lakshman') {
+      // Similar to player but green-tinted armor
+      const armorMat = new StandardMaterial(`armorMat_${id}`, this.scene);
+      armorMat.diffuseColor = new Color3(0.2, 0.5, 0.25);
+      armorMat.specularColor = new Color3(0.1, 0.1, 0.1);
+      torso.material = armorMat;
+      // Shield on left arm
+      const shield = MeshBuilder.CreateDisc(`npcShield_${id}`, { radius: 0.3, tessellation: 8 }, this.scene);
+      shield.parent = parent;
+      shield.position.set(-0.65, 1.8, 0);
+      shield.rotation.y = Math.PI / 2;
+      shield.material = armorMat;
+    }
   }
 
   removeAllyNPC(id: string): void {
@@ -1359,7 +1568,7 @@ export class World {
       // Pulse beacon cylinder alpha using sin(time * 2)
       const beacon = this.scene.getMeshByName(`beacon_${id}`);
       if (beacon?.material instanceof StandardMaterial) {
-        const alphaPulse = 0.25 + Math.sin(now * 2) * 0.075;
+        const alphaPulse = 0.10 + Math.sin(now * 2) * 0.04;
         beacon.material.alpha = alphaPulse;
       }
     }
@@ -1966,22 +2175,70 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   private buildWaterFeatures(): void {
-    // River: flowing water across the landscape
-    const river = MeshBuilder.CreatePlane(`waterRiver`, { width: 4, height: 60 }, this.scene);
-    river.rotation.x = Math.PI / 2;
-    river.position.set(10, 0.08, -30);
+    // ── Curved River: 10 connected segments following a winding path ──────
+    const riverPath: { x: number; z: number }[] = [
+      { x: 15, z: 5 }, { x: 12, z: -5 }, { x: 8, z: -15 },
+      { x: 3, z: -22 }, { x: -2, z: -30 }, { x: -5, z: -38 },
+      { x: -3, z: -48 }, { x: 2, z: -55 }, { x: 8, z: -62 },
+      { x: 10, z: -72 }, { x: 6, z: -82 },
+    ];
 
-    const riverMat = new StandardMaterial(`riverMat`, this.scene);
-    riverMat.diffuseColor = new Color3(0.1, 0.3, 0.55);
-    riverMat.emissiveColor = new Color3(0.05, 0.15, 0.3);
-    riverMat.alpha = 0.35;
-    riverMat.backFaceCulling = false;
-    river.material = riverMat;
+    const riverWidth = 3.5;
+    for (let i = 0; i < riverPath.length - 1; i++) {
+      const p0 = riverPath[i];
+      const p1 = riverPath[i + 1];
+      const dx = p1.x - p0.x;
+      const dz = p1.z - p0.z;
+      const segLen = Math.sqrt(dx * dx + dz * dz);
+      const angle = Math.atan2(dx, dz);
 
-    // Ocean: large water plane at far south
-    const ocean = MeshBuilder.CreatePlane(`waterOcean`, { width: 120, height: 40 }, this.scene);
+      const seg = MeshBuilder.CreatePlane(`riverSeg_${i}`, { width: riverWidth, height: segLen + 1.0 }, this.scene);
+      seg.rotation.x = Math.PI / 2;
+      seg.rotation.y = angle;
+      seg.position.set((p0.x + p1.x) / 2, 0.06 + Math.sin(i * 0.7) * 0.03, (p0.z + p1.z) / 2);
+
+      const segMat = new StandardMaterial(`riverSegMat_${i}`, this.scene);
+      segMat.diffuseColor = new Color3(0.08, 0.25, 0.5);
+      segMat.emissiveColor = new Color3(0.04, 0.12, 0.28);
+      segMat.alpha = 0.32 + Math.sin(i * 1.2) * 0.05;
+      segMat.backFaceCulling = false;
+      seg.material = segMat;
+    }
+
+    // ── River bank vegetation: small green sphere bushes ──────────────────
+    const rng = mulberry32(42);
+    for (let i = 0; i < riverPath.length; i++) {
+      const p = riverPath[i];
+      // 2 bushes per river point (one each side)
+      for (const side of [-1, 1]) {
+        if (rng() > 0.65) continue; // skip some for natural look
+        const bush = MeshBuilder.CreateSphere(`riverBush_${i}_${side}`, { diameter: 0.8 + rng() * 0.6, segments: 6 }, this.scene);
+        bush.position.set(p.x + side * (riverWidth * 0.7 + rng() * 1.5), 0.3, p.z + (rng() - 0.5) * 3);
+        const bushMat = new StandardMaterial(`riverBushMat_${i}_${side}`, this.scene);
+        bushMat.diffuseColor = new Color3(0.1 + rng() * 0.1, 0.35 + rng() * 0.2, 0.08);
+        bushMat.specularColor = new Color3(0, 0, 0);
+        bush.material = bushMat;
+      }
+    }
+
+    // ── Lily pads on water surface ───────────────────────────────────────
+    for (let i = 0; i < 6; i++) {
+      const idx = Math.floor(rng() * (riverPath.length - 1));
+      const p = riverPath[idx];
+      const lily = MeshBuilder.CreateDisc(`lilyPad_${i}`, { radius: 0.25 + rng() * 0.2, tessellation: 8 }, this.scene);
+      lily.rotation.x = Math.PI / 2;
+      lily.position.set(p.x + (rng() - 0.5) * riverWidth * 0.6, 0.08, p.z + (rng() - 0.5) * 4);
+      const lilyMat = new StandardMaterial(`lilyMat_${i}`, this.scene);
+      lilyMat.diffuseColor = new Color3(0.15, 0.45, 0.12);
+      lilyMat.emissiveColor = new Color3(0.05, 0.15, 0.04);
+      lilyMat.backFaceCulling = false;
+      lily.material = lilyMat;
+    }
+
+    // ── Ocean: large water plane at far south ────────────────────────────
+    const ocean = MeshBuilder.CreatePlane(`waterOcean`, { width: 140, height: 50 }, this.scene);
     ocean.rotation.x = Math.PI / 2;
-    ocean.position.set(0, 0.04, -110);
+    ocean.position.set(0, 0.04, -115);
 
     const oceanMat = new StandardMaterial(`oceanMat`, this.scene);
     oceanMat.diffuseColor = new Color3(0.05, 0.15, 0.4);
@@ -1989,6 +2246,211 @@ export class World {
     oceanMat.alpha = 0.45;
     oceanMat.backFaceCulling = false;
     ocean.material = oceanMat;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  TORCH & CAMPFIRE SYSTEM
+  // ══════════════════════════════════════════════════════════════════════════
+
+  setTorchLit(lit: boolean, playerPos: Vec3): void {
+    if (lit) {
+      if (!this.torchLight) {
+        this.torchLight = new PointLight('torchLight', new Vector3(playerPos.x, playerPos.y + 3, playerPos.z), this.scene);
+        this.torchLight.diffuse = new Color3(1.0, 0.65, 0.2);
+        this.torchLight.intensity = 4.0;
+        this.torchLight.range = 18;
+      }
+      if (!this.torchMesh) {
+        this.torchMesh = MeshBuilder.CreateSphere('torchFlame', { diameter: 0.3, segments: 6 }, this.scene);
+        const mat = new StandardMaterial('torchFlameMat', this.scene);
+        mat.emissiveColor = new Color3(1.0, 0.5, 0.1);
+        mat.disableLighting = true;
+        this.torchMesh.material = mat;
+      }
+    } else {
+      if (this.torchLight) { this.torchLight.dispose(); this.torchLight = null; }
+      if (this.torchMesh) { this.torchMesh.dispose(); this.torchMesh = null; }
+    }
+  }
+
+  updateTorchPosition(playerPos: Vec3): void {
+    if (this.torchLight) {
+      this.torchLight.position.set(playerPos.x + 0.5, playerPos.y + 3, playerPos.z + 0.5);
+      // Flicker effect
+      this.torchLight.intensity = 3.5 + Math.random() * 1.0;
+    }
+    if (this.torchMesh) {
+      this.torchMesh.position.set(playerPos.x + 0.5, playerPos.y + 2.8, playerPos.z + 0.5);
+    }
+  }
+
+  placeCampfire(pos: Vec3): void {
+    this.removeCampfire();
+    this.campfireLight = new PointLight('campfireLight', new Vector3(pos.x, pos.y + 1.5, pos.z), this.scene);
+    this.campfireLight.diffuse = new Color3(1.0, 0.55, 0.15);
+    this.campfireLight.intensity = 5.0;
+    this.campfireLight.range = 22;
+
+    // Fire visual: stack of glowing spheres
+    this.campfireMesh = MeshBuilder.CreateSphere('campfire', { diameter: 0.5, segments: 6 }, this.scene);
+    this.campfireMesh.position.set(pos.x, pos.y + 0.4, pos.z);
+    const mat = new StandardMaterial('campfireMat', this.scene);
+    mat.emissiveColor = new Color3(1.0, 0.4, 0.05);
+    mat.disableLighting = true;
+    this.campfireMesh.material = mat;
+
+    // Add two smaller flame orbs
+    const flame2 = MeshBuilder.CreateSphere('campflame2', { diameter: 0.3, segments: 6 }, this.scene);
+    flame2.parent = this.campfireMesh;
+    flame2.position.y = 0.4;
+    flame2.material = mat;
+    const flame3 = MeshBuilder.CreateSphere('campflame3', { diameter: 0.2, segments: 6 }, this.scene);
+    flame3.parent = this.campfireMesh;
+    flame3.position.set(0.15, 0.7, 0);
+    flame3.material = mat;
+  }
+
+  removeCampfire(): void {
+    if (this.campfireLight) { this.campfireLight.dispose(); this.campfireLight = null; }
+    if (this.campfireMesh) { this.campfireMesh.dispose(false, true); this.campfireMesh = null; }
+  }
+
+  updateCampfireFlicker(): void {
+    if (this.campfireLight) {
+      this.campfireLight.intensity = 4.5 + Math.random() * 1.5;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  WILDLIFE & AMBIENT LIFE
+  // ══════════════════════════════════════════════════════════════════════════
+
+  private birds: { mesh: TransformNode; cx: number; cz: number; radius: number; speed: number; angle: number; baseY: number }[] = [];
+  private deer: { mesh: TransformNode; pos: Vec3; fleeing: boolean; fleeDir: Vec3; fleeTimer: number }[] = [];
+
+  buildWildlife(): void {
+    const rng = mulberry32(7777);
+
+    // ── Flying birds: V-shaped wing pairs orbiting in circles ──────
+    for (let i = 0; i < 8; i++) {
+      const root = new TransformNode(`bird_${i}`, this.scene);
+      // Two small triangular wings forming a V
+      const wingL = MeshBuilder.CreatePlane(`birdWingL_${i}`, { width: 0.5, height: 0.2 }, this.scene);
+      wingL.parent = root;
+      wingL.position.x = -0.15;
+      wingL.rotation.z = 0.4;
+      const wingR = MeshBuilder.CreatePlane(`birdWingR_${i}`, { width: 0.5, height: 0.2 }, this.scene);
+      wingR.parent = root;
+      wingR.position.x = 0.15;
+      wingR.rotation.z = -0.4;
+      const birdMat = new StandardMaterial(`birdMat_${i}`, this.scene);
+      birdMat.diffuseColor = new Color3(0.1, 0.08, 0.06);
+      birdMat.emissiveColor = new Color3(0.05, 0.04, 0.03);
+      birdMat.backFaceCulling = false;
+      wingL.material = birdMat;
+      wingR.material = birdMat;
+
+      const cx = (rng() - 0.5) * 60;
+      const cz = -10 - rng() * 50;
+      const radius = 8 + rng() * 15;
+      const speed = 0.3 + rng() * 0.4;
+      const baseY = 14 + rng() * 6;
+
+      this.birds.push({ mesh: root, cx, cz, radius, speed, angle: rng() * Math.PI * 2, baseY });
+    }
+
+    // ── Ground animals (deer): box body + cylinder legs + sphere head ──────
+    for (let i = 0; i < 4; i++) {
+      const root = new TransformNode(`deer_${i}`, this.scene);
+      const deerMat = new StandardMaterial(`deerMat_${i}`, this.scene);
+      deerMat.diffuseColor = new Color3(0.45, 0.3, 0.15);
+      deerMat.specularColor = new Color3(0, 0, 0);
+
+      // Body
+      const body = MeshBuilder.CreateBox(`deerBody_${i}`, { width: 0.6, height: 0.5, depth: 1.0 }, this.scene);
+      body.parent = root;
+      body.position.y = 0.7;
+      body.material = deerMat;
+
+      // Legs (4 thin cylinders)
+      for (let leg = 0; leg < 4; leg++) {
+        const l = MeshBuilder.CreateCylinder(`deerLeg_${i}_${leg}`, { height: 0.5, diameter: 0.08 }, this.scene);
+        l.parent = root;
+        l.position.set((leg < 2 ? -0.2 : 0.2), 0.25, (leg % 2 === 0 ? -0.35 : 0.35));
+        l.material = deerMat;
+      }
+
+      // Head
+      const head = MeshBuilder.CreateSphere(`deerHead_${i}`, { diameter: 0.3, segments: 6 }, this.scene);
+      head.parent = root;
+      head.position.set(0, 1.0, -0.55);
+      head.material = deerMat;
+
+      // Neck
+      const neck = MeshBuilder.CreateCylinder(`deerNeck_${i}`, { height: 0.4, diameter: 0.1 }, this.scene);
+      neck.parent = root;
+      neck.position.set(0, 0.9, -0.4);
+      neck.rotation.x = -0.5;
+      neck.material = deerMat;
+
+      const px = -20 + rng() * 40;
+      const pz = -15 - rng() * 30;
+      root.position.set(px, 0, pz);
+      root.rotation.y = rng() * Math.PI * 2;
+
+      this.deer.push({
+        mesh: root,
+        pos: { x: px, y: 0, z: pz },
+        fleeing: false,
+        fleeDir: { x: 0, y: 0, z: 0 },
+        fleeTimer: 0,
+      });
+    }
+  }
+
+  updateWildlife(dt: number, playerPos: Vec3): void {
+    // ── Birds: circle and bob ─────────────────────────────────────
+    for (const bird of this.birds) {
+      bird.angle += bird.speed * dt;
+      const x = bird.cx + Math.cos(bird.angle) * bird.radius;
+      const z = bird.cz + Math.sin(bird.angle) * bird.radius;
+      const y = bird.baseY + Math.sin(bird.angle * 3) * 1.5; // bob up/down
+      bird.mesh.position.set(x, y, z);
+      bird.mesh.rotation.y = bird.angle + Math.PI / 2;
+      // Wing flap: rotate wing meshes
+      const flapAngle = Math.sin(bird.angle * 8) * 0.3;
+      const wL = bird.mesh.getChildMeshes()[0];
+      const wR = bird.mesh.getChildMeshes()[1];
+      if (wL) wL.rotation.z = 0.4 + flapAngle;
+      if (wR) wR.rotation.z = -0.4 - flapAngle;
+    }
+
+    // ── Deer: graze or flee ──────────────────────────────────────
+    for (const d of this.deer) {
+      if (d.fleeing) {
+        d.fleeTimer -= dt;
+        if (d.fleeTimer <= 0) {
+          d.fleeing = false;
+        } else {
+          d.pos.x += d.fleeDir.x * 6 * dt;
+          d.pos.z += d.fleeDir.z * 6 * dt;
+          d.mesh.position.set(d.pos.x, 0, d.pos.z);
+        }
+      } else {
+        // Check if player is close
+        const dx = playerPos.x - d.pos.x;
+        const dz = playerPos.z - d.pos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < 10) {
+          // Flee away from player
+          d.fleeing = true;
+          d.fleeTimer = 3.0;
+          const invD = 1 / Math.max(dist, 0.1);
+          d.fleeDir = { x: -dx * invD, y: 0, z: -dz * invD };
+          d.mesh.rotation.y = Math.atan2(-dx, -dz);
+        }
+      }
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2002,8 +2464,8 @@ export class World {
 
     // Define biome settings per chapter
     const biomes: Record<number, { groundColor: [number, number, number]; fogColor: [number, number, number]; fogDensity: number; sunColor: [number, number, number]; sunIntensity: number }> = {
-      0: { groundColor: [0.12, 0.22, 0.08], fogColor: [0.15, 0.12, 0.06], fogDensity: 0.008, sunColor: [1.0, 0.7, 0.3], sunIntensity: 1.2 }, // Dandaka - lush
-      1: { groundColor: [0.12, 0.22, 0.08], fogColor: [0.15, 0.12, 0.06], fogDensity: 0.008, sunColor: [1.0, 0.7, 0.3], sunIntensity: 1.2 },
+      0: { groundColor: [0.15, 0.28, 0.1], fogColor: [0.2, 0.25, 0.15], fogDensity: 0.004, sunColor: [1.0, 0.85, 0.5], sunIntensity: 1.8 }, // Ashram - serene golden morning
+      1: { groundColor: [0.14, 0.25, 0.09], fogColor: [0.18, 0.2, 0.1], fogDensity: 0.006, sunColor: [1.0, 0.8, 0.4], sunIntensity: 1.5 }, // Dandaka forest
       2: { groundColor: [0.2, 0.1, 0.06], fogColor: [0.25, 0.1, 0.05], fogDensity: 0.012, sunColor: [1.0, 0.4, 0.2], sunIntensity: 1.0 }, // Scorched
       3: { groundColor: [0.18, 0.15, 0.1], fogColor: [0.2, 0.15, 0.08], fogDensity: 0.006, sunColor: [0.9, 0.7, 0.4], sunIntensity: 1.5 }, // Kishkindha rocky
       4: { groundColor: [0.22, 0.2, 0.14], fogColor: [0.15, 0.18, 0.22], fogDensity: 0.005, sunColor: [0.8, 0.85, 1.0], sunIntensity: 1.3 }, // Shore
@@ -2026,6 +2488,27 @@ export class World {
     if (sun && 'diffuse' in sun) {
       (sun as any).diffuse = new Color3(...b.sunColor);
       (sun as any).intensity = b.sunIntensity;
+    }
+
+    // Update hemisphere ambient for Ch0 peaceful ashram
+    const ambient = this.scene.getLightByName('ambient');
+    if (ambient && 'groundColor' in ambient) {
+      if (chapter === 0) {
+        (ambient as any).diffuse = new Color3(0.75, 0.7, 0.55);   // warm golden upper sky
+        (ambient as any).groundColor = new Color3(0.2, 0.25, 0.15); // lush green bounce
+        (ambient as any).intensity = 0.75;
+        this.scene.clearColor = new Color4(0.15, 0.18, 0.1, 1); // green-tinted dawn sky
+      } else if (chapter <= 3) {
+        (ambient as any).diffuse = new Color3(0.65, 0.55, 0.45);
+        (ambient as any).groundColor = new Color3(0.18, 0.14, 0.22);
+        (ambient as any).intensity = 0.62;
+        this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
+      } else {
+        (ambient as any).diffuse = new Color3(0.5, 0.4, 0.35);
+        (ambient as any).groundColor = new Color3(0.15, 0.1, 0.2);
+        (ambient as any).intensity = 0.55;
+        this.scene.clearColor = new Color4(0.04, 0.02, 0.04, 1);
+      }
     }
 
     // Update ambient particle colors per chapter biome

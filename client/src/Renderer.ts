@@ -130,4 +130,81 @@ export class Renderer {
     // ── Resize ──────────────────────────────────────────────────────
     window.addEventListener('resize', () => this.engine.resize());
   }
+
+  /** Update lighting for day/night cycle. t: 0=dawn, 0.25=noon, 0.5=dusk, 0.75=midnight, 1.0=dawn */
+  updateTimeOfDay(t: number): void {
+    const sun = this.scene.getLightByName('sun') as DirectionalLight | null;
+    const fill = this.scene.getLightByName('fill') as DirectionalLight | null;
+
+    if (!sun) return;
+
+    // ── Sun elevation & rotation ────────────────────────────────
+    // Sun rises at t=0, peaks at t=0.25, sets at t=0.5, below horizon t=0.5-1.0
+    const sunAngle = t * Math.PI * 2; // full rotation
+    const elevation = Math.cos(sunAngle) * 0.7; // -0.7 (below) to +0.7 (above)
+    const azimuth = Math.sin(sunAngle);
+    sun.direction = new Vector3(azimuth * 0.65, -Math.max(elevation, 0.05), 0.65).normalize();
+    sun.position = new Vector3(-azimuth * 40, Math.max(elevation * 80, 5), -40);
+
+    // ── Sun color & intensity based on time ─────────────────────
+    const isDay = t < 0.5;
+    const isDusk = t > 0.35 && t < 0.55;
+    const isNight = t >= 0.55;
+
+    if (isNight) {
+      // Night: very dim sun, blue moonlight from fill
+      sun.intensity = 0.15;
+      sun.diffuse = new Color3(0.15, 0.15, 0.25);
+      sun.specular = new Color3(0.1, 0.1, 0.15);
+      if (fill) {
+        fill.intensity = 0.7;
+        fill.diffuse = new Color3(0.3, 0.35, 0.55); // pale blue moonlight
+      }
+      // Dark sky
+      this.scene.clearColor = new Color4(0.02, 0.01, 0.04, 1);
+      this.scene.fogColor = new Color3(0.04, 0.03, 0.06);
+      this.scene.fogDensity = 0.02;
+    } else if (isDusk) {
+      // Dusk: blood-orange sun, lower intensity
+      const duskFactor = (t - 0.35) / 0.2; // 0→1 across dusk
+      sun.intensity = 2.2 - duskFactor * 1.8;
+      sun.diffuse = new Color3(1.0, 0.4 - duskFactor * 0.25, 0.15);
+      sun.specular = new Color3(0.8, 0.3, 0.15);
+      if (fill) {
+        fill.intensity = 0.6 + duskFactor * 0.2;
+        fill.diffuse = new Color3(0.25 + duskFactor * 0.1, 0.2, 0.45 + duskFactor * 0.1);
+      }
+      this.scene.clearColor = new Color4(0.08 - duskFactor * 0.06, 0.03, 0.02 + duskFactor * 0.02, 1);
+      this.scene.fogDensity = 0.012 + duskFactor * 0.008;
+    } else if (t < 0.1) {
+      // Dawn: golden warm light rising
+      const dawnFactor = t / 0.1; // 0→1 across dawn
+      sun.intensity = 0.8 + dawnFactor * 1.0;
+      sun.diffuse = new Color3(1.0, 0.7 + dawnFactor * 0.15, 0.3 + dawnFactor * 0.15);
+      sun.specular = new Color3(1.0, 0.6, 0.25);
+      if (fill) {
+        fill.intensity = 0.5 + dawnFactor * 0.3;
+        fill.diffuse = new Color3(0.2, 0.2, 0.4);
+      }
+      this.scene.clearColor = new Color4(0.1 + dawnFactor * 0.05, 0.06 + dawnFactor * 0.03, 0.03, 1);
+      this.scene.fogDensity = 0.008 - dawnFactor * 0.003;
+    } else {
+      // Midday: bright neutral-warm light
+      const noonFactor = Math.sin((t - 0.1) / 0.25 * Math.PI / 2);
+      sun.intensity = 1.8 + noonFactor * 0.8;
+      sun.diffuse = new Color3(1.0, 0.85 + noonFactor * 0.1, 0.6 + noonFactor * 0.15);
+      sun.specular = new Color3(1.0, 0.85, 0.6);
+      if (fill) {
+        fill.intensity = 0.7 + noonFactor * 0.15;
+        fill.diffuse = new Color3(0.25, 0.25, 0.5);
+      }
+      this.scene.clearColor = new Color4(0.12, 0.1, 0.06, 1);
+      this.scene.fogDensity = 0.005 + (1 - noonFactor) * 0.004;
+    }
+
+    // ── Exposure adjustment ─────────────────────────────────────
+    if (this.pipeline?.imageProcessingEnabled) {
+      this.pipeline.imageProcessing.exposure = isNight ? 1.2 : isDusk ? 1.45 : 1.65;
+    }
+  }
 }

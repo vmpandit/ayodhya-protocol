@@ -38,6 +38,7 @@ export class HUD {
   private goalText: HTMLElement | null;
   private talkPrompt: HTMLElement | null;
   private dialogueChoicesContainer: HTMLElement | null;
+  private dialogueHint: HTMLElement | null;
   private tutorialChecklist: HTMLElement | null;
   private backstoryOverlay: HTMLElement | null;
 
@@ -88,6 +89,7 @@ export class HUD {
     this.goalText = document.getElementById('goalText');
     this.talkPrompt = document.getElementById('talkPrompt');
     this.dialogueChoicesContainer = document.getElementById('dialogueChoices');
+    this.dialogueHint = document.getElementById('dialogueHint');
     this.tutorialChecklist = document.getElementById('tutorialChecklist');
     this.backstoryOverlay = document.getElementById('backstoryOverlay');
 
@@ -471,23 +473,18 @@ export class HUD {
 
     this.dialogueOverlay.classList.add('visible');
 
+    // Always clean previous choices first
+    this.hideDialogueChoices();
+
     // Show choices if available
     if (node.choices && node.choices.length > 0) {
       this.showDialogueChoices(node.choices);
+      // Flash conversation hint
+      this.showDialogueHint('Choose a response below (click or press 1-' + node.choices.length + ')');
     } else if (isEnd) {
-      // No choices — show "Press Space to continue" and auto-close after 5 seconds
-      if (msgEl) {
-        const hint = document.createElement('div');
-        hint.style.fontSize = '12px';
-        hint.style.marginTop = '10px';
-        hint.style.opacity = '0.7';
-        hint.textContent = '(Press Space to continue)';
-        msgEl.parentElement?.appendChild(hint);
-      }
-      setTimeout(() => {
-        this.hideDialogueChoices();
-        this.dialogueOverlay?.classList.remove('visible');
-      }, 5000);
+      // Show end-of-dialogue continue button in the choices area
+      this.showEndDialogueButton();
+      this.showDialogueHint('Press SPACE to continue');
     }
   }
 
@@ -497,29 +494,72 @@ export class HUD {
     // Clear previous choices
     this.dialogueChoicesContainer.innerHTML = '';
 
-    // Create choice buttons
+    // Add header instruction
+    const header = document.createElement('div');
+    header.className = 'dialogue-choice-header';
+    header.textContent = 'Choose a response (click or press 1-' + choices.length + ')';
+    this.dialogueChoicesContainer.appendChild(header);
+
+    // Create choice buttons with number badges
     for (let i = 0; i < choices.length; i++) {
       const choice = choices[i];
       const btn = document.createElement('div');
       btn.className = 'dialogue-choice';
       btn.setAttribute('data-index', i.toString());
-      btn.innerHTML = `<span style="font-weight: bold;">${i + 1}.</span> ${choice.label}`;
+      btn.innerHTML = `<span class="choice-num">${i + 1}</span><span>${choice.label}</span>`;
       this.dialogueChoicesContainer.appendChild(btn);
 
-      // Add click handler
       btn.addEventListener('click', () => {
         this.onChoiceSelected(i);
       });
     }
 
+    this.dialogueChoicesContainer.style.display = 'block';
     this.dialogueChoicesContainer.classList.add('visible');
   }
 
   hideDialogueChoices(): void {
     if (this.dialogueChoicesContainer) {
       this.dialogueChoicesContainer.classList.remove('visible');
+      this.dialogueChoicesContainer.style.display = 'none';
+      this.dialogueChoicesContainer.innerHTML = '';
     }
   }
+
+  hideDialogue(): void {
+    if (this.dialogueOverlay) {
+      this.dialogueOverlay.classList.remove('visible');
+    }
+    this.hideDialogueChoices();
+  }
+
+  private showEndDialogueButton(): void {
+    if (!this.dialogueChoicesContainer) return;
+    this.dialogueChoicesContainer.innerHTML = '';
+
+    const hint = document.createElement('div');
+    hint.className = 'dialogue-end-hint';
+    hint.textContent = 'Press SPACE to continue';
+    hint.addEventListener('click', () => {
+      this.onEndDialogue();
+    });
+    this.dialogueChoicesContainer.appendChild(hint);
+
+    this.dialogueChoicesContainer.style.display = 'block';
+    this.dialogueChoicesContainer.classList.add('visible');
+  }
+
+  private showDialogueHint(text: string): void {
+    if (!this.dialogueHint) return;
+    this.dialogueHint.textContent = text;
+    this.dialogueHint.classList.add('visible');
+    setTimeout(() => {
+      this.dialogueHint?.classList.remove('visible');
+    }, 2500);
+  }
+
+  /** Callback for ending dialogue (Space key or click continue) */
+  public onEndDialogue: () => void = () => {};
 
   showTalkPrompt(npcName: string): void {
     if (!this.talkPrompt) return;

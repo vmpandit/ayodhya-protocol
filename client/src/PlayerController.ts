@@ -222,7 +222,14 @@ export class PlayerController {
       const newSelect = (this.selectedSpecialArrow + delta + 5) % 5;
       this.selectSpecialArrow(newSelect as SpecialArrowType);
     });
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      // On Mac trackpads, two-finger tap fires contextmenu but mousedown/mouseup with button=2 may not fire
+      // Treat contextmenu as a right-click for special arrow
+      if (!this.rightMouseDragged) {
+        this.trySpecialArrow();
+      }
+    });
   }
 
   // ══════════════════════════════════════════════
@@ -665,5 +672,21 @@ export class PlayerController {
     const pressed = this.mapTogglePressed;
     this.mapTogglePressed = false;
     return pressed;
+  }
+
+  consumeTorchKey(): boolean {
+    if (this.keys.has('KeyT')) {
+      this.keys.delete('KeyT');
+      return true;
+    }
+    return false;
+  }
+
+  consumeCampfireKey(): boolean {
+    if (this.keys.has('KeyG')) {
+      this.keys.delete('KeyG');
+      return true;
+    }
+    return false;
   }
 }

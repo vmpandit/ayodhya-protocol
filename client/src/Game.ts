@@ -62,6 +62,9 @@ export class Game {
   private gamePaused = false;
   private gameStartTime = 0;
 
+  // ── Day/Night cycle ─────────────────────────────────────────
+  private gameTimeOfDay = 0.0; // 0=dawn, 0.25=noon, 0.5=dusk, 0.75=midnight
+
   private triggerHitStop(ms = 70): void {
     this.hitStopEnd = performance.now() + ms;
   }
@@ -280,11 +283,21 @@ export class Game {
     };
 
     this.localSim.onChapterChange = (chapter, title, subtitle) => {
+      // Update chapter indicator in HUD corner
+      const chapterEl = document.getElementById('chapterIndicator');
+      if (chapterEl) chapterEl.textContent = `Ch.${chapter} — ${title}`;
+
       this.hud.showChapterBanner(chapter, title, subtitle);
       this.audio.play(SFX.BossRoar); // dramatic chapter transition sound
 
       // Update world biome visuals for this chapter
       this.world.setChapterBiome(chapter);
+
+      // Advance day/night cycle based on chapter
+      // Ch0-1: dawn(0.0-0.08), Ch2-3: morning→noon(0.12-0.22), Ch4-5: afternoon→dusk(0.32-0.42), Ch6-7: evening→night(0.55-0.72)
+      const chapterTimeMap: Record<number, number> = { 0: 0.02, 1: 0.08, 2: 0.15, 3: 0.22, 4: 0.32, 5: 0.42, 6: 0.55, 7: 0.72 };
+      this.gameTimeOfDay = chapterTimeMap[chapter] ?? 0.0;
+      this.renderer.updateTimeOfDay(this.gameTimeOfDay);
 
       // Update goal widget
       const goal = this.localSim!.chapterGoals[chapter];
@@ -292,6 +305,12 @@ export class Game {
         this.hud.showGoal(goal.description);
       } else {
         this.hud.showGoal('Find and speak with allies to learn your objective...');
+      }
+
+      // Auto-save on chapter transition
+      if (chapter > 0) {
+        this.saveGame();
+        this.hud.showNotification('CHECKPOINT SAVED');
       }
     };
 
@@ -336,6 +355,15 @@ export class Game {
       this.hud.showDialogueSequence(lines);
     };
 
+    // Wire HUD dialogue end button (click on "Press SPACE to continue")
+    this.hud.onEndDialogue = () => {
+      if (this.localSim && this.localSim.dialogueInProgress) {
+        this.localSim.endDialogue();
+        this.hud.hideDialogueChoices();
+        this.hud.hideDialogue();
+      }
+    };
+
     this.localSim.onGoalRevealed = (chapter, description) => {
       this.hud.showGoalRevealed(description);
       this.audio.play(SFX.UIStart);
@@ -345,6 +373,22 @@ export class Game {
       this.hud.completeGoal();
       this.hud.addKillFeedEntry(`Goal Complete: ${description}`, '#90ee90');
       this.audio.play(SFX.UIStart);
+    };
+
+    this.localSim.onTorchToggle = (lit) => {
+      const p = this.localSim!.getPlayerState();
+      this.world.setTorchLit(lit, p.pos);
+      this.hud.showNotification(lit ? 'TORCH LIT' : 'TORCH EXTINGUISHED');
+    };
+
+    this.localSim.onCampfirePlaced = (pos) => {
+      this.world.placeCampfire(pos);
+      this.hud.showNotification('CAMPFIRE PLACED');
+    };
+
+    this.localSim.onCampfirePickedUp = () => {
+      this.world.removeCampfire();
+      this.hud.showNotification('CAMPFIRE PICKED UP');
     };
 
     // ── Tutorial callbacks ────────────────────────────────────────
@@ -492,8 +536,11 @@ export class Game {
   }
 
   private newGame(): void {
-    MapRenderer.deleteSave();
-    window.location.reload();
+    const confirmed = window.confirm('Delete all progress and start fresh? This cannot be undone.');
+    if (confirmed) {
+      MapRenderer.deleteSave();
+      window.location.reload();
+    }
   }
 
   private gameLoop(): void {
@@ -513,6 +560,13 @@ export class Game {
 
     // ── HUD update (combo timer decay) ─────────────────────────
     this.hud.update(dt);
+
+    // ── Day/Night: slow time progression within chapters ──────
+    this.gameTimeOfDay += dt * 0.001; // very slow drift (full cycle in ~1000s)
+    if (this.gameTimeOfDay > 1.0) this.gameTimeOfDay -= 1.0;
+    if (this.frameIndex % 30 === 0) {
+      this.renderer.updateTimeOfDay(this.gameTimeOfDay);
+    }
 
     // ── Handle Map toggle (M key) ────────────────────────────────
     if (this.controller && this.controller.consumeMapToggle()) {
@@ -546,6 +600,27 @@ export class Game {
           this.hud.hideTalkPrompt();
         }
       }
+    }
+
+    // ── Handle Torch (T) and Campfire (G) keys ──────────────────
+    if (this.controller && this.localSim) {
+      if (this.controller.consumeTorchKey()) {
+        this.localSim.toggleTorch();
+      }
+      if (this.controller.consumeCampfireKey()) {
+        this.localSim.placeCampfire();
+      }
+    }
+
+    // Update torch position to follow player
+    if (this.localSim?.torchLit) {
+      const p = this.lastSnapshot?.players.find(pl => pl.id === this.localPlayerId);
+      if (p) this.world.updateTorchPosition(p.pos);
+    }
+
+    // Update campfire flicker
+    if (this.localSim?.campfirePos) {
+      this.world.updateCampfireFlicker();
     }
 
     // ── Wire dialogue choice callback ──────────────────────────────
@@ -589,13 +664,20 @@ export class Game {
       }
     }
 
-    // ── Backstory advancement (Space key) ────────────────────────
+    // ── Backstory advancement (Space key) & Dialogue end (Space key) ───
     if (!this._backstoryKeyListener && this.localSim) {
       this._backstoryKeyListener = true;
       window.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' && this.localSim && this.localSim.backstoryInProgress) {
-          e.preventDefault();
-          this.localSim.advanceBackstory();
+        if (e.code === 'Space') {
+          if (this.localSim && this.localSim.backstoryInProgress) {
+            e.preventDefault();
+            this.localSim.advanceBackstory();
+          } else if (this.localSim && this.localSim.dialogueInProgress) {
+            e.preventDefault();
+            this.localSim.endDialogue();
+            this.hud.hideDialogueChoices();
+            this.hud.hideDialogue();
+          }
         }
       });
     }
@@ -693,6 +775,12 @@ export class Game {
     this.world.updateProjectiles(dt);
     // Update NPC beacon animations (rotating diamonds, pulsing light pillars)
     this.world.updateNPCBeacons(dt);
+
+    // Update wildlife animations
+    if (this.localSim) {
+      const p = this.lastSnapshot?.players.find(pl => pl.id === this.localPlayerId);
+      if (p) this.world.updateWildlife(dt, p.pos);
+    }
 
     if (this.localSim) {
       this.world.updatePickups(dt);

@@ -613,17 +613,16 @@ export class HUD {
     }
   }
 
-  showTutorialStep(step: string, completed: boolean): void {
+  showTutorialStep(step: string, _allComplete: boolean): void {
     if (!this.tutorialChecklist) return;
     const stepEl = this.tutorialChecklist.querySelector(`[data-step="${step}"]`);
     if (stepEl) {
       const checkMark = stepEl.querySelector('.tut-check') as HTMLElement;
       if (checkMark) {
-        checkMark.textContent = completed ? '✓' : '○';
+        // Always show checkmark for the individual step that was just completed
+        checkMark.textContent = '✓';
       }
-      if (completed) {
-        stepEl.classList.add('done');
-      }
+      stepEl.classList.add('done');
     }
   }
 

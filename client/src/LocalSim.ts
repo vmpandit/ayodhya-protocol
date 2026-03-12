@@ -166,10 +166,13 @@ export class LocalSim {
     move: false,
     look: false,
     shoot: false,
+    jump: false,
     dodge: false,
     sprint: false,
     specialArrow: false,
     shockwave: false,
+    talk: false,
+    meditate: false,
   };
   public tutorialComplete = false;
   private previousYaw = 0;
@@ -365,6 +368,12 @@ export class LocalSim {
     this.currentDialogueTree = tree;
     this.currentDialogueNodeId = tree.startNodeId;
     this.dialogueInProgress = true;
+
+    // Tutorial tracking: mark "talk" step as complete
+    if (this.chapter === 0 && !this.tutorialComplete && !this.tutorialSteps.talk) {
+      this.tutorialSteps.talk = true;
+      this.onTutorialStep('talk', this.checkTutorialComplete());
+    }
 
     const node = tree.nodes[tree.startNodeId];
     if (node) {
@@ -652,6 +661,16 @@ export class LocalSim {
         this.tutorialSteps.sprint = true;
         this.onTutorialStep('sprint', this.checkTutorialComplete());
       }
+      // Check jump
+      if (!this.tutorialSteps.jump && (flags & InputFlag.Jump)) {
+        this.tutorialSteps.jump = true;
+        this.onTutorialStep('jump', this.checkTutorialComplete());
+      }
+      // Check meditate
+      if (!this.tutorialSteps.meditate && (flags & InputFlag.Meditate)) {
+        this.tutorialSteps.meditate = true;
+        this.onTutorialStep('meditate', this.checkTutorialComplete());
+      }
     }
     this.previousYaw = input.yaw;
 
@@ -737,7 +756,7 @@ export class LocalSim {
 
     // ── Tutorial tracking (Chapter 0) ──────────────────────────────
     if (this.chapter === 0 && !this.tutorialComplete) {
-      if (ability === AbilityType.FireArrow && !this.tutorialSteps.specialArrow) {
+      if ((ability === AbilityType.FireArrow || ability === AbilityType.VayuAstra || ability === AbilityType.VarunaAstra || ability === AbilityType.NagaAstra || ability === AbilityType.BrahmaAstra) && !this.tutorialSteps.specialArrow) {
         this.tutorialSteps.specialArrow = true;
         this.onTutorialStep('specialArrow', this.checkTutorialComplete());
       }
@@ -903,9 +922,10 @@ export class LocalSim {
               enemy.state.hp = 0;
               enemy.state.aiState = EnemyAIState.Dead;
               this.chapterEnemiesKilled++;
-              // Tutorial dummies respawn after 3 seconds; others drop pickups
+              // Tutorial dummies respawn after 3 seconds AND drop arrow pickups so players learn item collection
               if (this.chapter === 0 && enemy.originalMaxHp === 30) {
                 enemy.respawnTime = now + 3000;
+                this.spawnPickup(enemy.state.pos);  // Drop arrows in tutorial too
               } else {
                 this.spawnPickup(enemy.state.pos);
                 // 30% chance to drop health pickup

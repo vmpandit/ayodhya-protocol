@@ -815,6 +815,51 @@
       </div>
     </div>
 
+    <!-- Astra Combo notification -->
+    <div id="comboNotification" style="display:none; position:fixed; top:38%; left:50%; transform:translateX(-50%); z-index:100; text-align:center;">
+      <div id="comboName" style="font-family:'Rajdhani',monospace; font-size:28px; font-weight:700; color:#ffd700; text-shadow:0 0 20px rgba(255,215,0,0.8), 0 2px 4px rgba(0,0,0,0.8); letter-spacing:3px;"></div>
+      <div id="comboDesc" style="font-family:'Rajdhani',monospace; font-size:14px; color:#ffecb3; margin-top:4px; text-shadow:0 1px 3px rgba(0,0,0,0.8);"></div>
+    </div>
+
+    <!-- Damage direction indicator -->
+    <div id="damageDirection" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; pointer-events:none; z-index:90;">
+      <div id="dmgDirArrow" style="position:absolute; width:80px; height:80px; border-radius:50%; opacity:0;"></div>
+    </div>
+
+    <!-- Difficulty selector (shown after tutorial) -->
+    <div id="difficultySelector" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:200; display:none;">
+      <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center;">
+        <div style="font-family:'Rajdhani',monospace; font-size:22px; color:#c89b3c; letter-spacing:4px; margin-bottom:8px;">CHOOSE YOUR PATH</div>
+        <div style="font-family:'Rajdhani',monospace; font-size:13px; color:#aaa; margin-bottom:24px;">This affects enemy strength and resource drops</div>
+        <div style="display:flex; gap:16px; justify-content:center;">
+          <div class="diff-option" data-diff="0" style="cursor:pointer; border:1px solid #555; border-radius:8px; padding:16px 24px; width:160px; transition:all 0.2s;">
+            <div style="font-family:'Rajdhani',monospace; font-size:18px; color:#88cc88; font-weight:700;">STORY</div>
+            <div style="font-size:12px; color:#888; margin-top:6px;">Enemies weaker, more drops.<br>Focus on the narrative.</div>
+          </div>
+          <div class="diff-option" data-diff="1" style="cursor:pointer; border:2px solid #c89b3c; border-radius:8px; padding:16px 24px; width:160px; transition:all 0.2s;">
+            <div style="font-family:'Rajdhani',monospace; font-size:18px; color:#c89b3c; font-weight:700;">DHARMA</div>
+            <div style="font-size:12px; color:#888; margin-top:6px;">The intended experience.<br>Balanced challenge.</div>
+          </div>
+          <div class="diff-option" data-diff="2" style="cursor:pointer; border:1px solid #555; border-radius:8px; padding:16px 24px; width:160px; transition:all 0.2s;">
+            <div style="font-family:'Rajdhani',monospace; font-size:18px; color:#cc4444; font-weight:700;">TAPASYA</div>
+            <div style="font-size:12px; color:#888; margin-top:6px;">Tougher enemies, scarce arrows.<br>Master your Dharma.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Karma score display (end of game) -->
+    <div id="karmaDisplay" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:300; text-align:center; background:rgba(0,0,0,0.9); border:1px solid #c89b3c; border-radius:12px; padding:32px 48px;">
+      <div style="font-family:'Rajdhani',monospace; font-size:14px; color:#c89b3c; letter-spacing:4px; margin-bottom:4px;">DHARMA RATING</div>
+      <div id="karmaTitle" style="font-family:'Rajdhani',monospace; font-size:28px; color:#ffd700; font-weight:700; margin-bottom:16px;"></div>
+      <div id="karmaStats" style="font-family:'Rajdhani',monospace; font-size:14px; color:#aaa;"></div>
+    </div>
+
+    <!-- Companion ability cooldown indicator -->
+    <div id="companionAbilityHUD" style="display:none; position:fixed; bottom:120px; left:50%; transform:translateX(-50%); z-index:50;">
+      <div style="display:flex; gap:8px;" id="companionSlots"></div>
+    </div>
+
     <!-- Tutorial checklist -->
     <div id="tutorialChecklist">
       <div class="tutorial-title">TRAINING</div>

@@ -14,7 +14,7 @@ import { HapticsManager, HapticMotif } from './HapticsManager';
 import { PerformanceManager } from './PerformanceManager';
 import { AudioManager, SFX } from './AudioManager';
 import { TextureLoader } from './TextureLoader';
-import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType } from '@shared/types';
+import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType, AstraCombo, KarmaScore } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import { MapRenderer, WaypointType } from './MapRenderer';
 
@@ -252,6 +252,11 @@ export class Game {
       this.audio.play(won ? SFX.Victory : SFX.Defeat);
       if (won) {
         this.hud.addKillFeedEntry('DHARMA PREVAILS — RAVANA DEFEATED', '#ffd700');
+        // Show final karma score
+        if (this.localSim) {
+          const k = this.localSim.karma;
+          this.hud.showKarmaScore('KARMA REPORT', k.mercy, k.valor, k.devotion);
+        }
       }
     };
 
@@ -270,7 +275,51 @@ export class Game {
 
     this.localSim.onEnemySpecialArrow = (arrowName: string) => {
       this.hud.showArrowAlert(arrowName);
-      this.audio.play(SFX.BowRelease); // audio cue for incoming arrow
+      this.audio.play(SFX.BowRelease);
+    };
+
+    // ── Blueprint callbacks: Astra Combo, Damage Direction, Companions, Karma, Checkpoints ──
+    this.localSim.onAstraCombo = (combo, pos, damage) => {
+      const comboNames = ['Steam Burst', 'Toxic Cloud', 'Skyfall', 'Venomfire', 'Monsoon', 'Purify'];
+      this.hud.showComboNotification(comboNames[combo] || 'COMBO', `${damage} DMG`);
+      this.controller?.triggerShake(0.15);
+      this.audio.play(SFX.ShockwaveBlast);
+    };
+
+    this.localSim.onDamageDirection = (sourcePos) => {
+      const p = this.localSim!.getPlayerState();
+      const dx = sourcePos.x - p.pos.x;
+      const dz = sourcePos.z - p.pos.z;
+      const angle = Math.atan2(dx, dz);
+      this.hud.showDamageDirection(angle - p.yaw, 'ranged');
+    };
+
+    this.localSim.onCompanionAbility = (companionId, abilityName) => {
+      this.hud.addKillFeedEntry(`${companionId.toUpperCase()}: ${abilityName}`, '#88ccff');
+      this.audio.play(SFX.FireArrowCast);
+    };
+
+    this.localSim.onKarmaUpdate = (karma) => {
+      this.hud.showKarmaScore('KARMA', karma.mercy, karma.valor, karma.devotion);
+    };
+
+    this.localSim.onChampionSpawned = (_enemyId) => {
+      this.hud.addKillFeedEntry('CHAMPION APPROACHES', '#ff8800');
+      this.audio.play(SFX.BossRoar);
+    };
+
+    this.localSim.onRavanaHeadSpawned = (_headId, _pos) => {
+      this.hud.addKillFeedEntry('RAVANA HEAD DETACHED', '#ff4444');
+    };
+
+    this.localSim.onRavanaHeadDestroyed = (_headId) => {
+      this.hud.addKillFeedEntry('RAVANA HEAD DESTROYED', '#90ee90');
+      this.audio.play(SFX.EnemyDeath);
+    };
+
+    this.localSim.onCheckpointSaved = () => {
+      this.saveGame();
+      this.hud.showNotification('MID-CHAPTER CHECKPOINT');
     };
 
     this.localSim.onPickupSpawned = (id, pos, arrows) => {
@@ -476,6 +525,15 @@ export class Game {
 
     // Show tutorial checklist at start
     this.hud.showTutorialChecklist();
+
+    // ── Show difficulty selector at game start ──────────────────────
+    this.hud.showDifficultySelector((difficulty) => {
+      if (this.localSim) {
+        this.localSim.setDifficulty(difficulty);
+        const names = ['Story', 'Dharma', 'Tapasya'];
+        this.hud.showNotification(`Difficulty: ${names[difficulty] || 'Dharma'}`);
+      }
+    });
 
     this.hud.showNotification('SINGLE PLAYER MODE');
     this.gameStartTime = performance.now();
@@ -732,8 +790,12 @@ export class Game {
             if (ability.type === AbilityType.Shockwave) {
               this.haptics.play(HapticMotif.ShockwaveBlast);
               this.audio.play(SFX.ShockwaveBlast);
+            } else if (ability.type === AbilityType.HanumanLeap || ability.type === AbilityType.AngadShield || ability.type === AbilityType.LakshmanCover) {
+              this.audio.play(SFX.UIStart);
+            } else if (ability.type === AbilityType.Pashupatastra) {
+              this.haptics.play(HapticMotif.BossPhaseShift);
+              this.audio.play(SFX.BossRoar);
             } else {
-              // All arrow-type abilities (FireArrow/Agni, Vayu, Varuna, Naga, Brahma)
               this.haptics.play(HapticMotif.FireArrowCast);
               this.audio.play(SFX.FireArrowCast);
             }

@@ -655,4 +655,159 @@ export class HUD {
       this.backstoryOverlay.classList.remove('visible');
     }
   }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  COMBO NOTIFICATIONS (Astra combos)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showComboNotification(name: string, desc: string): void {
+    const el = document.getElementById('comboNotification');
+    const nameEl = document.getElementById('comboName');
+    const descEl = document.getElementById('comboDesc');
+    if (el && nameEl && descEl) {
+      nameEl.textContent = name;
+      descEl.textContent = desc;
+      el.style.display = 'block';
+      el.style.opacity = '1';
+      setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => {
+          el.style.display = 'none';
+        }, 300);
+      }, 2000);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  DAMAGE DIRECTION INDICATOR
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showDamageDirection(angle: number, type: 'melee' | 'ranged' | 'astra'): void {
+    const containerEl = document.getElementById('damageDirection');
+    const arrowEl = document.getElementById('dmgDirArrow');
+    if (containerEl && arrowEl) {
+      // Show the direction indicator with appropriate styling based on damage type
+      const colors: Record<string, string> = {
+        melee: 'rgba(255, 100, 100, 0.8)',
+        ranged: 'rgba(100, 150, 255, 0.8)',
+        astra: 'rgba(255, 215, 0, 0.8)'
+      };
+      arrowEl.style.borderLeft = `8px solid transparent`;
+      arrowEl.style.borderRight = `8px solid transparent`;
+      arrowEl.style.borderTop = `40px solid ${colors[type]}`;
+      arrowEl.style.transform = `rotate(${angle}deg) translateY(-60px)`;
+      arrowEl.style.opacity = '1';
+      containerEl.style.display = 'block';
+
+      // Fade out after a short duration
+      setTimeout(() => {
+        arrowEl.style.opacity = '0';
+        setTimeout(() => {
+          containerEl.style.display = 'none';
+        }, 300);
+      }, 800);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  DIFFICULTY SELECTOR (post-tutorial)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showDifficultySelector(callback: (difficulty: number) => void): void {
+    const el = document.getElementById('difficultySelector');
+    if (el) {
+      el.style.display = 'block';
+      const options = el.querySelectorAll('.diff-option');
+      options.forEach((option) => {
+        option.addEventListener('click', () => {
+          const diffStr = (option as HTMLElement).getAttribute('data-diff');
+          if (diffStr !== null) {
+            const difficulty = parseInt(diffStr, 10);
+            callback(difficulty);
+            el.style.display = 'none';
+          }
+        });
+      });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  KARMA SCORE DISPLAY (end-of-game stats)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  showKarmaScore(title: string, mercy: number, valor: number, devotion: number): void {
+    const el = document.getElementById('karmaDisplay');
+    const titleEl = document.getElementById('karmaTitle');
+    const statsEl = document.getElementById('karmaStats');
+    if (el && titleEl && statsEl) {
+      titleEl.textContent = title;
+      statsEl.innerHTML = `
+        <div>Mercy: ${mercy}</div>
+        <div>Valor: ${valor}</div>
+        <div>Devotion: ${devotion}</div>
+      `;
+      el.style.display = 'block';
+      el.style.opacity = '1';
+    }
+  }
+
+  hideKarmaScore(): void {
+    const el = document.getElementById('karmaDisplay');
+    if (el) {
+      el.style.opacity = '0';
+      setTimeout(() => {
+        el.style.display = 'none';
+      }, 300);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  COMPANION ABILITY COOLDOWN HUD
+  // ══════════════════════════════════════════════════════════════════════════
+
+  updateCompanionAbilityHUD(companions: { name: string; cdPercent: number }[]): void {
+    const containerEl = document.getElementById('companionAbilityHUD');
+    const slotsEl = document.getElementById('companionSlots');
+    if (containerEl && slotsEl) {
+      if (companions.length === 0) {
+        containerEl.style.display = 'none';
+        return;
+      }
+      containerEl.style.display = 'block';
+      slotsEl.innerHTML = '';
+
+      for (const companion of companions) {
+        const slotDiv = document.createElement('div');
+        slotDiv.style.width = '60px';
+        slotDiv.style.height = '60px';
+        slotDiv.style.background = 'rgba(50, 50, 50, 0.8)';
+        slotDiv.style.border = '2px solid #c89b3c';
+        slotDiv.style.borderRadius = '4px';
+        slotDiv.style.position = 'relative';
+        slotDiv.style.overflow = 'hidden';
+
+        const nameDiv = document.createElement('div');
+        nameDiv.textContent = companion.name.substring(0, 3).toUpperCase();
+        nameDiv.style.fontFamily = "'Rajdhani',monospace";
+        nameDiv.style.fontSize = '12px';
+        nameDiv.style.color = '#c89b3c';
+        nameDiv.style.textAlign = 'center';
+        nameDiv.style.paddingTop = '8px';
+        nameDiv.style.fontWeight = '700';
+        slotDiv.appendChild(nameDiv);
+
+        const cdOverlay = document.createElement('div');
+        cdOverlay.style.position = 'absolute';
+        cdOverlay.style.bottom = '0';
+        cdOverlay.style.left = '0';
+        cdOverlay.style.width = '100%';
+        cdOverlay.style.height = `${companion.cdPercent * 100}%`;
+        cdOverlay.style.background = 'rgba(0, 0, 0, 0.6)';
+        cdOverlay.style.transition = 'height 0.1s linear';
+        slotDiv.appendChild(cdOverlay);
+
+        slotsEl.appendChild(slotDiv);
+      }
+    }
+  }
 }

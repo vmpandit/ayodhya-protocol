@@ -5,7 +5,7 @@
 import {
   PlayerInput, PlayerState, PlayerStatus, ProjectileState, ProjectileType,
   EnemyState, EnemyAIState, BossState, BossPhase, Vec3, AbilityType,
-  GameSnapshot, InputFlag,
+  GameSnapshot, InputFlag, AstraElement, AstraCombo, Difficulty, KarmaScore,
 } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import * as C from '@shared/constants';
@@ -37,6 +37,11 @@ interface LocalEnemy {
   strafeDir: number;        // 1 = clockwise, -1 = counter-clockwise
   preferredRange: number;   // Ideal combat distance (8-20)
   enemyType: 'soldier' | 'archer' | 'brute';  // Enemy type for behavior and visual differentiation
+  statusEffects: Set<AstraElement>;  // Active elemental effects (for Astra Synergy)
+  statusExpiry: Map<AstraElement, number>;  // When each effect expires
+  isChampion: boolean;      // Mini-boss champion variant
+  slowFactor: number;       // Movement speed multiplier (Varuna slow)
+  slowEnd: number;          // When slow effect expires
 }
 
 interface LocalBoss {
@@ -47,6 +52,16 @@ interface LocalBoss {
   aoeEndTime: number;
   barrageEndTime: number;
   activated: boolean;
+  heads: RavanaHead[];  // Phase 2 detachable head turrets
+}
+
+interface RavanaHead {
+  id: number;
+  pos: Vec3;
+  hp: number;
+  maxHp: number;
+  cooldownEnd: number;
+  alive: boolean;
 }
 
 interface Pickup {
@@ -99,9 +114,49 @@ export class LocalSim {
   private playerVelY = 0;
   private grounded = true;
 
-  // Arrow ammo system
-  public arrowAmmo = 30;
-  public readonly maxArrowAmmo = 50;
+  // Arrow ammo system (Arrow Economy: reduced from 30/50)
+  public arrowAmmo = C.STARTING_AMMO;
+  public readonly maxArrowAmmo = 40;
+
+  // Difficulty system
+  public difficulty: Difficulty = Difficulty.Dharma;
+  private diffHpMult = 1.0;
+  private diffDmgMult = 1.0;
+  private diffDropMult = 1.0;
+
+  // Karma scoring
+  public karma: KarmaScore = { mercy: 0, valor: 0, devotion: 0 };
+
+  // Astra Synergy combo callback
+  public onAstraCombo: (combo: AstraCombo, pos: Vec3, damage: number) => void = () => {};
+  // Damage direction callback
+  public onDamageDirection: (sourcePos: Vec3) => void = () => {};
+  // Companion ability callback
+  public onCompanionAbility: (companionId: string, abilityName: string) => void = () => {};
+  // Karma update callback
+  public onKarmaUpdate: (karma: KarmaScore) => void = () => {};
+  // Champion spawn callback
+  public onChampionSpawned: (enemyId: number) => void = () => {};
+  // Ravana head spawn callback
+  public onRavanaHeadSpawned: (headId: number, pos: Vec3) => void = () => {};
+  public onRavanaHeadDestroyed: (headId: number) => void = () => {};
+  // Checkpoint callback
+  public onCheckpointSaved: () => void = () => {};
+
+  // Pashupatastra cooldown (Lone Warrior only)
+  private pashupataCd = 0;
+
+  // Companion active ability cooldowns
+  private hanumanLeapCd = 0;
+  private angadShieldCd = 0;
+  private lakshmanCoverCd = 0;
+  // Angad shield active absorb
+  private angadShieldActive = false;
+  private angadShieldAbsorb = 0;
+
+  // Mid-chapter checkpoint
+  private midChapterCheckpointSaved = false;
+  private nextHeadId = 1;
 
   // Pickups on the ground
   private pickups: Pickup[] = [];
@@ -289,17 +344,9 @@ export class LocalSim {
       { x: 12, y: 0, z: -18 },
     ];
     for (const pos of tutorialDummyPositions) {
-      const id = this.nextEnemyId++;
-      this.enemies.push({
-        state: { id, pos: { ...pos }, yaw: 0, hp: 30, maxHp: 30, aiState: EnemyAIState.Patrol, targetId: 0 },
-        patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-        meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
-        originalMaxHp: 30,
-        behaviorTimer: 0,
-        strafeDir: Math.random() > 0.5 ? 1 : -1,
-        preferredRange: 10 + Math.random() * 10,
-        enemyType: 'soldier',
-      });
+      const enemy = this.createEnemy(pos, 30, 'soldier');
+      enemy.originalMaxHp = 30;
+      this.enemies.push(enemy);
     }
 
     // Spawn Sage Agastya as story NPC in Chapter 0 (tutorial guide)
@@ -315,6 +362,7 @@ export class LocalSim {
       state: { pos: { ...C.BOSS_ARENA_CENTER }, yaw: 0, hp: maxHp, maxHp, phase: BossPhase.Idle, isAoE: false, isBarrage: false },
       meleeCdEnd: 0, aoeCdEnd: 0, barrageCdEnd: 0,
       aoeEndTime: 0, barrageEndTime: 0, activated: false,
+      heads: [],
     };
 
     // Initialize obstacles in the world
@@ -374,6 +422,8 @@ export class LocalSim {
       this.tutorialSteps.talk = true;
       this.onTutorialStep('talk', this.checkTutorialComplete());
     }
+    // Karma: devotion for engaging in dialogue
+    this.karma.devotion += C.KARMA_DEVOTION_DIALOGUE;
 
     const node = tree.nodes[tree.startNodeId];
     if (node) {
@@ -439,6 +489,59 @@ export class LocalSim {
   getEnemyType(enemyId: number): 'soldier' | 'archer' | 'brute' {
     const enemy = this.enemies.find(e => e.state.id === enemyId);
     return enemy ? enemy.enemyType : 'soldier';
+  }
+
+  // ── Difficulty Selector ──────────────────────────────────
+  setDifficulty(diff: Difficulty): void {
+    this.difficulty = diff;
+    if (diff === Difficulty.Story) {
+      this.diffHpMult = C.DIFFICULTY_STORY_HP;
+      this.diffDmgMult = C.DIFFICULTY_STORY_DMG;
+      this.diffDropMult = C.DIFFICULTY_STORY_DROPS;
+    } else if (diff === Difficulty.Tapasya) {
+      this.diffHpMult = C.DIFFICULTY_TAPASYA_HP;
+      this.diffDmgMult = C.DIFFICULTY_TAPASYA_DMG;
+      this.diffDropMult = C.DIFFICULTY_TAPASYA_DROPS;
+    } else {
+      this.diffHpMult = 1.0;
+      this.diffDmgMult = 1.0;
+      this.diffDropMult = 1.0;
+    }
+    // Scale existing enemies
+    for (const enemy of this.enemies) {
+      if (enemy.state.aiState !== EnemyAIState.Dead) {
+        const baseHp = enemy.isChampion
+          ? enemy.state.maxHp / C.CHAMPION_HP_MULTIPLIER
+          : enemy.state.maxHp;
+        const scaledHp = baseHp * this.diffHpMult * (enemy.isChampion ? C.CHAMPION_HP_MULTIPLIER : 1);
+        enemy.state.maxHp = scaledHp;
+        enemy.state.hp = Math.min(enemy.state.hp, scaledHp);
+      }
+    }
+  }
+
+  /** Create a properly-initialized enemy with all new fields */
+  private createEnemy(pos: Vec3, hp: number, enemyType: 'soldier' | 'archer' | 'brute', isChampion = false): LocalEnemy {
+    const id = this.nextEnemyId++;
+    const champMult = isChampion ? C.CHAMPION_HP_MULTIPLIER : 1;
+    const scaledHp = hp * this.diffHpMult * champMult;
+    const prefRange = enemyType === 'archer' ? 20 + Math.random() * 5
+      : enemyType === 'brute' ? 3 + Math.random() * 2
+      : 10 + Math.random() * 10;
+    return {
+      state: { id, pos: { ...pos }, yaw: 0, hp: scaledHp, maxHp: scaledHp, aiState: EnemyAIState.Patrol, targetId: 0 },
+      patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+      meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
+      behaviorTimer: 0,
+      strafeDir: Math.random() > 0.5 ? 1 : -1,
+      preferredRange: prefRange,
+      enemyType,
+      statusEffects: new Set(),
+      statusExpiry: new Map(),
+      isChampion,
+      slowFactor: 1.0,
+      slowEnd: 0,
+    };
   }
 
   // ── Divine Blessings (Phase 4) ────────────────────────────
@@ -728,17 +831,26 @@ export class LocalSim {
       this.grounded = false;
     }
 
-    // Shoot (instant fire at moderate damage ~60% charge)
+    // Shoot — Snap Shot vs Charged Shot
     if (flags & InputFlag.Shoot && this.arrowAmmo > 0) {
-      const baseDamage = C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * 0.6;
-      const damage = baseDamage * this.damageMultiplier;
       const dir: Vec3 = input.aimDir ?? {
         x: -Math.sin(input.yaw) * Math.cos(input.pitch),
         y: Math.sin(input.pitch),
         z: -Math.cos(input.yaw) * Math.cos(input.pitch),
       };
+      let damage: number;
+      if (input.chargeMs < C.CHARGED_SHOT_MIN_MS) {
+        // Snap Shot: quick tap, low damage, full movement
+        damage = C.SNAP_SHOT_DAMAGE * this.damageMultiplier;
+      } else {
+        // Charged Shot: 800ms+ hold, scales from base to max
+        const chargeT = Math.min(1, (input.chargeMs - C.CHARGED_SHOT_MIN_MS) / (C.BOW_MAX_CHARGE_MS - C.CHARGED_SHOT_MIN_MS));
+        damage = (C.ARROW_BASE_DAMAGE + (C.ARROW_MAX_DAMAGE - C.ARROW_BASE_DAMAGE) * chargeT) * this.damageMultiplier;
+      }
       this.arrowAmmo--;
       this.spawnProjectile(1, ProjectileType.Arrow, this.player.pos, dir, damage);
+      // Karma: valor for shooting
+      // (headshots tracked at hit time, not here)
     }
 
     // Stamina regen
@@ -782,37 +894,224 @@ export class LocalSim {
       this.nagaAstraCd = now + NAGA_ASTRA_COOLDOWN_MS;
       this.spawnProjectile(1, ProjectileType.NagaAstra, this.player.pos, dir, NAGA_ASTRA_DAMAGE * mult);
     } else if (ability === AbilityType.BrahmaAstra && now >= this.brahmaAstraCd) {
-      this.brahmaAstraCd = now + BRAHMA_ASTRA_COOLDOWN_MS;
-      this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE * mult);
+      if (this.arrowAmmo >= C.BRAHMA_ARROW_COST) {
+        this.brahmaAstraCd = now + BRAHMA_ASTRA_COOLDOWN_MS;
+        this.arrowAmmo -= C.BRAHMA_ARROW_COST;
+        this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE * mult);
+      }
+    }
+    // ── Pashupatastra (Lone Warrior exclusive) ──
+    else if (ability === AbilityType.Pashupatastra && this.loneWarriorBuff && now >= this.pashupataCd) {
+      this.pashupataCd = now + C.PASHUPATASTRA_COOLDOWN_MS;
+      this.spawnProjectile(1, ProjectileType.Pashupatastra, this.player.pos, dir, C.PASHUPATASTRA_DAMAGE * mult, C.PASHUPATASTRA_SPEED);
+      this.karma.valor += 3;
+    }
+    // ── Companion Active Abilities ──
+    else if (ability === AbilityType.HanumanLeap && now >= this.hanumanLeapCd) {
+      const hanuman = this.companions.find(c => c.id === 'hanuman');
+      if (hanuman) {
+        this.hanumanLeapCd = now + C.HANUMAN_LEAP_COOLDOWN_MS;
+        // Damage + stun enemies near target area (player's aim direction, 8 units forward)
+        const targetPos: Vec3 = {
+          x: this.player.pos.x + dir.x * 8,
+          y: 0,
+          z: this.player.pos.z + dir.z * 8,
+        };
+        for (const enemy of this.enemies) {
+          if (enemy.state.aiState === EnemyAIState.Dead) continue;
+          if (dist3(targetPos, enemy.state.pos) <= 5) {
+            const dmg = C.HANUMAN_LEAP_DAMAGE * mult;
+            enemy.state.hp -= dmg;
+            this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 100);
+            // Stun: set telegraph end in the past to force a pause
+            enemy.behaviorTimer = C.HANUMAN_LEAP_STUN_MS / 1000;
+            enemy.state.aiState = EnemyAIState.Patrol; // reset to idle briefly
+            if (enemy.state.hp <= 0) this.killEnemy(enemy);
+          }
+        }
+        this.onCompanionAbility('hanuman', 'Leap Strike');
+      }
+    }
+    else if (ability === AbilityType.AngadShield && now >= this.angadShieldCd) {
+      const angad = this.companions.find(c => c.id === 'angad');
+      if (angad) {
+        this.angadShieldCd = now + C.ANGAD_SHIELD_COOLDOWN_MS;
+        this.angadShieldActive = true;
+        this.angadShieldAbsorb = C.ANGAD_SHIELD_ABSORB;
+        this.onCompanionAbility('angad', 'Immovable Shield');
+      }
+    }
+    else if (ability === AbilityType.LakshmanCover && now >= this.lakshmanCoverCd) {
+      const lakshman = this.companions.find(c => c.id === 'lakshman');
+      if (lakshman) {
+        this.lakshmanCoverCd = now + C.LAKSHMAN_COVER_COOLDOWN_MS;
+        // Fire a volley of arrows at nearest enemies
+        let targets: LocalEnemy[] = [];
+        for (const enemy of this.enemies) {
+          if (enemy.state.aiState !== EnemyAIState.Dead && dist3(lakshman.pos, enemy.state.pos) < lakshman.range) {
+            targets.push(enemy);
+          }
+        }
+        targets = targets.slice(0, C.LAKSHMAN_COVER_ARROWS);
+        for (const target of targets) {
+          const d = sub3(target.state.pos, lakshman.pos);
+          const dirN = normalize3(d);
+          this.spawnProjectile(100, ProjectileType.Arrow, lakshman.pos, dirN, C.LAKSHMAN_COVER_DAMAGE * mult);
+        }
+        this.onCompanionAbility('lakshman', 'Cover Fire');
+      }
     }
   }
 
+  // ── Astra Synergy System ─────────────────────────────────
+  private applyAstraElement(enemy: LocalEnemy, element: AstraElement, now: number): void {
+    enemy.statusEffects.add(element);
+    enemy.statusExpiry.set(element, now + 5000);
+    this.checkAstraCombos(enemy, element, now);
+  }
+
+  private checkAstraCombos(enemy: LocalEnemy, _newElement: AstraElement, now: number): void {
+    const effects = enemy.statusEffects;
+    const pos = { ...enemy.state.pos };
+    const mult = this.damageMultiplier;
+
+    // Water + Fire → Steam Burst
+    if (effects.has(AstraElement.Water) && effects.has(AstraElement.Fire)) {
+      effects.delete(AstraElement.Water); effects.delete(AstraElement.Fire);
+      const dmg = C.COMBO_STEAM_BURST_DAMAGE * mult;
+      for (const e of this.enemies) {
+        if (e.state.aiState === EnemyAIState.Dead) continue;
+        if (dist3(pos, e.state.pos) <= C.COMBO_STEAM_BURST_RADIUS) {
+          e.state.hp -= dmg;
+          this.onDamage(DamageTargetType.Enemy, e.state.id, dmg, 1);
+          if (e.state.hp <= 0) this.killEnemy(e);
+        }
+      }
+      this.onAstraCombo(AstraCombo.SteamBurst, pos, dmg);
+      this.karma.valor += 2;
+      return;
+    }
+    // Poison + Wind → Toxic Cloud
+    if (effects.has(AstraElement.Poison) && effects.has(AstraElement.Wind)) {
+      effects.delete(AstraElement.Poison); effects.delete(AstraElement.Wind);
+      const dmg = C.COMBO_TOXIC_CLOUD_DAMAGE * mult * C.COMBO_TOXIC_CLOUD_TICKS;
+      for (const e of this.enemies) {
+        if (e.state.aiState === EnemyAIState.Dead) continue;
+        if (dist3(pos, e.state.pos) <= C.COMBO_TOXIC_CLOUD_RADIUS) {
+          e.state.hp -= dmg;
+          this.onDamage(DamageTargetType.Enemy, e.state.id, dmg, 1);
+          if (e.state.hp <= 0) this.killEnemy(e);
+        }
+      }
+      this.onAstraCombo(AstraCombo.ToxicCloud, pos, dmg);
+      return;
+    }
+    // Wind + Divine → Skyfall
+    if (effects.has(AstraElement.Wind) && effects.has(AstraElement.Divine)) {
+      effects.delete(AstraElement.Wind); effects.delete(AstraElement.Divine);
+      const dmg = C.BRAHMA_ASTRA_DAMAGE * C.COMBO_SKYFALL_MULTIPLIER * mult;
+      enemy.state.hp -= dmg;
+      this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
+      if (enemy.state.hp <= 0) this.killEnemy(enemy);
+      this.onAstraCombo(AstraCombo.Skyfall, pos, dmg);
+      return;
+    }
+    // Poison + Fire → Venomfire
+    if (effects.has(AstraElement.Poison) && effects.has(AstraElement.Fire)) {
+      effects.delete(AstraElement.Poison); effects.delete(AstraElement.Fire);
+      const dmg = C.COMBO_VENOMFIRE_DAMAGE * mult;
+      enemy.state.hp -= dmg;
+      this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
+      if (enemy.state.hp <= 0) this.killEnemy(enemy);
+      this.onAstraCombo(AstraCombo.Venomfire, pos, dmg);
+      return;
+    }
+    // Water + Wind → Monsoon
+    if (effects.has(AstraElement.Water) && effects.has(AstraElement.Wind)) {
+      effects.delete(AstraElement.Water); effects.delete(AstraElement.Wind);
+      for (const e of this.enemies) {
+        if (e.state.aiState === EnemyAIState.Dead) continue;
+        if (dist3(pos, e.state.pos) <= C.COMBO_MONSOON_RADIUS) {
+          e.slowFactor = C.VARUNA_ASTRA_SLOW_FACTOR;
+          e.slowEnd = now + C.COMBO_MONSOON_SLOW_DURATION_MS;
+        }
+      }
+      this.onAstraCombo(AstraCombo.Monsoon, pos, 0);
+      return;
+    }
+    // Water + Divine → Purify
+    if (effects.has(AstraElement.Water) && effects.has(AstraElement.Divine)) {
+      effects.delete(AstraElement.Water); effects.delete(AstraElement.Divine);
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + C.COMBO_PURIFY_HEAL);
+      this.onAstraCombo(AstraCombo.Purify, pos, C.COMBO_PURIFY_HEAL);
+      this.karma.devotion += 2;
+      return;
+    }
+  }
+
+  /** Expire old status effects on an enemy */
+  private tickStatusEffects(enemy: LocalEnemy, now: number): void {
+    for (const [element, expiry] of enemy.statusExpiry) {
+      if (now >= expiry) {
+        enemy.statusEffects.delete(element);
+        enemy.statusExpiry.delete(element);
+      }
+    }
+    if (now >= enemy.slowEnd) enemy.slowFactor = 1.0;
+  }
+
+  /** Centralized enemy kill logic */
+  private killEnemy(enemy: LocalEnemy): void {
+    enemy.state.hp = 0;
+    enemy.state.aiState = EnemyAIState.Dead;
+    this.chapterEnemiesKilled++;
+    if (enemy.isChampion) this.karma.valor += 5;
+    if (this.chapter === 0 && enemy.originalMaxHp === 30) {
+      enemy.respawnTime = performance.now() + 3000;
+      this.spawnPickup(enemy.state.pos);
+    } else {
+      this.spawnPickup(enemy.state.pos);
+      if (Math.random() < 0.3 * this.diffDropMult) this.spawnHealthPickup(enemy.state.pos);
+    }
+    this.checkChapterProgress();
+  }
+
+  // ── Stamina-Tiered Shockwave ────────────────────────────
   private applyShockwave(): void {
     const origin = this.player.pos;
     const mult = this.damageMultiplier;
     const now = performance.now();
+    const stamina = this.player.stamina;
+
+    // 3 tiers based on current stamina
+    let radius: number, dmg: number;
+    if (stamina >= 80) {
+      radius = C.SHOCKWAVE_STRONG_RADIUS;
+      dmg = C.SHOCKWAVE_STRONG_DAMAGE * mult;
+    } else if (stamina >= 40) {
+      radius = C.SHOCKWAVE_RADIUS;
+      dmg = C.SHOCKWAVE_DAMAGE * mult;
+    } else {
+      radius = C.SHOCKWAVE_WEAK_RADIUS;
+      dmg = C.SHOCKWAVE_WEAK_DAMAGE * mult;
+    }
+    // Drain stamina
+    this.player.stamina = Math.max(0, this.player.stamina - C.SHOCKWAVE_STAMINA_COST);
+
+    if (now < this.dharmaGraceEnd) dmg *= 1.5;
     for (const enemy of this.enemies) {
       if (enemy.state.aiState === EnemyAIState.Dead) continue;
-      if (dist3(origin, enemy.state.pos) <= C.SHOCKWAVE_RADIUS) {
-        let dmg = C.SHOCKWAVE_DAMAGE * mult;
-        if (now < this.dharmaGraceEnd) dmg *= 1.5;
+      if (dist3(origin, enemy.state.pos) <= radius) {
         enemy.state.hp -= dmg;
         this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
-        if (enemy.state.hp <= 0) {
-          enemy.state.hp = 0;
-          enemy.state.aiState = EnemyAIState.Dead;
-          this.chapterEnemiesKilled++;
-          this.spawnPickup(enemy.state.pos);
-          this.checkChapterProgress();
-        }
+        if (enemy.state.hp <= 0) this.killEnemy(enemy);
       }
     }
     if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
-      if (dist3(origin, this.boss.state.pos) <= C.SHOCKWAVE_RADIUS) {
-        let dmg = C.SHOCKWAVE_DAMAGE * mult * this.bossDamageMultiplier;
-        if (now < this.dharmaGraceEnd) dmg *= 1.5;
-        this.boss.state.hp -= dmg;
-        this.onDamage(DamageTargetType.Boss, 0, dmg, 1);
+      if (dist3(origin, this.boss.state.pos) <= radius) {
+        const bossDmg = dmg * this.bossDamageMultiplier;
+        this.boss.state.hp -= bossDmg;
+        this.onDamage(DamageTargetType.Boss, 0, bossDmg, 1);
         this.checkBossPhase();
       }
     }
@@ -848,16 +1147,29 @@ export class LocalSim {
       // Heal HP, stamina, arrows
       this.player.hp = Math.min(this.player.maxHp, this.player.hp + 10 * dt);
       this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + 20 * dt);
-      this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + Math.floor(5 * dt));
+      // Arrow restore capped at MEDITATION_ARROW_RESTORE per session
+      const arrowCap = Math.min(this.maxArrowAmmo, this.arrowAmmo + C.MEDITATION_ARROW_RESTORE);
+      this.arrowAmmo = Math.min(arrowCap, this.arrowAmmo + Math.floor(2 * dt));
+      this.karma.devotion += C.KARMA_DEVOTION_MEDITATE * dt * 0.1;
       if (this.meditationTimer >= this.maxMeditationTime) {
         this.stopMeditation();
       }
     }
 
-    // ── Companion HP regen buff ─────────────────────────────────
+    // ── Companion HP regen buff + Dharma Bond ──────────────────
     for (const comp of this.companions) {
       if (comp.hpRegenBuff > 0) {
         this.player.hp = Math.min(this.player.maxHp, this.player.hp + comp.hpRegenBuff * dt);
+      }
+    }
+    // Dharma Bond: Brotherhood path extra heal when companions nearby
+    if (this.lakshmanChoice === 'accepted' && this.companions.length > 0) {
+      let nearbyCount = 0;
+      for (const comp of this.companions) {
+        if (dist3(this.player.pos, comp.pos) < C.DHARMA_BOND_RANGE) nearbyCount++;
+      }
+      if (nearbyCount > 0) {
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + C.DHARMA_BOND_HEAL_RATE * nearbyCount * dt);
       }
     }
 
@@ -894,22 +1206,25 @@ export class LocalSim {
       }
       if (projToRemove.includes(id)) continue;
 
-      // Player arrows hit enemies/boss
-      if (proj.state.type === ProjectileType.Arrow || proj.state.type === ProjectileType.FireArrow ||
+      // Player arrows hit enemies/boss (+ Pashupatastra)
+      const isPlayerArrow = proj.state.type === ProjectileType.Arrow || proj.state.type === ProjectileType.FireArrow ||
           proj.state.type === ProjectileType.VayuAstra || proj.state.type === ProjectileType.VarunaAstra ||
-          proj.state.type === ProjectileType.NagaAstra || proj.state.type === ProjectileType.BrahmaAstra) {
+          proj.state.type === ProjectileType.NagaAstra || proj.state.type === ProjectileType.BrahmaAstra ||
+          proj.state.type === ProjectileType.Pashupatastra;
+      if (isPlayerArrow) {
         for (const enemy of this.enemies) {
           if (enemy.state.aiState === EnemyAIState.Dead) continue;
           if (dist3(proj.state.pos, enemy.state.pos) < 1.2) {
             let dmg = proj.state.damage;
 
-            // Headshot bonus: arrow Y above enemy head height (Y + 1.8)
+            // Headshot bonus
             if (proj.state.pos.y > enemy.state.pos.y + 1.8) {
               dmg *= 1.5;
               if (this.onHeadshot) this.onHeadshot(enemy.state.id);
+              this.karma.valor += C.KARMA_VALOR_HEADSHOT;
             }
 
-            // Critical hit: 10% chance for 2x damage
+            // Critical hit: 10% chance for 2x
             if (Math.random() < 0.1) {
               dmg *= 2;
               if (this.onCriticalHit) this.onCriticalHit(DamageTargetType.Enemy, enemy.state.id, dmg);
@@ -918,27 +1233,28 @@ export class LocalSim {
             if (now < this.dharmaGraceEnd) dmg *= 1.5;
             enemy.state.hp -= dmg;
             this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
-            if (enemy.state.hp <= 0) {
-              enemy.state.hp = 0;
-              enemy.state.aiState = EnemyAIState.Dead;
-              this.chapterEnemiesKilled++;
-              // Tutorial dummies respawn after 3 seconds AND drop arrow pickups so players learn item collection
-              if (this.chapter === 0 && enemy.originalMaxHp === 30) {
-                enemy.respawnTime = now + 3000;
-                this.spawnPickup(enemy.state.pos);  // Drop arrows in tutorial too
-              } else {
-                this.spawnPickup(enemy.state.pos);
-                // 30% chance to drop health pickup
-                if (Math.random() < 0.3) {
-                  this.spawnHealthPickup(enemy.state.pos);
-                }
-              }
-              this.checkChapterProgress();
+
+            // ── Astra Synergy: apply elemental status ──
+            const pType = proj.state.type;
+            if (pType === ProjectileType.FireArrow) this.applyAstraElement(enemy, AstraElement.Fire, now);
+            else if (pType === ProjectileType.VayuAstra) this.applyAstraElement(enemy, AstraElement.Wind, now);
+            else if (pType === ProjectileType.VarunaAstra) {
+              this.applyAstraElement(enemy, AstraElement.Water, now);
+              enemy.slowFactor = C.VARUNA_ASTRA_SLOW_FACTOR;
+              enemy.slowEnd = now + C.VARUNA_ASTRA_SLOW_DURATION_MS;
             }
+            else if (pType === ProjectileType.NagaAstra) this.applyAstraElement(enemy, AstraElement.Poison, now);
+            else if (pType === ProjectileType.BrahmaAstra || pType === ProjectileType.Pashupatastra) {
+              this.applyAstraElement(enemy, AstraElement.Divine, now);
+            }
+
+            if (enemy.state.hp <= 0) this.killEnemy(enemy);
             projToRemove.push(id); break;
           }
         }
         if (projToRemove.includes(id)) continue;
+
+        // Hit boss
         if (this.boss.state.phase !== BossPhase.Dead && this.boss.state.phase !== BossPhase.Idle) {
           if (dist3(proj.state.pos, this.boss.state.pos) < 2.5) {
             let dmg = proj.state.damage * this.bossDamageMultiplier;
@@ -947,6 +1263,22 @@ export class LocalSim {
             this.onDamage(DamageTargetType.Boss, 0, dmg, 1);
             this.checkBossPhase();
             projToRemove.push(id);
+          }
+        }
+        if (projToRemove.includes(id)) continue;
+
+        // Hit Ravana head turrets
+        for (const head of this.boss.heads) {
+          if (!head.alive) continue;
+          if (dist3(proj.state.pos, head.pos) < 1.5) {
+            head.hp -= proj.state.damage;
+            this.onDamage(DamageTargetType.Enemy, head.id, proj.state.damage, 1);
+            if (head.hp <= 0) {
+              head.alive = false;
+              this.onRavanaHeadDestroyed(head.id);
+            }
+            projToRemove.push(id);
+            break;
           }
         }
       }
@@ -958,11 +1290,37 @@ export class LocalSim {
         if (this.player.status === PlayerStatus.Alive) {
           if (dist3(proj.state.pos, this.player.pos) < 1.0) {
             if (this.player.isDodging) {
-              // Perfect dodge activates Dharma's Grace
-              this.dharmaGraceEnd = now + 2000;
+              // Perfect Dodge → Dharma Counter
+              // Check if any enemy telegraph is ending within the window
+              let perfectDodge = false;
+              for (const enemy of this.enemies) {
+                if (enemy.telegraphEnd > 0 && Math.abs(now - enemy.telegraphEnd) <= C.PERFECT_DODGE_WINDOW_MS) {
+                  perfectDodge = true;
+                  break;
+                }
+              }
+              if (perfectDodge) {
+                // Perfect dodge: slow-mo trigger + auto-aim + karma
+                this.dharmaGraceEnd = now + C.DHARMA_COUNTER_DURATION_MS;
+                this.karma.valor += C.KARMA_VALOR_PERFECT_DODGE;
+              } else {
+                // Normal dodge-through
+                this.dharmaGraceEnd = now + 2000;
+              }
               this.onDharmaGrace();
             } else {
-              this.damagePlayer(proj.state.damage, proj.state.ownerId);
+              // ── Angad Shield absorb ──
+              let dmg = proj.state.damage * this.diffDmgMult;
+              if (this.angadShieldActive && this.angadShieldAbsorb > 0) {
+                const absorbed = Math.min(dmg, this.angadShieldAbsorb);
+                dmg -= absorbed;
+                this.angadShieldAbsorb -= absorbed;
+                if (this.angadShieldAbsorb <= 0) this.angadShieldActive = false;
+              }
+              if (dmg > 0) {
+                this.damagePlayer(dmg, proj.state.ownerId);
+                this.onDamageDirection(proj.state.pos);
+              }
             }
             projToRemove.push(id);
           }
@@ -1137,47 +1495,18 @@ export class LocalSim {
     this.onMapWaypoint(jambPos.x, jambPos.z, 1, 'Jambavan', 4);
     this.onMapWaypoint(sampatiPos.x, sampatiPos.z, 1, 'Sampati', 4);
 
-    // Spawn 5 demon scouts in shore area
-    // Mix: 40% soldier, 30% archer, 30% brute
+    // Spawn 5 demon scouts in shore area (Encounter: Siege-style)
     const ch4Positions: Vec3[] = [
       { x: -30, y: 0, z: -85 }, { x: 20, y: 0, z: -90 },
       { x: 0, y: 0, z: -100 }, { x: -45, y: 0, z: -75 },
       { x: 35, y: 0, z: -80 },
     ];
-    for (const pos of ch4Positions) {
-      const id = this.nextEnemyId++;
-      const rand = Math.random();
-      let enemyType: 'soldier' | 'archer' | 'brute';
-      let hp: number;
-      let preferredRange: number;
-
-      if (rand < 0.4) {
-        // Soldier
-        enemyType = 'soldier';
-        hp = 70;
-        preferredRange = 10 + Math.random() * 10;
-      } else if (rand < 0.7) {
-        // Archer
-        enemyType = 'archer';
-        hp = C.ENEMY_ARCHER_HP;
-        preferredRange = 20 + Math.random() * 5;
-      } else {
-        // Brute
-        enemyType = 'brute';
-        hp = C.ENEMY_BRUTE_HP;
-        preferredRange = 3 + Math.random() * 2;
-      }
-
-      this.enemies.push({
-        state: { id, pos: { ...pos }, yaw: 0, hp, maxHp: hp, aiState: EnemyAIState.Patrol, targetId: 0 },
-        patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-        meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
-        behaviorTimer: 0,
-        strafeDir: Math.random() > 0.5 ? 1 : -1,
-        preferredRange,
-        enemyType,
-      });
+    const ch4Types: Array<'soldier' | 'archer' | 'brute'> = ['soldier', 'archer', 'brute', 'soldier', 'archer'];
+    const ch4Hps = [70, C.ENEMY_ARCHER_HP, C.ENEMY_BRUTE_HP, 70, C.ENEMY_ARCHER_HP];
+    for (let i = 0; i < ch4Positions.length; i++) {
+      this.enemies.push(this.createEnemy(ch4Positions[i], ch4Hps[i], ch4Types[i]));
     }
+    this.midChapterCheckpointSaved = false;
   }
 
   private pushOutOfObstacles(pos: Vec3): void {
@@ -1202,10 +1531,14 @@ export class LocalSim {
   private updateEnemies(dt: number, now: number): void {
     for (const enemy of this.enemies) {
       if (enemy.state.aiState === EnemyAIState.Dead) continue;
+      // Tick status effects (expire old elements, expire slow)
+      this.tickStatusEffects(enemy, now);
       const nearestDist = dist3(enemy.state.pos, this.player.pos);
+      // Apply slow factor to effective dt for this enemy
+      const eDt = dt * enemy.slowFactor;
 
       // Update behavior timer
-      enemy.behaviorTimer -= dt;
+      enemy.behaviorTimer -= eDt;
 
       if (enemy.state.aiState === EnemyAIState.Patrol) {
         enemy.patrolAngle += dt * 0.5;
@@ -1476,20 +1809,32 @@ export class LocalSim {
           meleeDamage = C.ENEMY_BRUTE_MELEE_DAMAGE;
           meleeCooldown = C.ENEMY_BRUTE_MELEE_COOLDOWN_MS;
         }
+        // Scale damage by difficulty + champion
+        meleeDamage *= this.diffDmgMult;
+        if (enemy.isChampion) meleeDamage *= C.CHAMPION_DAMAGE_MULTIPLIER;
 
         if (nearestDist <= meleeRange) {
           if (now >= enemy.meleeCdEnd && !this.player.isDodging) {
             // Telegraph period: 400ms before melee attack
             if (now >= enemy.telegraphEnd) {
-              // If telegraph hasn't been set yet for this attack, set it
               if (enemy.telegraphEnd === 0) {
                 enemy.telegraphEnd = now + 400;
               } else {
-                // Telegraph period has ended, execute the attack
-                this.damagePlayer(meleeDamage, 200 + enemy.state.id);
+                // Telegraph done → attack
+                let dmg = meleeDamage;
+                // Angad shield absorb
+                if (this.angadShieldActive && this.angadShieldAbsorb > 0) {
+                  const absorbed = Math.min(dmg, this.angadShieldAbsorb);
+                  dmg -= absorbed;
+                  this.angadShieldAbsorb -= absorbed;
+                  if (this.angadShieldAbsorb <= 0) this.angadShieldActive = false;
+                }
+                if (dmg > 0) {
+                  this.damagePlayer(dmg, 200 + enemy.state.id);
+                  this.onDamageDirection(enemy.state.pos);
+                }
                 enemy.meleeCdEnd = now + meleeCooldown;
-                enemy.telegraphEnd = 0; // Reset telegraph
-                // 20% chance to trigger retreat after melee
+                enemy.telegraphEnd = 0;
                 if (Math.random() < 0.2) {
                   enemy.state.aiState = EnemyAIState.Retreat;
                   enemy.behaviorTimer = 1.5 + Math.random() * 2;
@@ -1563,6 +1908,20 @@ export class LocalSim {
       b.pos.x += (dx / l) * speed * dt;
       b.pos.z += (dz / l) * speed * dt;
     }
+
+    // ── Ravana Head Turrets (Phase 2+) ──
+    for (const head of this.boss.heads) {
+      if (!head.alive) continue;
+      if (now >= head.cooldownEnd && this.player.status === PlayerStatus.Alive) {
+        // Fire at player
+        const hdx = this.player.pos.x - head.pos.x;
+        const hdz = this.player.pos.z - head.pos.z;
+        const hl = Math.sqrt(hdx * hdx + hdz * hdz) || 1;
+        const dir: Vec3 = { x: hdx / hl, y: 0.2, z: hdz / hl };
+        this.spawnProjectile(255, ProjectileType.BossProjectile, head.pos, dir, C.RAVANA_HEAD_DAMAGE * enrageMult);
+        head.cooldownEnd = now + C.RAVANA_HEAD_COOLDOWN_MS;
+      }
+    }
   }
 
   private checkBossPhase(): void {
@@ -1572,11 +1931,40 @@ export class LocalSim {
       b.phase = BossPhase.Dead;
       this.completeGoal(7);
       this.onGameOver(true);
+      // Karma: valor for boss kill
+      this.karma.valor += 20;
+      this.onKarmaUpdate(this.karma);
       return;
     }
     const pct = b.hp / b.maxHp;
-    if (pct <= C.BOSS_PHASE3_HP_PCT && b.phase !== BossPhase.Phase3Enrage) b.phase = BossPhase.Phase3Enrage;
-    else if (pct <= C.BOSS_PHASE2_HP_PCT && b.phase === BossPhase.Phase1) b.phase = BossPhase.Phase2;
+    if (pct <= C.BOSS_PHASE3_HP_PCT && b.phase !== BossPhase.Phase3Enrage) {
+      b.phase = BossPhase.Phase3Enrage;
+    } else if (pct <= C.BOSS_PHASE2_HP_PCT && b.phase === BossPhase.Phase1) {
+      b.phase = BossPhase.Phase2;
+      // Spawn head turrets on Phase 2 transition
+      this.spawnRavanaHeads();
+    }
+  }
+
+  /** Spawn detachable Ravana head turrets around the boss arena */
+  private spawnRavanaHeads(): void {
+    const center = this.boss.state.pos;
+    const now = performance.now();
+    for (let i = 0; i < C.RAVANA_HEAD_COUNT; i++) {
+      const angle = (Math.PI * 2 / C.RAVANA_HEAD_COUNT) * i;
+      const headPos: Vec3 = { x: center.x + Math.cos(angle) * 6, y: 2, z: center.z + Math.sin(angle) * 6 };
+      const headId = this.nextHeadId++;
+      const head: RavanaHead = {
+        id: headId,
+        pos: headPos,
+        hp: C.RAVANA_HEAD_HP,
+        maxHp: C.RAVANA_HEAD_HP,
+        cooldownEnd: now + 2000,
+        alive: true,
+      };
+      this.boss.heads.push(head);
+      this.onRavanaHeadSpawned(headId, headPos);
+    }
   }
 
   private damagePlayer(damage: number, sourceId: number): void {
@@ -1592,7 +1980,7 @@ export class LocalSim {
 
   private spawnPickup(pos: Vec3): void {
     const pickupId = this.nextPickupId++;
-    const arrows = 5 + Math.floor(Math.random() * 6); // 5-10 arrows
+    const arrows = C.ARROW_DROP_MIN + Math.floor(Math.random() * (C.ARROW_DROP_MAX - C.ARROW_DROP_MIN + 1)); // 3-7 arrows
     const pickup: Pickup = { id: pickupId, pos: { ...pos }, arrows };
     this.pickups.push(pickup);
     this.onPickupSpawned(pickupId, pickup.pos, pickup.arrows);
@@ -1616,6 +2004,15 @@ export class LocalSim {
   }
 
   private checkChapterProgress(): void {
+    // ── Mid-chapter checkpoint (save at half-kill count) ──
+    if (!this.midChapterCheckpointSaved) {
+      const halfKill = this.chapter === 1 ? 2 : this.chapter === 2 ? 2 : this.chapter === 4 ? 3 : this.chapter === 5 ? 3 : 999;
+      if (this.chapterEnemiesKilled >= halfKill) {
+        this.midChapterCheckpointSaved = true;
+        this.onCheckpointSaved();
+      }
+    }
+
     // Chapter 1 → 2: 4 sentinels killed
     if (this.chapter === 1 && this.chapterEnemiesKilled >= 4) {
       this.completeGoal(1);
@@ -1632,39 +2029,24 @@ export class LocalSim {
         dialogueTreeId: 'ch2_jatayu', spoken: false,
       });
 
-      // Spawn 4 tougher enemies for chapter 2 (south scorched zone)
-      // Mix: 60% soldier, 40% archer
+      // Spawn 4 tougher enemies + 1 mini-boss champion for chapter 2
       const chapter2Positions: Vec3[] = [
         { x: -25, y: 0, z: -50 }, { x: 15, y: 0, z: -60 },
         { x: -10, y: 0, z: -70 }, { x: 30, y: 0, z: -55 },
       ];
-      for (const pos of chapter2Positions) {
-        const id = this.nextEnemyId++;
-        const rand = Math.random();
-        const isArcher = rand < 0.4;
-
-        if (isArcher) {
-          this.enemies.push({
-            state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_ARCHER_HP, maxHp: C.ENEMY_ARCHER_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
-            patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-            meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
-            behaviorTimer: 0,
-            strafeDir: Math.random() > 0.5 ? 1 : -1,
-            preferredRange: 20 + Math.random() * 5,
-            enemyType: 'archer',
-          });
-        } else {
-          this.enemies.push({
-            state: { id, pos: { ...pos }, yaw: 0, hp: 80, maxHp: 80, aiState: EnemyAIState.Patrol, targetId: 0 },
-            patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-            meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
-            behaviorTimer: 0,
-            strafeDir: Math.random() > 0.5 ? 1 : -1,
-            preferredRange: 10 + Math.random() * 10,
-            enemyType: 'soldier',
-          });
-        }
+      for (let i = 0; i < chapter2Positions.length; i++) {
+        const pos = chapter2Positions[i];
+        const isArcher = Math.random() < 0.4;
+        const type = isArcher ? 'archer' : 'soldier';
+        const hp = isArcher ? C.ENEMY_ARCHER_HP : 80;
+        // Last enemy is a champion mini-boss
+        const isChamp = (i === chapter2Positions.length - 1);
+        const enemy = this.createEnemy(pos, hp, type, isChamp);
+        this.enemies.push(enemy);
+        if (isChamp) this.onChampionSpawned(enemy.state.id);
       }
+      // Mid-chapter checkpoint
+      this.midChapterCheckpointSaved = false;
     }
     // Chapter 2 → 3 (Kishkindha — meet Sugriv): 4 elites killed
     else if (this.chapter === 2 && this.chapterEnemiesKilled >= 4) {
@@ -1720,47 +2102,21 @@ export class LocalSim {
         ]);
       }, 5000);
 
-      // Spawn 5 elite demon warriors in eastern march
-      // Mix: 20% soldier, 40% archer, 40% brute
+      // Spawn 5 elite demon warriors + champion mini-boss in Ch5
       const ch5Positions: Vec3[] = [
         { x: 35, y: 0, z: -45 }, { x: 60, y: 0, z: -25 },
         { x: 45, y: 0, z: -55 }, { x: 70, y: 0, z: -10 },
         { x: 55, y: 0, z: -60 },
       ];
-      for (const pos of ch5Positions) {
-        const id = this.nextEnemyId++;
-        const rand = Math.random();
-        let enemyType: 'soldier' | 'archer' | 'brute';
-        let hp: number;
-        let preferredRange: number;
-
-        if (rand < 0.2) {
-          // Soldier
-          enemyType = 'soldier';
-          hp = 90;
-          preferredRange = 10 + Math.random() * 10;
-        } else if (rand < 0.6) {
-          // Archer
-          enemyType = 'archer';
-          hp = C.ENEMY_ARCHER_HP;
-          preferredRange = 20 + Math.random() * 5;
-        } else {
-          // Brute
-          enemyType = 'brute';
-          hp = C.ENEMY_BRUTE_HP;
-          preferredRange = 3 + Math.random() * 2;
-        }
-
-        this.enemies.push({
-          state: { id, pos: { ...pos }, yaw: 0, hp, maxHp: hp, aiState: EnemyAIState.Patrol, targetId: 0 },
-          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-          meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
-          behaviorTimer: 0,
-          strafeDir: Math.random() > 0.5 ? 1 : -1,
-          preferredRange,
-          enemyType,
-        });
+      const ch5Types: Array<'soldier' | 'archer' | 'brute'> = ['soldier', 'archer', 'brute', 'archer', 'brute'];
+      const ch5Hps = [90, C.ENEMY_ARCHER_HP, C.ENEMY_BRUTE_HP, C.ENEMY_ARCHER_HP, C.ENEMY_BRUTE_HP];
+      for (let i = 0; i < ch5Positions.length; i++) {
+        const isChamp = (i === ch5Positions.length - 1); // Last is champion
+        const enemy = this.createEnemy(ch5Positions[i], ch5Hps[i], ch5Types[i], isChamp);
+        this.enemies.push(enemy);
+        if (isChamp) this.onChampionSpawned(enemy.state.id);
       }
+      this.midChapterCheckpointSaved = false;
     }
     // Chapter 5 → 6 (Lakshman's Choice): 5 warriors killed → Angad joins, Lakshman choice
     else if (this.chapter === 5 && this.chapterEnemiesKilled >= 5) {
@@ -1881,43 +2237,19 @@ export class LocalSim {
   }
 
   private spawnChapter1Enemies(): void {
-    // Clear tutorial dummies
     this.enemies = [];
     this.nextEnemyId = 1;
-
-    // Spawn Chapter 1 enemies
-    // Mix: 60% soldier, 40% archer
     const chapter1Positions: Vec3[] = [
       { x: -20, y: 0, z: -20 }, { x: 20, y: 0, z: -25 },
       { x: -30, y: 0, z: 10 }, { x: 15, y: 0, z: 30 },
     ];
     for (const pos of chapter1Positions) {
-      const id = this.nextEnemyId++;
-      const rand = Math.random();
-      const isArcher = rand < 0.4;
-
-      if (isArcher) {
-        this.enemies.push({
-          state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_ARCHER_HP, maxHp: C.ENEMY_ARCHER_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
-          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-          meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
-          behaviorTimer: 0,
-          strafeDir: Math.random() > 0.5 ? 1 : -1,
-          preferredRange: 20 + Math.random() * 5,
-          enemyType: 'archer',
-        });
-      } else {
-        this.enemies.push({
-          state: { id, pos: { ...pos }, yaw: 0, hp: C.ENEMY_HP, maxHp: C.ENEMY_HP, aiState: EnemyAIState.Patrol, targetId: 0 },
-          patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
-          meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
-          behaviorTimer: 0,
-          strafeDir: Math.random() > 0.5 ? 1 : -1,
-          preferredRange: 10 + Math.random() * 10,
-          enemyType: 'soldier',
-        });
-      }
+      const isArcher = Math.random() < 0.4;
+      const type = isArcher ? 'archer' : 'soldier';
+      const hp = isArcher ? C.ENEMY_ARCHER_HP : C.ENEMY_HP;
+      this.enemies.push(this.createEnemy(pos, hp, type));
     }
+    this.midChapterCheckpointSaved = false;
   }
 
   // ── Save State Extraction (for MapRenderer save system) ──────────────────
@@ -1929,6 +2261,8 @@ export class LocalSim {
     companionIds: string[]; loneWarriorBuff: boolean;
     lakshmanChoice: 'accepted' | 'declined' | null;
     tutorialComplete: boolean;
+    karma: KarmaScore;
+    difficulty: Difficulty;
   } {
     return {
       chapter: this.chapter,
@@ -1944,6 +2278,8 @@ export class LocalSim {
         : this.lakshmanChoice === 'declined' ? 'declined'
         : null,
       tutorialComplete: this.tutorialComplete,
+      karma: { ...this.karma },
+      difficulty: this.difficulty,
     };
   }
 }

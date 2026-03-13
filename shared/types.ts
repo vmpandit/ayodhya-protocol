@@ -44,6 +44,7 @@ export const enum InputFlag {
   Revive = 1 << 10,
   Meditate = 1 << 11,
   Talk = 1 << 12,
+  CompanionAbility = 1 << 13,
 }
 
 export interface PlayerInput {
@@ -90,6 +91,7 @@ export const enum ProjectileType {
   EnemyAgniAstra = 9,   // Enemy fires Agni Astra
   EnemyVayuAstra = 10,  // Enemy fires Vayu Astra
   EnemyNagaAstra = 11,  // Enemy fires Naga Astra
+  Pashupatastra = 12,  // Lone Warrior exclusive ultimate
 }
 
 // ── Special arrow inventory (player-selectable) ──
@@ -169,4 +171,50 @@ export const enum AbilityType {
   VarunaAstra = 3,
   NagaAstra = 4,
   BrahmaAstra = 5,
+  Pashupatastra = 6,  // Lone Warrior exclusive
+  HanumanLeap = 7,    // Companion ability: Hanuman
+  AngadShield = 8,     // Companion ability: Angad
+  LakshmanCover = 9,   // Companion ability: Lakshman
+}
+
+// ── Astra Elements (for synergy system) ──
+export const enum AstraElement {
+  Fire = 0,
+  Wind = 1,
+  Water = 2,
+  Poison = 3,
+  Divine = 4,
+}
+
+// ── Astra Synergy Combo Types ──
+export const enum AstraCombo {
+  SteamBurst = 0,    // Water + Fire → AoE blast
+  ToxicCloud = 1,    // Poison + Wind → lingering zone
+  Skyfall = 2,       // Wind + Divine → 2× Brahma dmg
+  Venomfire = 3,     // Poison + Fire → exploding DoT
+  Monsoon = 4,       // Water + Wind → AoE slow
+  Purify = 5,        // Water + Divine → heal player
+}
+
+// ── Difficulty Presets ──
+export const enum Difficulty {
+  Story = 0,
+  Dharma = 1,
+  Tapasya = 2,
+}
+
+// ── Encounter Recipe Types ──
+export const enum EncounterType {
+  Standard = 0,
+  Ambush = 1,
+  Siege = 2,
+  Gauntlet = 3,
+  Hunt = 4,
+}
+
+// ── Karma Categories ──
+export interface KarmaScore {
+  mercy: number;
+  valor: number;
+  devotion: number;
 }

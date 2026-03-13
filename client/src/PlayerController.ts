@@ -104,6 +104,10 @@ export class PlayerController {
   private talkPressed = false;
   private mapTogglePressed = false;
 
+  // ── Companion ability & Pashupatastra ──
+  private companionAbilityCdEnd = 0;
+  private pashupataCdEnd = 0;
+
   constructor(canvas: HTMLCanvasElement, camera: FreeCamera) {
     this.canvas = canvas;
     this.camera = camera;
@@ -132,6 +136,8 @@ export class PlayerController {
       if (e.code === 'Digit3') this.selectSpecialArrow(2); // VarunaAstra
       if (e.code === 'Digit4') this.selectSpecialArrow(3); // NagaAstra
       if (e.code === 'Digit5') this.selectSpecialArrow(4); // BrahmaAstra
+      if (e.code === 'Digit6') this.tryPashupatastra();   // Lone Warrior ultimate
+      if (e.code === 'KeyX') this.tryCompanionAbility();  // Companion active ability
       if (e.code === 'KeyV') this.meditatePressed = true;
       if (e.code === 'KeyF') this.talkPressed = true;
       if (e.code === 'KeyM') this.mapTogglePressed = true;
@@ -395,6 +401,36 @@ export class PlayerController {
       };
       this.specialArrowCdEnd[selectedType] = now + cooldownMap[selectedType];
     }
+  }
+
+  private tryPashupatastra(): void {
+    const now = performance.now();
+    if (now >= this.pashupataCdEnd) {
+      this.pendingAbility = { type: AbilityType.Pashupatastra, dir: this.getAimDirection() };
+      this.pashupataCdEnd = now + C.PASHUPATASTRA_COOLDOWN_MS;
+    }
+  }
+
+  private tryCompanionAbility(): void {
+    const now = performance.now();
+    if (now >= this.companionAbilityCdEnd) {
+      // Default to HanumanLeap; Game.ts will remap based on active companion
+      this.pendingAbility = { type: AbilityType.HanumanLeap, dir: this.getAimDirection() };
+      this.companionAbilityCdEnd = now + C.HANUMAN_LEAP_COOLDOWN_MS; // Will be overridden by LocalSim
+    }
+  }
+
+  /** Set the companion ability cooldown externally (called by Game.ts after LocalSim processes). */
+  setCompanionCooldown(ms: number): void {
+    this.companionAbilityCdEnd = performance.now() + ms;
+  }
+
+  getCompanionCd(): number {
+    return Math.max(0, this.companionAbilityCdEnd - performance.now());
+  }
+
+  getPashupataCd(): number {
+    return Math.max(0, this.pashupataCdEnd - performance.now()) / C.PASHUPATASTRA_COOLDOWN_MS;
   }
 
   /**

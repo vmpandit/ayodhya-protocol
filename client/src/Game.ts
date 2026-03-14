@@ -17,6 +17,7 @@ import { TextureLoader } from './TextureLoader';
 import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType, AstraCombo, KarmaScore, EncounterPhase } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import { MapRenderer, WaypointType } from './MapRenderer';
+import * as C from '@shared/constants';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -929,6 +930,19 @@ export class Game {
       }
       // Show meditation hint when available and not meditating
       this.hud.updateMeditationHint(this.localSim.canMeditate && !this.localSim.isMeditating);
+
+      // G-01: Compass waypoint — point toward next chapter zone
+      const nextCh = Math.min(this.localSim.chapter + 1, 7);
+      const zones = C.CHAPTER_ZONES as Record<number, { x: number; z: number }>;
+      const target = zones[nextCh];
+      const cp = this.lastSnapshot?.players.find(pl => pl.id === this.localPlayerId);
+      if (target && cp) {
+        const dx = target.x - cp.pos.x;
+        const dz = target.z - cp.pos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        const angleToTarget = Math.atan2(dx, -dz) - cp.yaw;
+        this.hud.updateCompass(angleToTarget, dist);
+      }
     }
 
     if (this.controller) {

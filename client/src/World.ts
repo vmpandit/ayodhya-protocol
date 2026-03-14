@@ -56,6 +56,8 @@ export class World {
   private championPlates = new Map<number, Mesh>();  // A-06: Champion nameplate meshes
   private foamMeshes: Mesh[] = [];  // A-07: Shoreline foam strip meshes
   private bossArenaMeshes: Mesh[] = [];  // A-09: All boss arena meshes for visibility toggling
+  // P2-4: Enemy mesh pool — recycle disabled meshes instead of creating new ones
+  private enemyMeshPool: TransformNode[] = [];
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -1062,11 +1064,25 @@ export class World {
   updateEnemyMesh(state: EnemyState): void {
     let root = this.enemyMeshes.get(state.id);
     if (!root) {
-      root = this._buildRakshasaParts(state.id);
+      // P2-4: Try to reuse a pooled mesh before building new geometry
+      if (this.enemyMeshPool.length > 0) {
+        root = this.enemyMeshPool.pop()!;
+        root.name = `enemy_${state.id}`;
+      } else {
+        root = this._buildRakshasaParts(state.id);
+      }
       this.enemyMeshes.set(state.id, root);
     }
 
-    if (state.aiState === EnemyAIState.Dead) { root.setEnabled(false); return; }
+    if (state.aiState === EnemyAIState.Dead) {
+      root.setEnabled(false);
+      // P2-4: Return mesh to pool for reuse
+      if (this.enemyMeshPool.length < 30) { // Cap pool size
+        this.enemyMeshes.delete(state.id);
+        this.enemyMeshPool.push(root);
+      }
+      return;
+    }
 
     root.setEnabled(true);
     root.position.set(state.pos.x, state.pos.y, state.pos.z);

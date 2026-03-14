@@ -44,8 +44,14 @@ export const NAGA_ASTRA_DAMAGE = 12;
 export const NAGA_ASTRA_DOT = 6;
 export const NAGA_ASTRA_DOT_TICKS = 5;
 
-export const BRAHMA_ASTRA_COOLDOWN_MS = 20000;
+export const BRAHMA_ASTRA_COOLDOWN_MS = 20000;  // Legacy: still used as min interval between fires
 export const BRAHMA_ASTRA_DAMAGE = 80;
+// P2-2: Brahmastra build-up system — charge through combat, not cooldown
+export const BRAHMA_MAX_CHARGE = 100;        // Charge needed to fire
+export const BRAHMA_CHARGE_PER_HIT = 8;      // Charge per arrow hit on enemy
+export const BRAHMA_CHARGE_PER_KILL = 20;    // Charge per enemy kill
+export const BRAHMA_CHARGE_PER_COMBO = 5;    // Bonus per Astra combo triggered
+export const BRAHMA_CHARGE_DECAY_RATE = 2;   // Charge lost per second when not attacking (encourages aggressive play)
 
 // Enemy special arrow speed (slower for reaction time)
 export const ENEMY_SPECIAL_ARROW_SPEED = 18;  // slower than player arrows

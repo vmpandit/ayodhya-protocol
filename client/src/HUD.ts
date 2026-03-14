@@ -42,6 +42,8 @@ export class HUD {
   private tutorialChecklist: HTMLElement | null;
   private backstoryOverlay: HTMLElement | null;
   private renderCanvas: HTMLElement | null;
+  private compassArrow: HTMLElement | null;
+  private compassDist: HTMLElement | null;
 
   // ── Dialogue choice callback ──────────────────────────────
   public onChoiceSelected: (index: number) => void = () => {};
@@ -94,6 +96,8 @@ export class HUD {
     this.tutorialChecklist = document.getElementById('tutorialChecklist');
     this.backstoryOverlay = document.getElementById('backstoryOverlay');
     this.renderCanvas = document.getElementById('renderCanvas');
+    this.compassArrow = document.getElementById('compassArrow');
+    this.compassDist = document.getElementById('compassDist');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
@@ -837,6 +841,30 @@ export class HUD {
 
         slotsEl.appendChild(slotDiv);
       }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  COMPASS WAYPOINT HUD ARROW
+  // ══════════════════════════════════════════════════════════════════════════
+
+  updateCompass(angleToTarget: number, distance: number): void {
+    if (!this.compassArrow || !this.compassDist) return;
+
+    if (distance < 30) {
+      // Hide when target is within 30 units
+      this.compassArrow.style.display = 'none';
+      this.compassDist.style.display = 'none';
+    } else {
+      // Show arrow and update rotation
+      this.compassArrow.style.display = 'block';
+      this.compassDist.style.display = 'block';
+
+      // Rotate arrow to point toward target
+      this.compassArrow.style.transform = `translateY(-50%) rotate(${angleToTarget}rad)`;
+
+      // Update distance text
+      this.compassDist.textContent = `${Math.round(distance)}m`;
     }
   }
 }

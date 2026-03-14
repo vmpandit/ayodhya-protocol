@@ -94,6 +94,12 @@ export interface Companion {
   range: number;
   lastAttackTime: number;
   hpRegenBuff: number;  // HP/s regen buff to player
+  // P2-1: Personality-based autonomous AI
+  personality: 'aggressive' | 'defensive' | 'loyal';  // Hanuman=aggressive, Angad=defensive, Lakshman=loyal
+  preferredDist: number;  // Ideal distance from player (aggressive=far flank, defensive=close, loyal=behind)
+  flanking: boolean;      // Currently flanking to a position
+  flankTarget: Vec3;      // Current flank destination
+  combatCooldown: number; // Autonomous ability cooldown timer
 }
 
 interface StoryNPC {
@@ -117,6 +123,9 @@ interface WaveState {
   enemiesRemaining: number;
   waveComplete: boolean;
   waveStartedAt?: number;
+  // P2-3: Wave rest beats
+  restUntil?: number;     // Timestamp when rest period ends (0 = no rest)
+  isResting: boolean;     // Currently in rest beat between waves
 }
 
 interface Encounter {
@@ -144,6 +153,9 @@ export class LocalSim {
   private varunaAstraCd = 0;
   private nagaAstraCd = 0;
   private brahmaAstraCd = 0;
+  // P2-2: Brahmastra build-up charge (replaces cooldown as primary gate)
+  public brahmaCharge = 0;
+  private lastBrahmaFireTime = 0;
   private dodgeCdEnd = 0;
   private dodgeEnd = 0;
   private dodgeJustTriggered = false; // Track if dodge was triggered this frame (G-07)
@@ -761,6 +773,8 @@ export class LocalSim {
       id: 'lakshman', name: 'Lakshman', pos,
       damage: 15, attackInterval: 3000, range: 15,
       lastAttackTime: 0, hpRegenBuff: 0,
+      personality: 'loyal', preferredDist: 4, flanking: false,
+      flankTarget: { x: 0, y: 0, z: 0 }, combatCooldown: 0,
     });
     this.player.maxHp += 20;
     this.player.hp = Math.min(this.player.hp + 20, this.player.maxHp);
@@ -1000,11 +1014,15 @@ export class LocalSim {
     } else if (ability === AbilityType.NagaAstra && now >= this.nagaAstraCd) {
       this.nagaAstraCd = now + NAGA_ASTRA_COOLDOWN_MS;
       this.spawnProjectile(1, ProjectileType.NagaAstra, this.player.pos, dir, NAGA_ASTRA_DAMAGE * mult);
-    } else if (ability === AbilityType.BrahmaAstra && now >= this.brahmaAstraCd) {
-      if (this.arrowAmmo >= C.BRAHMA_ARROW_COST) {
-        this.brahmaAstraCd = now + BRAHMA_ASTRA_COOLDOWN_MS;
+    } else if (ability === AbilityType.BrahmaAstra) {
+      // P2-2: Brahmastra requires full charge (100) + arrow cost, no longer gated by cooldown alone
+      if (this.brahmaCharge >= C.BRAHMA_MAX_CHARGE && this.arrowAmmo >= C.BRAHMA_ARROW_COST
+          && now - this.lastBrahmaFireTime >= 3000) { // 3s minimum between fires
+        this.brahmaCharge = 0; // Reset charge on fire
+        this.lastBrahmaFireTime = now;
         this.arrowAmmo -= C.BRAHMA_ARROW_COST;
         this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE * mult);
+        this.karma.devotion += 5; // Brahmastra is a divine weapon — devotion act
       }
     }
     // ── Pashupatastra (Lone Warrior exclusive) ──
@@ -1081,6 +1099,9 @@ export class LocalSim {
     const effects = enemy.statusEffects;
     const pos = { ...enemy.state.pos };
     const mult = this.damageMultiplier;
+
+    // P2-2: Brahmastra charge on combo
+    this.brahmaCharge = Math.min(C.BRAHMA_MAX_CHARGE, this.brahmaCharge + C.BRAHMA_CHARGE_PER_COMBO);
 
     // Water + Fire → Steam Burst
     if (effects.has(AstraElement.Water) && effects.has(AstraElement.Fire)) {
@@ -1297,8 +1318,13 @@ export class LocalSim {
   private killEnemy(enemy: LocalEnemy): void {
     enemy.state.hp = 0;
     enemy.state.aiState = EnemyAIState.Dead;
-    this.chapterEnemiesKilled++;
+    // Don't count illusion kills for chapter progress
+    if (!enemy.isIllusion) this.chapterEnemiesKilled++;
     if (enemy.isChampion) this.karma.valor += 5;
+    // P2-2: Brahmastra charge on kill
+    if (!enemy.isIllusion) {
+      this.brahmaCharge = Math.min(C.BRAHMA_MAX_CHARGE, this.brahmaCharge + C.BRAHMA_CHARGE_PER_KILL);
+    }
     if (this.chapter === 0 && enemy.originalMaxHp === 30) {
       enemy.respawnTime = performance.now() + 3000;
       this.spawnPickup(enemy.state.pos);
@@ -1389,6 +1415,11 @@ export class LocalSim {
       }
     }
 
+    // P2-2: Brahmastra charge decay when not attacking (encourages aggressive play)
+    if (this.brahmaCharge > 0 && this.brahmaCharge < C.BRAHMA_MAX_CHARGE) {
+      this.brahmaCharge = Math.max(0, this.brahmaCharge - C.BRAHMA_CHARGE_DECAY_RATE * dt);
+    }
+
     // ── Companion HP regen buff + Dharma Bond ──────────────────
     for (const comp of this.companions) {
       if (comp.hpRegenBuff > 0) {
@@ -1466,6 +1497,9 @@ export class LocalSim {
             if (now < this.dharmaGraceEnd) dmg *= 1.5;
             enemy.state.hp -= dmg;
             this.onDamage(DamageTargetType.Enemy, enemy.state.id, dmg, 1);
+
+            // P2-2: Build Brahmastra charge on player hits
+            this.brahmaCharge = Math.min(C.BRAHMA_MAX_CHARGE, this.brahmaCharge + C.BRAHMA_CHARGE_PER_HIT);
 
             // ── Astra Synergy: apply elemental status ──
             const pType = proj.state.type;
@@ -1613,6 +1647,9 @@ export class LocalSim {
     // Update boss
     this.updateBoss(dt, now);
 
+    // P2-3: Wave rest beat management — after all wave enemies die, brief rest before next spawn
+    this.updateWaveRests(now);
+
     // ── Companion AI ────────────────────────────────────────────
     this.updateCompanions(dt, now);
 
@@ -1639,6 +1676,42 @@ export class LocalSim {
     };
   }
 
+  // P2-3: Wave rest beat management
+  private waveRestActive = false;
+  private waveRestEndTime = 0;
+  private waveNumber = 0;
+  private lastAliveEnemyCount = 0;
+
+  private updateWaveRests(now: number): void {
+    // Only active in chapters 4+ where wave encounters happen
+    if (this.chapter < 4) return;
+
+    const aliveCount = this.enemies.filter(e => e.state.aiState !== EnemyAIState.Dead && !e.isIllusion).length;
+
+    // Detect wave clear: enemies just went to 0 from non-zero
+    if (aliveCount === 0 && this.lastAliveEnemyCount > 0 && !this.waveRestActive) {
+      // Start rest beat — 4 seconds of breathing room
+      this.waveRestActive = true;
+      this.waveRestEndTime = now + 4000;
+      this.waveNumber++;
+
+      // Partial heal during rest beat
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + 15);
+      this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + 25);
+      this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + 3);
+
+      // Announce rest
+      this.onWaveAnnouncement(this.waveNumber, 0); // 0 = wave cleared
+    }
+
+    // Check if rest period is over (spawning of new enemies happens in chapter progression)
+    if (this.waveRestActive && now >= this.waveRestEndTime) {
+      this.waveRestActive = false;
+    }
+
+    this.lastAliveEnemyCount = aliveCount;
+  }
+
   private updateMeditationAvailability(): void {
     // Can meditate during rest chapters (3 and 6) when no enemies alive
     const isRestChapter = (this.chapter === 3 || this.chapter === 6);
@@ -1647,37 +1720,99 @@ export class LocalSim {
   }
 
   private updateCompanions(dt: number, now: number): void {
+    // Find nearest alive enemy for targeting
+    const findNearestEnemy = (fromPos: Vec3, maxRange: number): LocalEnemy | null => {
+      let nearest: LocalEnemy | null = null;
+      let nearestDist = Infinity;
+      for (const enemy of this.enemies) {
+        if (enemy.state.aiState === EnemyAIState.Dead) continue;
+        const ed = dist3(fromPos, enemy.state.pos);
+        if (ed < maxRange && ed < nearestDist) {
+          nearestDist = ed;
+          nearest = enemy;
+        }
+      }
+      return nearest;
+    };
+
     for (const comp of this.companions) {
-      // Follow the player — stay 3-5 units behind
-      const dx = this.player.pos.x - comp.pos.x;
-      const dz = this.player.pos.z - comp.pos.z;
-      const d = Math.sqrt(dx * dx + dz * dz);
-      if (d > 4) {
-        const speed = 5 * dt;
-        comp.pos.x += (dx / d) * speed;
-        comp.pos.z += (dz / d) * speed;
+      // ── P2-1: Personality-based positioning ──
+      const hasEnemies = this.enemies.some(e => e.state.aiState !== EnemyAIState.Dead);
+      const nearestThreat = findNearestEnemy(this.player.pos, 20);
+
+      if (hasEnemies && nearestThreat) {
+        // In combat: position based on personality
+        let targetX: number, targetZ: number;
+        const sinY = Math.sin(this.player.yaw);
+        const cosY = Math.cos(this.player.yaw);
+
+        if (comp.personality === 'aggressive') {
+          // Hanuman: flank the nearest enemy from the opposite side of the player
+          const ex = nearestThreat.state.pos.x;
+          const ez = nearestThreat.state.pos.z;
+          const toPlayerX = this.player.pos.x - ex;
+          const toPlayerZ = this.player.pos.z - ez;
+          const tpLen = Math.sqrt(toPlayerX * toPlayerX + toPlayerZ * toPlayerZ) || 1;
+          // Position on far side of enemy from player, at comp.preferredDist
+          targetX = ex - (toPlayerX / tpLen) * comp.preferredDist;
+          targetZ = ez - (toPlayerZ / tpLen) * comp.preferredDist;
+        } else if (comp.personality === 'defensive') {
+          // Angad: stay between player and nearest threat
+          targetX = (this.player.pos.x + nearestThreat.state.pos.x) * 0.5;
+          targetZ = (this.player.pos.z + nearestThreat.state.pos.z) * 0.5;
+        } else {
+          // Loyal (Lakshman): stay behind player relative to nearest threat
+          targetX = this.player.pos.x - sinY * comp.preferredDist;
+          targetZ = this.player.pos.z - cosY * comp.preferredDist;
+        }
+
+        const dx = targetX - comp.pos.x;
+        const dz = targetZ - comp.pos.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d > 1.5) {
+          const speed = (comp.personality === 'aggressive' ? 7 : 5) * dt;
+          comp.pos.x += (dx / d) * speed;
+          comp.pos.z += (dz / d) * speed;
+        }
+      } else {
+        // Out of combat: follow player at preferred distance
+        const dx = this.player.pos.x - comp.pos.x;
+        const dz = this.player.pos.z - comp.pos.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d > comp.preferredDist + 1) {
+          const speed = 5 * dt;
+          comp.pos.x += (dx / d) * speed;
+          comp.pos.z += (dz / d) * speed;
+        }
       }
 
-      // Auto-attack nearest enemy/boss
+      // ── P2-1: Autonomous combat attacks with personality flavor ──
       if (now - comp.lastAttackTime >= comp.attackInterval) {
-        let nearestEnemy: LocalEnemy | null = null;
-        let nearestDist = Infinity;
-        for (const enemy of this.enemies) {
-          if (enemy.state.aiState === EnemyAIState.Dead) continue;
-          const ed = dist3(comp.pos, enemy.state.pos);
-          if (ed < comp.range && ed < nearestDist) {
-            nearestDist = ed;
-            nearestEnemy = enemy;
-          }
+        // Aggressive companions target furthest enemy in range (Hanuman charges deep)
+        // Defensive companions target closest enemy to player (Angad protects)
+        // Loyal companions target same enemy player is facing (Lakshman follows lead)
+        let target: LocalEnemy | null = null;
+
+        if (comp.personality === 'aggressive') {
+          // Hanuman: attack the nearest enemy from his position (he's flanking)
+          target = findNearestEnemy(comp.pos, comp.range + 4);
+        } else if (comp.personality === 'defensive') {
+          // Angad: target enemy closest to the player (bodyguard)
+          target = findNearestEnemy(this.player.pos, comp.range);
+        } else {
+          // Lakshman: target nearest to himself
+          target = findNearestEnemy(comp.pos, comp.range);
         }
-        if (nearestEnemy) {
-          nearestEnemy.state.hp -= comp.damage;
-          this.onDamage(DamageTargetType.Enemy, nearestEnemy.state.id, comp.damage, 100);
-          if (nearestEnemy.state.hp <= 0) {
-            nearestEnemy.state.hp = 0;
-            nearestEnemy.state.aiState = EnemyAIState.Dead;
+
+        if (target) {
+          const dmg = comp.damage * (comp.personality === 'aggressive' ? 1.3 : 1.0);
+          target.state.hp -= dmg;
+          this.onDamage(DamageTargetType.Enemy, target.state.id, dmg, 100);
+          if (target.state.hp <= 0) {
+            target.state.hp = 0;
+            target.state.aiState = EnemyAIState.Dead;
             this.chapterEnemiesKilled++;
-            this.spawnPickup(nearestEnemy.state.pos);
+            this.spawnPickup(target.state.pos);
             this.checkChapterProgress();
           }
           comp.lastAttackTime = now;
@@ -2360,6 +2495,8 @@ export class LocalSim {
         id: 'hanuman', name: 'Hanuman', pos: hanumanPos,
         damage: 10, attackInterval: 2000, range: 8,
         lastAttackTime: 0, hpRegenBuff: 0,
+        personality: 'aggressive', preferredDist: 8, flanking: false,
+        flankTarget: { x: 0, y: 0, z: 0 }, combatCooldown: 0,
       });
       this.onCompanionJoined('hanuman', 'Hanuman', hanumanPos);
 
@@ -2429,6 +2566,8 @@ export class LocalSim {
         id: 'angad', name: 'Angad', pos: angadPos,
         damage: 8, attackInterval: 2500, range: 8,
         lastAttackTime: 0, hpRegenBuff: 2, // passive +2 HP/s
+        personality: 'defensive', preferredDist: 3, flanking: false,
+        flankTarget: { x: 0, y: 0, z: 0 }, combatCooldown: 0,
       });
       this.onCompanionJoined('angad', 'Angad', angadPos);
 

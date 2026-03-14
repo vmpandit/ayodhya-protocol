@@ -42,8 +42,6 @@ export class HUD {
   private tutorialChecklist: HTMLElement | null;
   private backstoryOverlay: HTMLElement | null;
   private renderCanvas: HTMLElement | null;
-  private compassArrow: HTMLElement | null;
-  private compassDist: HTMLElement | null;
 
   // ── Dialogue choice callback ──────────────────────────────
   public onChoiceSelected: (index: number) => void = () => {};
@@ -96,8 +94,6 @@ export class HUD {
     this.tutorialChecklist = document.getElementById('tutorialChecklist');
     this.backstoryOverlay = document.getElementById('backstoryOverlay');
     this.renderCanvas = document.getElementById('renderCanvas');
-    this.compassArrow = document.getElementById('compassArrow');
-    this.compassDist = document.getElementById('compassDist');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
@@ -457,6 +453,35 @@ export class HUD {
     this.showNotification(`${name.toUpperCase()} JOINS`);
   }
 
+  showCompanionTutorial(name: string, abilityKey: string, cooldownSec: number): void {
+    const el = document.getElementById('companionTutorial');
+    if (!el) return;
+
+    const contentEl = el.querySelector('.companion-tutorial-content') as HTMLElement;
+    if (contentEl) {
+      contentEl.innerHTML = `
+        <div style="text-align: center; color: #c89b3c; font-size: 18px; font-weight: bold;">${name} has joined!</div>
+        <div style="text-align: center; color: #fff; font-size: 14px; margin-top: 12px;">${abilityKey}</div>
+        <div style="text-align: center; color: #aaa; font-size: 12px; margin-top: 6px;">${cooldownSec}s cooldown</div>
+        <div style="text-align: center; color: #888; font-size: 11px; margin-top: 10px;">Press any key to dismiss</div>
+      `;
+    }
+
+    el.classList.add('visible');
+
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+      el.classList.remove('visible');
+    }, 3000);
+
+    // Dismiss on any key
+    const dismissHandler = () => {
+      el.classList.remove('visible');
+      window.removeEventListener('keydown', dismissHandler);
+    };
+    window.addEventListener('keydown', dismissHandler);
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   //  GOAL WIDGET
   // ══════════════════════════════════════════════════════════════════════════
@@ -812,30 +837,6 @@ export class HUD {
 
         slotsEl.appendChild(slotDiv);
       }
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  //  COMPASS WAYPOINT HUD ARROW
-  // ══════════════════════════════════════════════════════════════════════════
-
-  updateCompass(angleToTarget: number, distance: number): void {
-    if (!this.compassArrow || !this.compassDist) return;
-
-    if (distance < 30) {
-      // Hide when target is within 30 units
-      this.compassArrow.style.display = 'none';
-      this.compassDist.style.display = 'none';
-    } else {
-      // Show arrow and update rotation
-      this.compassArrow.style.display = 'block';
-      this.compassDist.style.display = 'block';
-
-      // Rotate arrow to point toward target
-      this.compassArrow.style.transform = `translateY(-50%) rotate(${angleToTarget}rad)`;
-
-      // Update distance text
-      this.compassDist.textContent = `${Math.round(distance)}m`;
     }
   }
 }

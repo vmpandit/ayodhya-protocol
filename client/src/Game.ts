@@ -17,7 +17,6 @@ import { TextureLoader } from './TextureLoader';
 import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType, AstraCombo, KarmaScore, EncounterPhase } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import { MapRenderer, WaypointType } from './MapRenderer';
-import * as C from '@shared/constants';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -315,8 +314,11 @@ export class Game {
       }
       // Show phase notifications
       if (phase === EncounterPhase.Detection) {
+        this.hud.showNotification('TIME SLOWS...'); // G-09: Slow-time feedback
         this.hud.showNotification('ENEMY DETECTED');
         this.audio.play(SFX.BossRoar);
+      } else if (phase === EncounterPhase.Challenge) {
+        this.hud.showNotification('TIME SLOWS...'); // G-09: Slow-time feedback during dialogue
       } else if (phase === EncounterPhase.Phase2) {
         this.hud.showNotification('PHASE 2 — ENRAGED');
         this.controller?.triggerShake(0.2);
@@ -382,9 +384,6 @@ export class Game {
       // Update world biome visuals for this chapter
       this.world.setChapterBiome(chapter);
 
-      // Update per-biome fog and atmosphere (A-03)
-      this.renderer.setBiomeFog(chapter);
-
       // Advance day/night cycle based on chapter
       // Ch0-1: dawn(0.0-0.08), Ch2-3: morning→noon(0.12-0.22), Ch4-5: afternoon→dusk(0.32-0.42), Ch6-7: evening→night(0.55-0.72)
       const chapterTimeMap: Record<number, number> = { 0: 0.02, 1: 0.08, 2: 0.15, 3: 0.22, 4: 0.32, 5: 0.42, 6: 0.55, 7: 0.72 };
@@ -426,6 +425,17 @@ export class Game {
       this.world.spawnCompanion(id, name, pos);
       this.hud.showCompanionJoined(name);
       this.audio.play(SFX.UIStart);
+
+      // G-03: Show companion tutorial overlay with ability info
+      const companionAbilities: Record<string, { key: string; cooldown: number }> = {
+        'hanuman': { key: 'Q key — Leap Strike', cooldown: 15 },
+        'angad': { key: 'E key — Immovable Shield', cooldown: 20 },
+        'lakshman': { key: 'R key — Cover Fire', cooldown: 25 },
+      };
+      const ability = companionAbilities[name.toLowerCase()];
+      if (ability) {
+        this.hud.showCompanionTutorial(name, ability.key, ability.cooldown);
+      }
     };
 
     this.localSim.onMeditationStateChanged = (active) => {
@@ -464,6 +474,12 @@ export class Game {
     this.localSim.onGoalCompleted = (chapter, description) => {
       this.hud.completeGoal();
       this.hud.addKillFeedEntry(`Goal Complete: ${description}`, '#90ee90');
+      this.audio.play(SFX.UIStart);
+    };
+
+    // G-08: Wire investigation point clue display
+    this.localSim.onInvestigationTriggered = (clue) => {
+      this.hud.showDialogue('Investigation', clue, 10000);
       this.audio.play(SFX.UIStart);
     };
 
@@ -694,34 +710,6 @@ export class Game {
       }
     }
 
-    // ── Update compass waypoint arrow ──────────────────────────
-    if (this.localSim && this.frameIndex % 5 === 0) {
-      const p = this.lastSnapshot?.players.find(pl => pl.id === this.localPlayerId);
-      if (p) {
-        // Get next chapter zone
-        const nextChapter = Math.min(this.localSim.chapter + 1, 7);
-        const targetZone = (C.CHAPTER_ZONES as any)[nextChapter] || { x: 600, z: -700 };
-
-        // Calculate direction vector from player to target
-        const dx = targetZone.x - p.pos.x;
-        const dz = targetZone.z - p.pos.z;
-        const distance = Math.sqrt(dx * dx + dz * dz);
-
-        // Calculate absolute angle (atan2 gives angle in standard math convention)
-        const absoluteAngle = Math.atan2(dx, dz);
-
-        // Calculate relative angle (subtract player yaw to get direction relative to player facing)
-        const relativeAngle = absoluteAngle - p.yaw;
-
-        // Normalize to [-π, π]
-        let normalizedAngle = relativeAngle;
-        while (normalizedAngle > Math.PI) normalizedAngle -= 2 * Math.PI;
-        while (normalizedAngle < -Math.PI) normalizedAngle += 2 * Math.PI;
-
-        this.hud.updateCompass(normalizedAngle, distance);
-      }
-    }
-
     // ── Handle Talk input for dialogue ────────────────────────────
     if (this.controller && this.localSim) {
       const talkPressed = this.controller.consumeTalkKey();
@@ -862,6 +850,10 @@ export class Game {
 
           // Step sim — skip during hit-stop
           if (performance.now() >= this.hitStopEnd) {
+            // G-09: Apply encounter slow-time (Detection/Challenge phases)
+            if (this.localSim.encounterSlowFactor < 1.0) {
+              dt *= this.localSim.encounterSlowFactor;
+            }
             const snap = this.localSim.update(dt);
             this.lastSnapshot = snap;
             this.interpolation.pushSnapshot(snap);
@@ -918,7 +910,11 @@ export class Game {
     // Update wildlife animations
     if (this.localSim) {
       const p = this.lastSnapshot?.players.find(pl => pl.id === this.localPlayerId);
-      if (p) this.world.updateWildlife(dt, p.pos);
+      if (p) {
+        this.world.updateWildlife(dt, p.pos);
+        // A-09: Boss arena fog gate — distance-based visibility
+        this.world.updateBossArenaVisibility(p.pos, this.localSim.chapter);
+      }
     }
 
     if (this.localSim) {

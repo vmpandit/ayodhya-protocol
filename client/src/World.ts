@@ -39,7 +39,7 @@ export class World {
   private meditationLight: PointLight | null = null;
   private meditationActive = false;
   private damageNumbers: { mesh: Mesh; startTime: number; startY: number }[] = [];
-  private trailParticles: { mesh: Mesh; age: number; maxAge: number }[] = [];
+  private trailParticles: { mesh: Mesh; age: number; maxAge: number; type?: number; drift?: number }[] = [];
   private trailSpawnAccum = 0;
   private treeInstances: InstancedMesh[] = [];
   private emberParticles: ParticleSystem | null = null;
@@ -54,6 +54,8 @@ export class World {
   private telegraphIndicators = new Map<number, Mesh>();  // A-05: Enemy telegraph ground indicators
   private telegraphMat: StandardMaterial | null = null;  // A-05: Shared telegraph material
   private championPlates = new Map<number, Mesh>();  // A-06: Champion nameplate meshes
+  private foamMeshes: Mesh[] = [];  // A-07: Shoreline foam strip meshes
+  private bossArenaMeshes: Mesh[] = [];  // A-09: All boss arena meshes for visibility toggling
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -515,36 +517,39 @@ export class World {
     const c = C.BOSS_ARENA_CENTER;
     const r = C.BOSS_ARENA_RADIUS;
 
-    // Arena floor — dark volcanic stone disc
+    // A-08: Arena floor — golden Lanka disc
     const floor = MeshBuilder.CreateDisc('bossArenaFloor', { radius: r, tessellation: 32 }, this.scene);
     floor.rotation.x = Math.PI / 2;
     floor.position.set(c.x, 0.05, c.z);
     const floorMat = new StandardMaterial('arenaFloorMat', this.scene);
-    floorMat.diffuseColor = new Color3(0.15, 0.08, 0.06);
-    floorMat.emissiveColor = new Color3(0.04, 0.01, 0.01);
+    floorMat.diffuseColor = new Color3(0.8, 0.65, 0.2);  // golden
+    floorMat.emissiveColor = new Color3(0.15, 0.1, 0.02);  // warm amber glow
     floorMat.specularColor = new Color3(0.1, 0.05, 0.05);
     floor.material = floorMat;
+    this.bossArenaMeshes.push(floor);
 
-    // Raised edge ring (torus)
+    // A-08: Raised edge ring (torus) — golden
     const ring = MeshBuilder.CreateTorus('bossArenaRing', { diameter: r * 2, thickness: 0.8, tessellation: 32 }, this.scene);
     ring.position.set(c.x, 0.3, c.z);
     const ringMat = new StandardMaterial('arenaRingMat', this.scene);
-    ringMat.diffuseColor = new Color3(0.25, 0.12, 0.08);
-    ringMat.emissiveColor = new Color3(0.15, 0.04, 0.02);
+    ringMat.diffuseColor = new Color3(0.75, 0.6, 0.15);  // golden
+    ringMat.emissiveColor = new Color3(0.2, 0.15, 0.03);  // amber glow
     ring.material = ringMat;
+    this.bossArenaMeshes.push(ring);
 
-    // Center platform (raised disc)
+    // A-08: Center platform (raised disc) — golden
     const centerPlat = MeshBuilder.CreateCylinder('bossCenterPlat', { height: 0.4, diameter: 5, tessellation: 16 }, this.scene);
     centerPlat.position.set(c.x, 0.2, c.z);
     const centerMat = new StandardMaterial('centerPlatMat', this.scene);
-    centerMat.diffuseColor = new Color3(0.2, 0.1, 0.08);
+    centerMat.diffuseColor = new Color3(0.8, 0.65, 0.2);
     centerMat.emissiveColor = new Color3(0.1, 0.03, 0.02);
     centerPlat.material = centerMat;
+    this.bossArenaMeshes.push(centerPlat);
 
-    // Arena pillars around the edge (8 pillars)
+    // A-08: Arena pillars around the edge (8 pillars) — golden/amber
     const pillarMat = new StandardMaterial('arenaPillarMat', this.scene);
-    pillarMat.diffuseColor = new Color3(0.3, 0.15, 0.1);
-    pillarMat.emissiveColor = new Color3(0.08, 0.02, 0.01);
+    pillarMat.diffuseColor = new Color3(0.85, 0.7, 0.15);  // gold
+    pillarMat.emissiveColor = new Color3(0.2, 0.15, 0.02);  // amber glow
 
     for (let i = 0; i < 8; i++) {
       const angle = (i / 8) * Math.PI * 2;
@@ -555,17 +560,19 @@ export class World {
       pillar.position.set(px, 3, pz);
       pillar.material = pillarMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pillar);
+      this.bossArenaMeshes.push(pillar);
 
-      // Flame orb atop each pillar
+      // A-08: Crystal orb atop each pillar — bright golden emissive
       const orb = MeshBuilder.CreateSphere(`arenaOrb_${i}`, { diameter: 0.6, segments: 6 }, this.scene);
       orb.position.set(px, 6.5, pz);
       const orbMat = new StandardMaterial(`arenaOrbMat_${i}`, this.scene);
-      orbMat.emissiveColor = new Color3(0.9, 0.3, 0.05);
+      orbMat.emissiveColor = new Color3(1.0, 0.85, 0.4);  // bright golden
       orbMat.disableLighting = true;
       orb.material = orbMat;
+      this.bossArenaMeshes.push(orb);
     }
 
-    // Lava veins (thin glowing lines radiating from center)
+    // A-08: Golden light veins (replace lava veins)
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2;
       const vein = MeshBuilder.CreatePlane(`lavaVein_${i}`, { width: 0.3, height: r * 0.8 }, this.scene);
@@ -573,12 +580,71 @@ export class World {
       vein.rotation.y = angle;
       vein.position.set(c.x + Math.cos(angle) * r * 0.4, 0.07, c.z + Math.sin(angle) * r * 0.4);
       const veinMat = new StandardMaterial(`lavaVeinMat_${i}`, this.scene);
-      veinMat.emissiveColor = new Color3(0.8, 0.2, 0.02);
+      veinMat.emissiveColor = new Color3(1.0, 0.8, 0.2);  // golden light
       veinMat.disableLighting = true;
       veinMat.alpha = 0.6;
       veinMat.backFaceCulling = false;
       vein.material = veinMat;
+      this.bossArenaMeshes.push(vein);
     }
+
+    // A-08: Four tall crystal spire towers around the arena
+    const spireRadius = r + 5;
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2;
+      const px = c.x + Math.cos(angle) * spireRadius;
+      const pz = c.z + Math.sin(angle) * spireRadius;
+
+      const spire = MeshBuilder.CreateCylinder(`arenaSpire_${i}`, {
+        diameterBottom: 1.2,
+        diameterTop: 0.2,
+        height: 12,
+        tessellation: 8
+      }, this.scene);
+      spire.position.set(px, 6, pz);
+      const spireMat = new StandardMaterial(`arenaSpireMat_${i}`, this.scene);
+      spireMat.diffuseColor = new Color3(0.95, 0.85, 0.4);  // translucent gold
+      spireMat.emissiveColor = new Color3(0.9, 0.75, 0.3);  // golden glow
+      spireMat.alpha = 0.7;
+      spire.material = spireMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(spire);
+      this.bossArenaMeshes.push(spire);
+    }
+
+    // A-08: Gate archway at the south side (approach from Ch6)
+    // Two tall pillars with a connecting beam on top
+    const gateLeft = MeshBuilder.CreateCylinder('gateLeftPillar', {
+      height: 8,
+      diameter: 0.6,
+      tessellation: 8
+    }, this.scene);
+    gateLeft.position.set(c.x - 4, 4, c.z - (r + 3));
+    const gateMat = new StandardMaterial('gateMat', this.scene);
+    gateMat.diffuseColor = new Color3(0.8, 0.65, 0.2);
+    gateMat.emissiveColor = new Color3(0.15, 0.1, 0.02);
+    gateLeft.material = gateMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gateLeft);
+    this.bossArenaMeshes.push(gateLeft);
+
+    const gateRight = MeshBuilder.CreateCylinder('gateRightPillar', {
+      height: 8,
+      diameter: 0.6,
+      tessellation: 8
+    }, this.scene);
+    gateRight.position.set(c.x + 4, 4, c.z - (r + 3));
+    gateRight.material = gateMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gateRight);
+    this.bossArenaMeshes.push(gateRight);
+
+    const gateBeam = MeshBuilder.CreateBox('gateBeam', {
+      width: 8,
+      height: 0.5,
+      depth: 0.8
+    }, this.scene);
+    gateBeam.position.set(c.x, 8, c.z - (r + 3));
+    gateBeam.material = gateMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gateBeam);
+    this.bossArenaMeshes.push(gateBeam);
   }
 
   private buildRamSetuBridge(): void {
@@ -1586,9 +1652,19 @@ export class World {
       proj.mesh.position.z += proj.vel.z * dt;
       proj.vel.y -= 20 * 0.15 * dt;
 
-      // Spawn fading trail particle
+      // A-10: Spawn fading trail particle — increase spawn rate for Astra types
       if (spawnTrail && now - proj.spawnTime < 3500) {
-        this.spawnTrailParticle(proj.mesh.position, proj.type);
+        // Astra types: 1 (Agni), 5 (Vayu), 6 (Varuna), 7 (Naga), 8 (Brahma)
+        const isAstra = [1, 5, 6, 7, 8].includes(proj.type);
+        if (isAstra) {
+          // Spawn 2-3 trail particles per frame for denser trails
+          this.spawnTrailParticle(proj.mesh.position, proj.type);
+          if (Math.random() > 0.4) {
+            this.spawnTrailParticle(proj.mesh.position, proj.type);
+          }
+        } else {
+          this.spawnTrailParticle(proj.mesh.position, proj.type);
+        }
       }
 
       if (now - proj.spawnTime > 4000 || proj.mesh.position.y < -1) toRemove.push(id);
@@ -1636,22 +1712,78 @@ export class World {
     if (this.trailParticles.length > 150) return;
 
     const [r, g, b] = this.getTrailColor(type);
-    const size = 0.6; // Larger trail particles
-    const trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
+    let trail: Mesh;
+    let size = 0.6;
+    let maxAge = 0.25 + Math.random() * 0.15;
+    let drift = 0;
+
+    // A-10: Vary shape and behavior by type
+    switch (type) {
+      case 1: {
+        // Agni (FireArrow) — orange ember particles, larger, upward drift, longer life
+        size = 0.8;
+        maxAge = 0.4;
+        drift = 1.5;  // Upward drift
+        trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
+        break;
+      }
+      case 5: {
+        // Vayu — white distortion streaks, elongated planes, shorter life, fast fade
+        trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { width: 0.2, height: 0.8 }, this.scene);
+        maxAge = 0.15;
+        break;
+      }
+      case 6: {
+        // Varuna — blue droplet scatter, smaller, more spread
+        size = 0.3;
+        maxAge = 0.3;
+        trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
+        break;
+      }
+      case 7: {
+        // Naga — green mist trail, larger, very transparent, slow fade, downward drift
+        size = 0.8;
+        maxAge = 0.35;
+        drift = -0.5;  // Downward drift
+        trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
+        break;
+      }
+      case 8: {
+        // Brahma — golden spiral, largest, brightest emissive
+        size = 1.0;
+        maxAge = 0.4;
+        trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
+        break;
+      }
+      default: {
+        trail = MeshBuilder.CreatePlane(`trail_${Math.random()}`, { size }, this.scene);
+        break;
+      }
+    }
+
     trail.position.set(
-      pos.x + (Math.random() - 0.5) * 0.1,
+      pos.x + (Math.random() - 0.5) * (type === 6 ? 0.3 : 0.1),  // More spread for Varuna
       pos.y + (Math.random() - 0.5) * 0.1,
-      pos.z + (Math.random() - 0.5) * 0.1,
+      pos.z + (Math.random() - 0.5) * (type === 6 ? 0.3 : 0.1),
     );
     trail.billboardMode = Mesh.BILLBOARDMODE_ALL;
 
     const mat = new StandardMaterial(`trailMat_${Math.random()}`, this.scene);
     mat.emissiveColor = new Color3(r, g, b);
     mat.disableLighting = true;
-    mat.alpha = 0.7;
+
+    // A-10: Vary alpha by type
+    if (type === 7) {
+      mat.alpha = 0.4;  // Naga — very transparent
+    } else if (type === 5) {
+      mat.alpha = 0.6;  // Vayu — less opaque for distortion effect
+    } else {
+      mat.alpha = 0.7;
+    }
+
     trail.material = mat;
 
-    this.trailParticles.push({ mesh: trail, age: 0, maxAge: 0.25 + Math.random() * 0.15 });
+    this.trailParticles.push({ mesh: trail, age: 0, maxAge, type, drift });
   }
 
   private updateTrailParticles(dt: number): void {
@@ -1664,13 +1796,23 @@ export class World {
         toRemove.push(i);
         continue;
       }
-      // Fade out and shrink
-      const alpha = 0.7 * (1 - life);
+
+      // A-10: Fade out and shrink — adjust alpha based on initial type alpha
+      let initialAlpha = 0.7;
+      if (p.type === 7) initialAlpha = 0.4;  // Naga
+      else if (p.type === 5) initialAlpha = 0.6;  // Vayu
+
+      const alpha = initialAlpha * (1 - life);
       const scale = 1.0 - life * 0.5;
       if (p.mesh.material instanceof StandardMaterial) {
         p.mesh.material.alpha = alpha;
       }
       p.mesh.scaling.setAll(scale);
+
+      // A-10: Apply per-type drift behavior
+      if (p.drift !== undefined && p.drift !== 0) {
+        p.mesh.position.y += p.drift * dt;
+      }
     }
     // Remove expired particles (iterate backward)
     for (let i = toRemove.length - 1; i >= 0; i--) {
@@ -2614,9 +2756,66 @@ export class World {
     const oceanMat = new StandardMaterial(`oceanMat`, this.scene);
     oceanMat.diffuseColor = new Color3(0.05, 0.15, 0.4);
     oceanMat.emissiveColor = new Color3(0.02, 0.08, 0.22);
-    oceanMat.alpha = 0.45;
+    oceanMat.alpha = 0.45;  // Center alpha
     oceanMat.backFaceCulling = false;
     ocean.material = oceanMat;
+
+    // A-07: Add gradient alpha edge — create a second smaller ocean plane on top with higher alpha
+    const oceanDepth = MeshBuilder.CreatePlane(`waterOceanDepth`, { width: 280, height: 180 }, this.scene);
+    oceanDepth.rotation.x = Math.PI / 2;
+    oceanDepth.position.set(-50, 0.045, -550);  // Slightly above
+    const oceanDepthMat = new StandardMaterial(`oceanDepthMat`, this.scene);
+    oceanDepthMat.diffuseColor = new Color3(0.05, 0.15, 0.4);
+    oceanDepthMat.emissiveColor = new Color3(0.02, 0.08, 0.22);
+    oceanDepthMat.alpha = 0.55;  // Higher alpha for depth effect
+    oceanDepthMat.backFaceCulling = false;
+    oceanDepth.material = oceanDepthMat;
+
+    // A-07: Create shoreline foam strip — thin torus around ocean perimeter
+    const foamRing = MeshBuilder.CreateTorus(`foamRing`, {
+      diameter: 320,  // Slightly larger than ocean
+      thickness: 8,
+      tessellation: 64
+    }, this.scene);
+    foamRing.rotation.x = Math.PI / 2;
+    foamRing.position.set(-50, 0.07, -550);  // Slightly above water
+
+    const foamMat = new StandardMaterial(`foamMat`, this.scene);
+    foamMat.diffuseColor = new Color3(1.0, 1.0, 1.0);  // white foam
+    foamMat.emissiveColor = new Color3(1.0, 1.0, 1.0);  // white glow
+    foamMat.alpha = 0.4;
+    foamMat.backFaceCulling = false;
+    foamRing.material = foamMat;
+    this.foamMeshes.push(foamRing);
+
+    // A-07: Create additional foam strips along the coastline (elongated planes)
+    const coastlinePoints = [
+      { x: -50, z: -450 },  // Upper edge
+      { x: 100, z: -550 },  // Right edge
+      { x: -50, z: -650 },  // Lower edge
+      { x: -200, z: -550 }  // Left edge
+    ];
+
+    for (let i = 0; i < coastlinePoints.length; i++) {
+      const p1 = coastlinePoints[i];
+      const p2 = coastlinePoints[(i + 1) % coastlinePoints.length];
+      const midX = (p1.x + p2.x) / 2;
+      const midZ = (p1.z + p2.z) / 2;
+      const dx = p2.x - p1.x;
+      const dz = p2.z - p1.z;
+      const len = Math.sqrt(dx * dx + dz * dz);
+      const angle = Math.atan2(dx, dz);
+
+      const foamStrip = MeshBuilder.CreatePlane(`foamStrip_${i}`, {
+        width: 20,
+        height: len
+      }, this.scene);
+      foamStrip.rotation.x = Math.PI / 2;
+      foamStrip.rotation.y = angle;
+      foamStrip.position.set(midX, 0.07, midZ);
+      foamStrip.material = foamMat;
+      this.foamMeshes.push(foamStrip);
+    }
 
     // Store reference for water animation
     this.oceanMesh = ocean;
@@ -2717,6 +2916,40 @@ export class World {
     }
   }
 
+  // A-09: Update boss arena visibility based on player distance and chapter
+  public updateBossArenaVisibility(playerPos: Vec3, chapter: number): void {
+    const c = C.BOSS_ARENA_CENTER;
+    const dx = playerPos.x - c.x;
+    const dz = playerPos.z - c.z;
+    const distToBossArena = Math.sqrt(dx * dx + dz * dz);
+
+    let targetVisibility = 0;
+
+    if (distToBossArena > 150 || chapter < 5) {
+      // Fully hidden
+      targetVisibility = 0;
+    } else if (distToBossArena >= 100 && distToBossArena <= 150 && chapter >= 5) {
+      // Silhouette only — low alpha
+      targetVisibility = 0.15;
+    } else if (distToBossArena < 100 || chapter >= 7) {
+      // Fully revealed
+      targetVisibility = 1;
+    }
+
+    // Apply visibility to all boss arena meshes
+    for (const mesh of this.bossArenaMeshes) {
+      mesh.visibility = targetVisibility;
+
+      // For silhouette mode, also reduce material alpha
+      if (targetVisibility === 0.15 && mesh.material instanceof StandardMaterial) {
+        mesh.material.alpha = 0.3;
+      } else if (mesh.material instanceof StandardMaterial) {
+        // Restore original alpha for fully visible mode
+        mesh.material.alpha = 1.0;
+      }
+    }
+  }
+
   /**
    * Water animation: gently oscillates river alpha, shifts Y positions for flowing effect,
    * and undulates ocean alpha and Y.
@@ -2754,6 +2987,21 @@ export class World {
       // Subtle Y bob
       const oceanYBob = 0.02;
       this.oceanMesh.position.y = 0.04 + Math.sin(time * 0.3) * oceanYBob;
+    }
+
+    // A-07: Animate foam meshes — oscillate slightly in Y and alpha
+    for (const foam of this.foamMeshes) {
+      const foamMat = foam.material as StandardMaterial;
+
+      // Oscillate alpha to simulate wave foam
+      const foamAlphaCycle = 2.5;
+      const foamAlpha = 0.35 + Math.sin(time / foamAlphaCycle * Math.PI * 2) * 0.1;
+      foamMat.alpha = foamAlpha;
+
+      // Slight Y oscillation
+      const foamYBob = 0.03;
+      const baseY = 0.07 + Math.sin(time * 0.4) * foamYBob;
+      foam.position.y = baseY;
     }
   }
 

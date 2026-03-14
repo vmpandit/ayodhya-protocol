@@ -110,6 +110,7 @@ export const TREE_COUNT = 80;
 export const SPAWN_POINT = { x: 0, y: 1, z: 0 };
 export const BOSS_ARENA_CENTER = { x: 50, y: 0, z: 50 };
 export const BOSS_ARENA_RADIUS = 20;
+export const TUTORIAL_BOUNDARY = 35; // Ch0 player clamped to ±35 around origin
 
 // ── Snap Shot vs Charged Shot ──
 export const SNAP_SHOT_DAMAGE = 12;

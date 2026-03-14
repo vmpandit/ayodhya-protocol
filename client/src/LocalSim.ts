@@ -322,6 +322,7 @@ export class LocalSim {
   public onGoalCompleted: (chapter: number, description: string) => void = () => {};
   public onTutorialStep: (step: string, allComplete: boolean) => void = () => {};
   public onBackstorySlide: (index: number, speaker: string, text: string, isLast: boolean) => void = () => {};
+  public onBackstoryEnd: () => void = () => {};
   public onMapReveal: (cx: number, cz: number, radius: number, chapter: number, note?: string) => void = () => {};
   public onMapWaypoint: (x: number, z: number, type: number, label: string, chapter: number) => void = () => {};
   public onEnemyDroppedMap: (enemyId: number, cx: number, cz: number, radius: number) => void = () => {};
@@ -1136,8 +1137,8 @@ export class LocalSim {
     const now = performance.now();
     this.tick++;
 
-    // Clamp position
-    const hs = C.WORLD_SIZE - 1;
+    // Clamp position — tutorial boundary in Ch0, full world otherwise
+    const hs = this.chapter === 0 ? C.TUTORIAL_BOUNDARY : C.WORLD_SIZE - 1;
     this.player.pos.x = Math.max(-hs, Math.min(hs, this.player.pos.x));
     this.player.pos.z = Math.max(-hs, Math.min(hs, this.player.pos.z));
 
@@ -2229,6 +2230,7 @@ export class LocalSim {
 
   endBackstory(): void {
     this.backstoryInProgress = false;
+    this.onBackstoryEnd(); // Signal Game.ts to hide the overlay and restore controls
     this.chapter = 1;
     this.chapterEnemiesKilled = 0;
     this.spawnChapter1Enemies();

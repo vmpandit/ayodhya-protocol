@@ -59,8 +59,11 @@ export class World {
 
   /** Cached enemy sprite textures with white background removed */
   private enemySpriteTextures = {
-    sprite1: null as Texture | null,  // sprite_enemy.png (odd IDs)
-    sprite2: null as Texture | null,  // sprite_enemy2.png (even IDs)
+    sprite1: null as Texture | null,  // sprite_enemy.png (generic fallback)
+    sprite2: null as Texture | null,  // sprite_enemy2.png (generic fallback)
+    soldier: null as Texture | null,  // sprite_rakshasa_soldier.png
+    archer: null as Texture | null,   // sprite_rakshasa_archer.png
+    brute: null as Texture | null,    // sprite_rakshasa_brute.png
   };
 
   private playerSpriteTexture: Texture | null = null;
@@ -71,6 +74,14 @@ export class World {
 
   /** Cached VFX trail textures for special arrow projectiles */
   private vfxTextures = new Map<string, Texture>();
+
+  /** Wildlife sprite textures */
+  private birdSpriteTexture: Texture | null = null;
+  private deerSpriteTexture: Texture | null = null;
+
+  /** Campfire and torch sprite textures */
+  private campfireSpriteTexture: Texture | null = null;
+  private torchFlameSpriteTexture: Texture | null = null;
 
   /** Map to store enemy types for visual differentiation */
   private enemyTypes = new Map<number, 'soldier' | 'archer' | 'brute'>();
@@ -150,6 +161,27 @@ export class World {
       console.warn('Failed to load sprite_enemy2.png:', err);
       this.enemySpriteTextures.sprite2 = null;
     }
+
+    // Load type-specific Rakshasa sprites
+    for (const type of ['soldier', 'archer', 'brute'] as const) {
+      try {
+        this.enemySpriteTextures[type] = await this.loadAndProcessSprite(`sprite_rakshasa_${type}.png`);
+      } catch (err) {
+        console.warn(`Failed to load sprite_rakshasa_${type}.png:`, err);
+      }
+    }
+
+    // Load wildlife sprites
+    try { this.birdSpriteTexture = await this.loadAndProcessSprite('sprite_bird.png'); }
+    catch { this.birdSpriteTexture = null; }
+    try { this.deerSpriteTexture = await this.loadAndProcessSprite('sprite_deer.png'); }
+    catch { this.deerSpriteTexture = null; }
+
+    // Load campfire and torch sprites
+    try { this.campfireSpriteTexture = await this.loadAndProcessSprite('sprite_campfire.png'); }
+    catch { this.campfireSpriteTexture = null; }
+    try { this.torchFlameSpriteTexture = await this.loadAndProcessSprite('sprite_torch_flame.png'); }
+    catch { this.torchFlameSpriteTexture = null; }
 
     // Load player sprite
     try {
@@ -880,52 +912,36 @@ export class World {
     const n = `e${id}_`;
     const root = new TransformNode(`enemy_${id}`, this.scene);
 
-    // Check if we have sprites loaded and can use billboard rendering
-    const useSprites = this.enemySpriteTextures.sprite1 !== null && this.enemySpriteTextures.sprite2 !== null;
+    // Resolve type-specific sprite: prefer dedicated rakshasa sprite, fall back to generic
+    const enemyType = this.enemyTypes.get(id) || 'soldier';
+    const typedSprite = this.enemySpriteTextures[enemyType];
+    const fallbackSprite = (id % 2 === 1) ? this.enemySpriteTextures.sprite1 : this.enemySpriteTextures.sprite2;
+    const spriteTexture = typedSprite || fallbackSprite;
 
-    if (useSprites) {
+    if (spriteTexture) {
       // ── Billboard sprite approach ──────────────────────────────────
-      // Alternate between sprite_enemy.png (odd IDs) and sprite_enemy2.png (even IDs)
-      const spriteTexture = (id % 2 === 1) ? this.enemySpriteTextures.sprite1 : this.enemySpriteTextures.sprite2;
+      const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
+      billboardPlane.parent = root;
+      billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
 
-      if (spriteTexture) {
-        const billboardPlane = MeshBuilder.CreatePlane(`${n}billboard`, { size: 1 }, this.scene);
-        billboardPlane.parent = root;
-        billboardPlane.billboardMode = Mesh.BILLBOARDMODE_Y;
-
-        // Apply type-specific scaling and positioning
-        const enemyType = this.enemyTypes.get(id);
-        if (enemyType === 'archer') {
-          billboardPlane.scaling.set(1.1, 2.8, 1);
-        } else if (enemyType === 'brute') {
-          billboardPlane.scaling.set(1.8, 2.2, 1);
-        } else {
-          // soldier (default)
-          billboardPlane.scaling.set(1.4, 2.5, 1);
-        }
-
-        billboardPlane.position.y = 1.25; // offset so feet sit at root position
-
-        const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
-        billboardMat.diffuseTexture = spriteTexture;
-        billboardMat.useAlphaFromDiffuseTexture = true;
-
-        // Apply type-specific tints
-        if (enemyType === 'archer') {
-          // Green tint for archer
-          billboardMat.emissiveColor = new Color3(0.15, 0.35, 0.15);
-        } else if (enemyType === 'brute') {
-          // Purple tint for brute
-          billboardMat.emissiveColor = new Color3(0.35, 0.15, 0.35);
-        } else {
-          // Default reddish tint for soldier
-          billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1);
-        }
-
-        billboardMat.specularColor = new Color3(0, 0, 0); // no specular shine
-        billboardMat.backFaceCulling = false;
-        billboardPlane.material = billboardMat;
+      // Type-specific scaling: brutes are wider + shorter, archers are leaner + taller
+      if (enemyType === 'archer') {
+        billboardPlane.scaling.set(1.3, 2.8, 1);
+      } else if (enemyType === 'brute') {
+        billboardPlane.scaling.set(2.0, 2.8, 1);
+      } else {
+        billboardPlane.scaling.set(1.4, 2.5, 1);
       }
+
+      billboardPlane.position.y = 1.25;
+
+      const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
+      billboardMat.diffuseTexture = spriteTexture;
+      billboardMat.useAlphaFromDiffuseTexture = true;
+      billboardMat.emissiveColor = new Color3(0.12, 0.1, 0.08); // subtle self-illumination
+      billboardMat.specularColor = new Color3(0, 0, 0);
+      billboardMat.backFaceCulling = false;
+      billboardPlane.material = billboardMat;
     } else {
       // ── Fallback: primitive mesh system (original) ──────────────────
       // ── Palette — flat-colour PBR for primitive geometry ─────────────
@@ -1191,15 +1207,45 @@ export class World {
         size = 0.3; color = new Color3(1, 1, 1); emissive = new Color3(0.5, 0.5, 0.5);
     }
 
-    // Create procedural glow-based sphere
-    const mesh = MeshBuilder.CreateSphere(`proj_${proj.id}`, { diameter: size * 2, segments: 8 }, this.scene);
-    mesh.position.set(proj.pos.x, proj.pos.y, proj.pos.z);
-    const mat = new PBRMaterial(`projMat_${proj.id}`, this.scene);
-    mat.albedoColor = color;
-    mat.emissiveColor = emissive;
-    mat.metallic = 0.6;
-    mat.roughness = 0.3;
-    mesh.material = mat;
+    // Map projectile types to VFX trail texture keys
+    const vfxTrailMap: Record<number, string> = {
+      [ProjectileType.FireArrow]: 'vfx_agni_trail',
+      5: 'vfx_vayu_trail',   // VayuAstra
+      6: 'vfx_varuna_trail', // VarunaAstra
+      7: 'vfx_naga_trail',   // NagaAstra
+      8: 'vfx_brahma_trail', // BrahmaAstra
+    };
+
+    const vfxKey = vfxTrailMap[proj.type];
+    const vfxTex = vfxKey ? this.vfxTextures.get(vfxKey) : null;
+
+    let mesh: Mesh;
+
+    if (vfxTex) {
+      // Use VFX trail sprite billboard for special arrows
+      mesh = MeshBuilder.CreatePlane(`proj_${proj.id}`, { size: 1 }, this.scene);
+      mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      mesh.scaling.set(size * 3.5, size * 3.5, 1); // VFX trails are bigger than the sphere
+      mesh.position.set(proj.pos.x, proj.pos.y, proj.pos.z);
+      const vfxMat = new StandardMaterial(`projMat_${proj.id}`, this.scene);
+      vfxMat.diffuseTexture = vfxTex;
+      vfxMat.useAlphaFromDiffuseTexture = true;
+      vfxMat.emissiveColor = emissive;
+      vfxMat.specularColor = new Color3(0, 0, 0);
+      vfxMat.backFaceCulling = false;
+      vfxMat.disableLighting = true;
+      mesh.material = vfxMat;
+    } else {
+      // Fallback: procedural glow-based sphere
+      mesh = MeshBuilder.CreateSphere(`proj_${proj.id}`, { diameter: size * 2, segments: 8 }, this.scene);
+      mesh.position.set(proj.pos.x, proj.pos.y, proj.pos.z);
+      const mat = new PBRMaterial(`projMat_${proj.id}`, this.scene);
+      mat.albedoColor = color;
+      mat.emissiveColor = emissive;
+      mat.metallic = 0.6;
+      mat.roughness = 0.3;
+      mesh.material = mat;
+    }
 
     // Add point light to each projectile for glow effect
     const light = new PointLight(`projLight_${proj.id}`, mesh.position.clone(), this.scene);
@@ -2346,11 +2392,25 @@ export class World {
         this.torchLight.range = 18;
       }
       if (!this.torchMesh) {
-        this.torchMesh = MeshBuilder.CreateSphere('torchFlame', { diameter: 0.3, segments: 6 }, this.scene);
-        const mat = new StandardMaterial('torchFlameMat', this.scene);
-        mat.emissiveColor = new Color3(1.0, 0.5, 0.1);
-        mat.disableLighting = true;
-        this.torchMesh.material = mat;
+        if (this.torchFlameSpriteTexture) {
+          this.torchMesh = MeshBuilder.CreatePlane('torchFlame', { size: 1 }, this.scene);
+          this.torchMesh.billboardMode = Mesh.BILLBOARDMODE_Y;
+          this.torchMesh.scaling.set(0.6, 1.2, 1);
+          const mat = new StandardMaterial('torchFlameMat', this.scene);
+          mat.diffuseTexture = this.torchFlameSpriteTexture;
+          mat.useAlphaFromDiffuseTexture = true;
+          mat.emissiveColor = new Color3(1.0, 0.5, 0.1);
+          mat.specularColor = new Color3(0, 0, 0);
+          mat.backFaceCulling = false;
+          mat.disableLighting = true;
+          this.torchMesh.material = mat;
+        } else {
+          this.torchMesh = MeshBuilder.CreateSphere('torchFlame', { diameter: 0.3, segments: 6 }, this.scene);
+          const mat = new StandardMaterial('torchFlameMat', this.scene);
+          mat.emissiveColor = new Color3(1.0, 0.5, 0.1);
+          mat.disableLighting = true;
+          this.torchMesh.material = mat;
+        }
       }
     } else {
       if (this.torchLight) { this.torchLight.dispose(); this.torchLight = null; }
@@ -2376,23 +2436,31 @@ export class World {
     this.campfireLight.intensity = 5.0;
     this.campfireLight.range = 22;
 
-    // Fire visual: stack of glowing spheres
-    this.campfireMesh = MeshBuilder.CreateSphere('campfire', { diameter: 0.5, segments: 6 }, this.scene);
-    this.campfireMesh.position.set(pos.x, pos.y + 0.4, pos.z);
-    const mat = new StandardMaterial('campfireMat', this.scene);
-    mat.emissiveColor = new Color3(1.0, 0.4, 0.05);
-    mat.disableLighting = true;
-    this.campfireMesh.material = mat;
-
-    // Add two smaller flame orbs
-    const flame2 = MeshBuilder.CreateSphere('campflame2', { diameter: 0.3, segments: 6 }, this.scene);
-    flame2.parent = this.campfireMesh;
-    flame2.position.y = 0.4;
-    flame2.material = mat;
-    const flame3 = MeshBuilder.CreateSphere('campflame3', { diameter: 0.2, segments: 6 }, this.scene);
-    flame3.parent = this.campfireMesh;
-    flame3.position.set(0.15, 0.7, 0);
-    flame3.material = mat;
+    // Fire visual: sprite billboard or fallback glowing spheres
+    if (this.campfireSpriteTexture) {
+      this.campfireMesh = MeshBuilder.CreatePlane('campfire', { size: 1 }, this.scene) as Mesh;
+      this.campfireMesh.billboardMode = Mesh.BILLBOARDMODE_Y;
+      this.campfireMesh.scaling.set(2.0, 2.0, 1);
+      this.campfireMesh.position.set(pos.x, pos.y + 1.0, pos.z);
+      const mat = new StandardMaterial('campfireMat', this.scene);
+      mat.diffuseTexture = this.campfireSpriteTexture;
+      mat.useAlphaFromDiffuseTexture = true;
+      mat.emissiveColor = new Color3(0.6, 0.3, 0.05);
+      mat.specularColor = new Color3(0, 0, 0);
+      mat.backFaceCulling = false;
+      this.campfireMesh.material = mat;
+    } else {
+      this.campfireMesh = MeshBuilder.CreateSphere('campfire', { diameter: 0.5, segments: 6 }, this.scene);
+      this.campfireMesh.position.set(pos.x, pos.y + 0.4, pos.z);
+      const mat = new StandardMaterial('campfireMat', this.scene);
+      mat.emissiveColor = new Color3(1.0, 0.4, 0.05);
+      mat.disableLighting = true;
+      this.campfireMesh.material = mat;
+      const flame2 = MeshBuilder.CreateSphere('campflame2', { diameter: 0.3, segments: 6 }, this.scene);
+      flame2.parent = this.campfireMesh; flame2.position.y = 0.4; flame2.material = mat;
+      const flame3 = MeshBuilder.CreateSphere('campflame3', { diameter: 0.2, segments: 6 }, this.scene);
+      flame3.parent = this.campfireMesh; flame3.position.set(0.15, 0.7, 0); flame3.material = mat;
+    }
   }
 
   removeCampfire(): void {
@@ -2456,24 +2524,34 @@ export class World {
   buildWildlife(): void {
     const rng = mulberry32(7777);
 
-    // ── Flying birds: V-shaped wing pairs orbiting in circles ──────
+    // ── Flying birds ──────────────────────────────────────────
     for (let i = 0; i < 8; i++) {
       const root = new TransformNode(`bird_${i}`, this.scene);
-      // Two small triangular wings forming a V
-      const wingL = MeshBuilder.CreatePlane(`birdWingL_${i}`, { width: 0.5, height: 0.2 }, this.scene);
-      wingL.parent = root;
-      wingL.position.x = -0.15;
-      wingL.rotation.z = 0.4;
-      const wingR = MeshBuilder.CreatePlane(`birdWingR_${i}`, { width: 0.5, height: 0.2 }, this.scene);
-      wingR.parent = root;
-      wingR.position.x = 0.15;
-      wingR.rotation.z = -0.4;
-      const birdMat = new StandardMaterial(`birdMat_${i}`, this.scene);
-      birdMat.diffuseColor = new Color3(0.1, 0.08, 0.06);
-      birdMat.emissiveColor = new Color3(0.05, 0.04, 0.03);
-      birdMat.backFaceCulling = false;
-      wingL.material = birdMat;
-      wingR.material = birdMat;
+
+      if (this.birdSpriteTexture) {
+        const bb = MeshBuilder.CreatePlane(`birdBB_${i}`, { size: 1 }, this.scene);
+        bb.parent = root;
+        bb.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        bb.scaling.set(1.8, 1.4, 1); // wider than tall for a bird in flight
+        const mat = new StandardMaterial(`birdBBMat_${i}`, this.scene);
+        mat.diffuseTexture = this.birdSpriteTexture;
+        mat.useAlphaFromDiffuseTexture = true;
+        mat.emissiveColor = new Color3(0.05, 0.04, 0.03);
+        mat.specularColor = new Color3(0, 0, 0);
+        mat.backFaceCulling = false;
+        bb.material = mat;
+      } else {
+        // Fallback: V-shaped wing pair
+        const wingL = MeshBuilder.CreatePlane(`birdWingL_${i}`, { width: 0.5, height: 0.2 }, this.scene);
+        wingL.parent = root; wingL.position.x = -0.15; wingL.rotation.z = 0.4;
+        const wingR = MeshBuilder.CreatePlane(`birdWingR_${i}`, { width: 0.5, height: 0.2 }, this.scene);
+        wingR.parent = root; wingR.position.x = 0.15; wingR.rotation.z = -0.4;
+        const birdMat = new StandardMaterial(`birdMat_${i}`, this.scene);
+        birdMat.diffuseColor = new Color3(0.1, 0.08, 0.06);
+        birdMat.emissiveColor = new Color3(0.05, 0.04, 0.03);
+        birdMat.backFaceCulling = false;
+        wingL.material = birdMat; wingR.material = birdMat;
+      }
 
       const cx = (rng() - 0.5) * 60;
       const cz = -10 - rng() * 50;
@@ -2484,39 +2562,39 @@ export class World {
       this.birds.push({ mesh: root, cx, cz, radius, speed, angle: rng() * Math.PI * 2, baseY });
     }
 
-    // ── Ground animals (deer): box body + cylinder legs + sphere head ──────
+    // ── Ground animals (deer) ─────────────────────────────────
     for (let i = 0; i < 4; i++) {
       const root = new TransformNode(`deer_${i}`, this.scene);
-      const deerMat = new StandardMaterial(`deerMat_${i}`, this.scene);
-      deerMat.diffuseColor = new Color3(0.45, 0.3, 0.15);
-      deerMat.specularColor = new Color3(0, 0, 0);
 
-      // Body
-      const body = MeshBuilder.CreateBox(`deerBody_${i}`, { width: 0.6, height: 0.5, depth: 1.0 }, this.scene);
-      body.parent = root;
-      body.position.y = 0.7;
-      body.material = deerMat;
-
-      // Legs (4 thin cylinders)
-      for (let leg = 0; leg < 4; leg++) {
-        const l = MeshBuilder.CreateCylinder(`deerLeg_${i}_${leg}`, { height: 0.5, diameter: 0.08 }, this.scene);
-        l.parent = root;
-        l.position.set((leg < 2 ? -0.2 : 0.2), 0.25, (leg % 2 === 0 ? -0.35 : 0.35));
-        l.material = deerMat;
+      if (this.deerSpriteTexture) {
+        const bb = MeshBuilder.CreatePlane(`deerBB_${i}`, { size: 1 }, this.scene);
+        bb.parent = root;
+        bb.billboardMode = Mesh.BILLBOARDMODE_Y;
+        bb.scaling.set(1.6, 1.6, 1);
+        bb.position.y = 0.8; // feet on ground
+        const mat = new StandardMaterial(`deerBBMat_${i}`, this.scene);
+        mat.diffuseTexture = this.deerSpriteTexture;
+        mat.useAlphaFromDiffuseTexture = true;
+        mat.emissiveColor = new Color3(0.08, 0.06, 0.03);
+        mat.specularColor = new Color3(0, 0, 0);
+        mat.backFaceCulling = false;
+        bb.material = mat;
+      } else {
+        // Fallback: box body + cylinder legs + sphere head
+        const deerMat = new StandardMaterial(`deerMat_${i}`, this.scene);
+        deerMat.diffuseColor = new Color3(0.45, 0.3, 0.15);
+        deerMat.specularColor = new Color3(0, 0, 0);
+        const body = MeshBuilder.CreateBox(`deerBody_${i}`, { width: 0.6, height: 0.5, depth: 1.0 }, this.scene);
+        body.parent = root; body.position.y = 0.7; body.material = deerMat;
+        for (let leg = 0; leg < 4; leg++) {
+          const l = MeshBuilder.CreateCylinder(`deerLeg_${i}_${leg}`, { height: 0.5, diameter: 0.08 }, this.scene);
+          l.parent = root; l.position.set((leg < 2 ? -0.2 : 0.2), 0.25, (leg % 2 === 0 ? -0.35 : 0.35)); l.material = deerMat;
+        }
+        const head = MeshBuilder.CreateSphere(`deerHead_${i}`, { diameter: 0.3, segments: 6 }, this.scene);
+        head.parent = root; head.position.set(0, 1.0, -0.55); head.material = deerMat;
+        const neck = MeshBuilder.CreateCylinder(`deerNeck_${i}`, { height: 0.4, diameter: 0.1 }, this.scene);
+        neck.parent = root; neck.position.set(0, 0.9, -0.4); neck.rotation.x = -0.5; neck.material = deerMat;
       }
-
-      // Head
-      const head = MeshBuilder.CreateSphere(`deerHead_${i}`, { diameter: 0.3, segments: 6 }, this.scene);
-      head.parent = root;
-      head.position.set(0, 1.0, -0.55);
-      head.material = deerMat;
-
-      // Neck
-      const neck = MeshBuilder.CreateCylinder(`deerNeck_${i}`, { height: 0.4, diameter: 0.1 }, this.scene);
-      neck.parent = root;
-      neck.position.set(0, 0.9, -0.4);
-      neck.rotation.x = -0.5;
-      neck.material = deerMat;
 
       const px = -20 + rng() * 40;
       const pz = -15 - rng() * 30;

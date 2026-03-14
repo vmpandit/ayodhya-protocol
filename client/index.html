@@ -437,10 +437,12 @@
     #backstoryOverlay {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(0,0,0,0.92); z-index: 300;
-      display: none; flex-direction: column; align-items: center; justify-content: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 40px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.8s ease-out;
     }
-    #backstoryOverlay.visible { display: flex; }
+    #backstoryOverlay.visible { opacity: 1; pointer-events: auto; }
     .backstory-speaker {
       color: #d4a017; font-size: 14px; letter-spacing: 4px;
       font-family: 'Rajdhani', monospace; margin-bottom: 20px;
@@ -871,7 +873,7 @@
       <div class="tutorial-step" data-step="specialArrow"><span class="tut-check">○</span> Right Click — Special Arrow</div>
       <div class="tutorial-step" data-step="shockwave"><span class="tut-check">○</span> E — Shockwave</div>
       <div class="tutorial-step" data-step="jump"><span class="tut-check">○</span> Space — Jump</div>
-      <div class="tutorial-step" data-step="meditate"><span class="tut-check">○</span> F — Meditate</div>
+      <div class="tutorial-step" data-step="meditate"><span class="tut-check">○</span> V — Meditate</div>
       <div class="tutorial-step" data-step="talk"><span class="tut-check">○</span> T — Talk to NPC</div>
     </div>
 

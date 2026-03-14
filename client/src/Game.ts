@@ -483,6 +483,10 @@ export class Game {
       this.hud.showBackstorySlide(speaker, text, isLast);
     };
 
+    this.localSim.onBackstoryEnd = () => {
+      this.hud.hideBackstory();
+    };
+
     // ── Map system callbacks ───────────────────────────────────────
     this.localSim.onMapReveal = (cx, cz, radius, chapter, note) => {
       this.mapRenderer.revealLargeArea(cx, cz, radius, chapter, note);

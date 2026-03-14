@@ -283,6 +283,7 @@ export class LocalSim {
     dodge: false,
     sprint: false,
     specialArrow: false,
+    switchAstra: false,
     shockwave: false,
     talk: false,
     meditate: false,
@@ -982,6 +983,11 @@ export class LocalSim {
         this.tutorialSteps.specialArrow = true;
         this.onTutorialStep('specialArrow', this.checkTutorialComplete());
       }
+      // Track when player uses a non-Agni Astra (Vayu, Varuna, or Naga)
+      if ((ability === AbilityType.VayuAstra || ability === AbilityType.VarunaAstra || ability === AbilityType.NagaAstra) && !this.tutorialSteps.switchAstra) {
+        this.tutorialSteps.switchAstra = true;
+        this.onTutorialStep('switchAstra', this.checkTutorialComplete());
+      }
       if (ability === AbilityType.Shockwave && !this.tutorialSteps.shockwave) {
         this.tutorialSteps.shockwave = true;
         this.onTutorialStep('shockwave', this.checkTutorialComplete());
@@ -1668,7 +1674,12 @@ export class LocalSim {
       tick: this.tick, serverTime: now,
       players: [{ ...this.player }],
       projectiles,
-      enemies: this.enemies.map(e => ({ ...e.state })),
+      // A-05: Add telegraphing field, A-06: Add isChampion field
+      enemies: this.enemies.map(e => ({
+        ...e.state,
+        telegraphing: e.telegraphEnd > 0 && now < e.telegraphEnd,
+        isChampion: e.isChampion,
+      })),
       boss: { ...this.boss.state },
     };
   }
@@ -1803,6 +1814,13 @@ export class LocalSim {
         });
       }
     }
+
+    // Soft-intro erratic brute in Ch4
+    const erraticPos: Vec3 = { x: base4.x + 10, y: 0, z: base4.z + 15 };
+    const erraticEnemy = this.createEnemy(erraticPos, C.ENEMY_BRUTE_HP * 0.8, 'brute', false);
+    erraticEnemy.state.aiState = EnemyAIState.Erratic;
+    this.enemies.push(erraticEnemy);
+
     this.midChapterCheckpointSaved = false;
   }
 
@@ -2532,6 +2550,18 @@ export class LocalSim {
         id: 'sugriv', name: 'Sugriv', pos: sugrivPos,
         dialogueTreeId: 'ch3_sugriv', spoken: false,
       });
+
+      // Soft-intro flying archers in Ch3
+      const base3 = this.CHAPTER_POSITIONS[3];
+      const flyPos1: Vec3 = { x: base3.x + 15, y: 0, z: base3.z - 10 };
+      const flyEnemy1 = this.createEnemy(flyPos1, C.ENEMY_ARCHER_HP * 0.7, 'archer', false);
+      flyEnemy1.state.aiState = EnemyAIState.Flying;
+      this.enemies.push(flyEnemy1);
+
+      const flyPos2: Vec3 = { x: base3.x - 12, y: 0, z: base3.z - 15 };
+      const flyEnemy2 = this.createEnemy(flyPos2, C.ENEMY_ARCHER_HP * 0.7, 'archer', false);
+      flyEnemy2.state.aiState = EnemyAIState.Flying;
+      this.enemies.push(flyEnemy2);
     }
     // Chapter 4 → 5 (Angad's Challenge): 5 scouts killed → Hanuman joins
     else if (this.chapter === 4 && this.chapterEnemiesKilled >= 5) {

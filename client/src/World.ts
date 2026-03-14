@@ -50,6 +50,10 @@ export class World {
   private campfireMesh: Mesh | null = null;
   private riverSegments: Mesh[] = [];
   private oceanMesh: Mesh | null = null;
+  private groundMesh: Mesh | null = null;  // A-02: Ground mesh reference for biome changes
+  private telegraphIndicators = new Map<number, Mesh>();  // A-05: Enemy telegraph ground indicators
+  private telegraphMat: StandardMaterial | null = null;  // A-05: Shared telegraph material
+  private championPlates = new Map<number, Mesh>();  // A-06: Champion nameplate meshes
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -96,9 +100,28 @@ export class World {
     this.enemyTypes.set(id, type);
   }
 
+  // A-05: Ensure telegraph material is initialized
+  private ensureTelegraphMat(): StandardMaterial {
+    if (!this.telegraphMat) {
+      this.telegraphMat = new StandardMaterial('telegraphMat', this.scene);
+      this.telegraphMat.diffuseColor = new Color3(0.8, 0.1, 0.05);
+      this.telegraphMat.emissiveColor = new Color3(0.6, 0.05, 0.02);
+      this.telegraphMat.alpha = 0.3;
+      this.telegraphMat.disableLighting = true;
+      this.telegraphMat.backFaceCulling = false;
+    }
+    return this.telegraphMat;
+  }
+
   /** Call before build() to enable textured PBR materials */
   setAssets(assets: LoadedAssets): void {
     this.assets = assets;
+  }
+
+  // A-01: Query terrain height at world position
+  public getTerrainHeight(x: number, z: number): number {
+    const amp = biomeAmplitude(z);
+    return terrainNoise(x, z) * amp;
   }
 
   async build(): Promise<void> {
@@ -288,10 +311,24 @@ export class World {
       width: C.WORLD_SIZE * 1.2,
       height: C.WORLD_SIZE * 1.2,
       subdivisions: 128,  // Increased resolution for larger world
-      updatable: false,
+      updatable: true,  // A-01: Changed to true for vertex displacement
     }, this.scene);
     ground.position.y = 0;
     ground.receiveShadows = true;
+
+    // A-01: Apply heightmap displacement to ground vertices
+    const positions = ground.getVerticesData('position');
+    if (positions) {
+      const newPositions = new Float32Array(positions);
+      for (let i = 0; i < newPositions.length; i += 3) {
+        const wx = newPositions[i];     // x
+        const wz = newPositions[i + 2]; // z
+        const amp = biomeAmplitude(wz);
+        newPositions[i + 1] = terrainNoise(wx, wz) * amp;
+      }
+      ground.updateVerticesData('position', newPositions);
+      ground.createNormals(true);  // Recompute normals
+    }
 
     // PBR ground material
     const groundMat = new PBRMaterial('groundMat', this.scene);
@@ -310,6 +347,9 @@ export class World {
     groundMat.metallic = 0.0;
     groundMat.roughness = 0.95;
     ground.material = groundMat;
+
+    // A-02: Store ground mesh reference for biome color changes
+    this.groundMesh = ground;
 
     // Add scattered ground cover: upright triangular grass blades
     const rng = mulberry32(9999);
@@ -978,6 +1018,69 @@ export class World {
       root.rotation.z = Math.sin(t * bobFreq * 0.5 + state.id) * 0.04;
     } else {
       root.rotation.z = 0;
+    }
+
+    // A-05: Enemy telegraph ground indicators
+    if (state.telegraphing) {
+      if (!this.telegraphIndicators.has(state.id)) {
+        // Create red disc at enemy feet
+        const disc = MeshBuilder.CreateDisc(`telegraph_${state.id}`, { radius: 2.5, tessellation: 16 }, this.scene);
+        disc.rotation.x = Math.PI / 2;  // Lay flat
+        disc.position.y = 0.05;  // Just above ground
+        disc.material = this.ensureTelegraphMat();
+        this.telegraphIndicators.set(state.id, disc);
+      }
+      // Update position
+      const indicator = this.telegraphIndicators.get(state.id);
+      if (indicator) {
+        indicator.position.x = state.pos.x;
+        indicator.position.z = state.pos.z;
+      }
+    } else {
+      // Remove telegraph indicator if not telegraphing
+      const indicator = this.telegraphIndicators.get(state.id);
+      if (indicator) {
+        indicator.dispose();
+        this.telegraphIndicators.delete(state.id);
+      }
+    }
+
+    // A-06: Maya illusion shimmer
+    if (state.isIllusion) {
+      const shimmer = 0.4 + Math.sin(performance.now() * 0.004 * Math.PI) * 0.3;
+      root.getChildMeshes().forEach(m => { m.visibility = shimmer; });
+    } else {
+      root.getChildMeshes().forEach(m => { m.visibility = 1.0; });
+    }
+
+    // A-06: Champion golden nameplate
+    if (state.isChampion && !state.isIllusion) {
+      if (!this.championPlates.has(state.id)) {
+        // Create dynamic texture with "★ CHAMPION" text in gold
+        const plateTexture = new DynamicTexture('championPlate_' + state.id, 128, this.scene);
+        plateTexture.drawText('★ CHAMPION', 32, 20, 'bold 16px Arial', '#FFD700', 'rgba(0,0,0,0)', true, true);
+
+        // Create billboard plane at Y=3.5 above root
+        const plate = MeshBuilder.CreatePlane(`championPlate_${state.id}`, { width: 2.0, height: 0.5 }, this.scene);
+        plate.parent = root;
+        plate.billboardMode = Mesh.BILLBOARDMODE_Y;
+        plate.position.y = 3.5;
+
+        const plateMat = new StandardMaterial(`championPlateMat_${state.id}`, this.scene);
+        plateMat.emissiveTexture = plateTexture;
+        plateMat.diffuseColor = new Color3(1, 0.84, 0);  // Gold
+        plateMat.backFaceCulling = false;
+        plate.material = plateMat;
+
+        this.championPlates.set(state.id, plate);
+      }
+    } else {
+      // Dispose champion nameplate if not champion or if illusion
+      const plate = this.championPlates.get(state.id);
+      if (plate) {
+        plate.dispose();
+        this.championPlates.delete(state.id);
+      }
     }
   }
 
@@ -2801,9 +2904,26 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   setChapterBiome(chapter: number): void {
-    // Get the ground mesh
-    const ground = this.scene.getMeshByName('ground_main');
-    const groundMat = ground?.material as PBRMaterial;
+    // A-02: Use stored groundMesh reference or fall back to scene lookup
+    let groundMat: PBRMaterial | null = null;
+    if (this.groundMesh?.material) {
+      groundMat = this.groundMesh.material as PBRMaterial;
+    } else {
+      const ground = this.scene.getMeshByName('ground_main');
+      if (ground?.material) groundMat = ground.material as PBRMaterial;
+    }
+
+    // A-02: Define biome color palette per chapter
+    const biomeColors: Record<number, [number, number, number]> = {
+      0: [0.15, 0.28, 0.1],   // Ch0-1: lush green
+      1: [0.15, 0.28, 0.1],   // Ch1: lush green
+      2: [0.45, 0.35, 0.2],   // Ch2: arid tan
+      3: [0.35, 0.38, 0.3],   // Ch3: gray-green rock
+      4: [0.6, 0.55, 0.35],   // Ch4: sand
+      5: [0.3, 0.35, 0.4],    // Ch5: ocean blue-gray
+      6: [0.55, 0.42, 0.15],  // Ch6-7: golden-scorched (golden Lanka per lore)
+      7: [0.55, 0.42, 0.15],  // Ch7: golden-scorched
+    };
 
     // Define biome settings per chapter
     const biomes: Record<number, { groundColor: [number, number, number]; fogColor: [number, number, number]; fogDensity: number; sunColor: [number, number, number]; sunIntensity: number }> = {
@@ -2818,9 +2938,11 @@ export class World {
     };
 
     const b = biomes[chapter] ?? biomes[0];
+    const biomeColor = biomeColors[chapter] ?? biomeColors[0];
 
+    // A-02: Apply biome color directly to ground material
     if (groundMat) {
-      groundMat.albedoColor = new Color3(...b.groundColor);
+      groundMat.albedoColor = new Color3(...biomeColor);
     }
 
     this.scene.fogColor = new Color3(...b.fogColor);
@@ -2895,6 +3017,24 @@ export class World {
 }
 
 // ── Seeded RNG for deterministic tree placement ──────────────────────────────
+// A-01: Terrain noise and biome amplitude functions
+function terrainNoise(x: number, z: number): number {
+  const n1 = Math.sin(x * 0.05) * Math.cos(z * 0.05);
+  const n2 = Math.sin(x * 0.13 + 2.7) * Math.cos(z * 0.11 + 1.3) * 0.5;
+  return n1 + n2;
+}
+
+function biomeAmplitude(z: number): number {
+  // Height amplitude varies by chapter zone (z-coordinate)
+  if (z > -50) return 2.5;        // Ch0-1: gentle rolling hills
+  if (z > -150) return 2.0;       // transition
+  if (z > -250) return 3.5;       // Ch2: elevated arid
+  if (z > -380) return 4.5;       // Ch3: highland rocky
+  if (z > -490) return 0.8;       // Ch4: flat sandy shore
+  if (z > -580) return 0.2;       // Ch5: bridge zone flat
+  return 3.5;                      // Ch6-7: volcanic ridges
+}
+
 function mulberry32(a: number): () => number {
   return function () {
     let t = (a += 0x6D2B79F5);

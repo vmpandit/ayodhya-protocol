@@ -136,6 +136,8 @@ export interface EnemyState {
   targetId: number;
   isIllusion?: boolean;  // Maya illusion decoy
   scale?: number;        // Enemy scale multiplier
+  telegraphing?: boolean;  // A-05: True during melee/ranged telegraph
+  isChampion?: boolean;  // A-06: Mini-boss champion variant
 }
 
 // ── Boss state ──

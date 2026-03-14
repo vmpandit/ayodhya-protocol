@@ -17,6 +17,7 @@ import { TextureLoader } from './TextureLoader';
 import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType, AstraCombo, KarmaScore, EncounterPhase } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import { MapRenderer, WaypointType } from './MapRenderer';
+import * as C from '@shared/constants';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -381,6 +382,9 @@ export class Game {
       // Update world biome visuals for this chapter
       this.world.setChapterBiome(chapter);
 
+      // Update per-biome fog and atmosphere (A-03)
+      this.renderer.setBiomeFog(chapter);
+
       // Advance day/night cycle based on chapter
       // Ch0-1: dawn(0.0-0.08), Ch2-3: morning→noon(0.12-0.22), Ch4-5: afternoon→dusk(0.32-0.42), Ch6-7: evening→night(0.55-0.72)
       const chapterTimeMap: Record<number, number> = { 0: 0.02, 1: 0.08, 2: 0.15, 3: 0.22, 4: 0.32, 5: 0.42, 6: 0.55, 7: 0.72 };
@@ -687,6 +691,34 @@ export class Game {
       if (p) {
         this.mapRenderer.updatePlayerPosition(p.pos, p.yaw);
         this.mapRenderer.renderMinimap();
+      }
+    }
+
+    // ── Update compass waypoint arrow ──────────────────────────
+    if (this.localSim && this.frameIndex % 5 === 0) {
+      const p = this.lastSnapshot?.players.find(pl => pl.id === this.localPlayerId);
+      if (p) {
+        // Get next chapter zone
+        const nextChapter = Math.min(this.localSim.chapter + 1, 7);
+        const targetZone = (C.CHAPTER_ZONES as any)[nextChapter] || { x: 600, z: -700 };
+
+        // Calculate direction vector from player to target
+        const dx = targetZone.x - p.pos.x;
+        const dz = targetZone.z - p.pos.z;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+
+        // Calculate absolute angle (atan2 gives angle in standard math convention)
+        const absoluteAngle = Math.atan2(dx, dz);
+
+        // Calculate relative angle (subtract player yaw to get direction relative to player facing)
+        const relativeAngle = absoluteAngle - p.yaw;
+
+        // Normalize to [-π, π]
+        let normalizedAngle = relativeAngle;
+        while (normalizedAngle > Math.PI) normalizedAngle -= 2 * Math.PI;
+        while (normalizedAngle < -Math.PI) normalizedAngle += 2 * Math.PI;
+
+        this.hud.updateCompass(normalizedAngle, distance);
       }
     }
 

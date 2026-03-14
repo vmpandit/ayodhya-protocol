@@ -174,11 +174,11 @@ export const SHOCKWAVE_STRONG_RADIUS = 10;
 export const SHOCKWAVE_STRONG_DAMAGE = 60;
 
 // ── Arrow Economy ──
-export const STARTING_AMMO = 20;
-export const ARROW_DROP_MIN = 3;
+export const STARTING_AMMO = 30;
+export const ARROW_DROP_MIN = 4;
 export const ARROW_DROP_MAX = 7;
 export const BRAHMA_ARROW_COST = 5;
-export const MEDITATION_ARROW_RESTORE = 5;
+export const MEDITATION_ARROW_RESTORE = 10;
 
 // ── Astra Synergy Combo Damage ──
 export const COMBO_STEAM_BURST_DAMAGE = 25;

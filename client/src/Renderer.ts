@@ -42,13 +42,13 @@ export class Renderer {
 
     // Layered exponential fog — near mist + far haze
     this.scene.fogMode    = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.012;
+    this.scene.fogDensity = 0.008;  // A-04: Reduced from 0.012 to 0.008 for better visibility
     this.scene.fogColor   = new Color3(0.22, 0.1, 0.06); // warm ember haze
 
     // ── Camera ──────────────────────────────────────────────────────
     this.camera       = new FreeCamera('camera', new Vector3(0, 8, -12), this.scene);
     this.camera.minZ  = 0.1;
-    this.camera.maxZ  = 280;
+    this.camera.maxZ  = 800;  // A-04: Extended from 280 to 800 for larger world view
     this.camera.fov   = 1.05; // ~60°; PlayerController lerps this per-frame
     this.camera.detachControl();
 
@@ -129,6 +129,23 @@ export class Renderer {
 
     // ── Resize ──────────────────────────────────────────────────────
     window.addEventListener('resize', () => this.engine.resize());
+  }
+
+  // A-03: Set biome fog and atmosphere per chapter
+  setBiomeFog(chapter: number): void {
+    const fogConfigs: Record<number, { color: [number, number, number]; density: number }> = {
+      0: { color: [0.1, 0.18, 0.08], density: 0.012 },
+      1: { color: [0.1, 0.18, 0.08], density: 0.015 },
+      2: { color: [0.3, 0.22, 0.12], density: 0.008 },
+      3: { color: [0.2, 0.22, 0.25], density: 0.01 },
+      4: { color: [0.15, 0.2, 0.28], density: 0.012 },
+      5: { color: [0.18, 0.22, 0.3], density: 0.018 },
+      6: { color: [0.35, 0.2, 0.08], density: 0.014 },
+      7: { color: [0.35, 0.2, 0.08], density: 0.014 },
+    };
+    const cfg = fogConfigs[chapter] ?? fogConfigs[0];
+    this.scene.fogColor = new Color3(cfg.color[0], cfg.color[1], cfg.color[2]);
+    this.scene.fogDensity = cfg.density;
   }
 
   /** Update lighting for day/night cycle. t: 0=dawn, 0.25=noon, 0.5=dusk, 0.75=midnight, 1.0=dawn */

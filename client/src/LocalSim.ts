@@ -5,7 +5,7 @@
 import {
   PlayerInput, PlayerState, PlayerStatus, ProjectileState, ProjectileType,
   EnemyState, EnemyAIState, BossState, BossPhase, Vec3, AbilityType,
-  GameSnapshot, InputFlag, AstraElement, AstraCombo, Difficulty, KarmaScore,
+  GameSnapshot, InputFlag, AstraElement, AstraCombo, Difficulty, KarmaScore, EncounterPhase,
 } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import * as C from '@shared/constants';
@@ -119,6 +119,17 @@ interface WaveState {
   waveStartedAt?: number;
 }
 
+interface Encounter {
+  id: number;
+  phase: EncounterPhase;
+  championId: number;
+  chapter: number;
+  phaseTimer: number;
+  dialogueShown: boolean;
+  midDialogueShown: boolean;
+  defeatDialogueShown: boolean;
+}
+
 export class LocalSim {
   private player: PlayerState;
   private projectiles = new Map<number, LocalProjectile>();
@@ -217,9 +228,6 @@ export class LocalSim {
   public readonly maxMeditationTime = 10;
   public canMeditate = false; // only during rest chapters with no enemies alive
 
-  // Water physics
-  public inWater = false; // Set from Game.ts when player is in water
-
   // Lakshman choice
   public lakshmanChoice: 'pending' | 'accepted' | 'declined' | null = null;
 
@@ -259,6 +267,12 @@ export class LocalSim {
     arrowAmmo: number;
     companions: string[];
   } | null = null;
+
+  // Encounter state machine system
+  private encounters: Encounter[] = [];
+  private activeEncounter: Encounter | null = null;
+  private nextEncounterId = 1;
+  public onEncounterPhaseChange: (phase: EncounterPhase, dialogue?: string) => void = () => {};
 
   // Tutorial system (Chapter 0)
   private tutorialSteps: Record<string, boolean> = {
@@ -339,6 +353,18 @@ export class LocalSim {
     { pos: { x: -35, y: 0, z: -25 }, radius: 2 },
     { pos: { x: 0, y: 0, z: -40 }, radius: 2.5 },
   ];
+
+  // Chapter geographic centers (for environment positioning and encounter triggers)
+  private readonly CHAPTER_POSITIONS: Record<number, { x: number; z: number }> = {
+    0: { x: 0, z: 0 },
+    1: { x: -30, z: -100 },
+    2: { x: -80, z: -200 },
+    3: { x: -150, z: -320 },
+    4: { x: -50, z: -450 },
+    5: { x: 200, z: -550 },
+    6: { x: 450, z: -650 },
+    7: { x: 600, z: -700 },
+  };
 
   // Callbacks
   public onDamage: (targetType: DamageTargetType, targetId: number, damage: number, sourceId: number) => void = () => {};
@@ -582,11 +608,11 @@ export class LocalSim {
       : enemyType === 'brute' ? 3 + Math.random() * 2
       : 10 + Math.random() * 10;
 
-    // Determine if flying (archers Ch4+, 20% chance) or erratic (brutes Ch5+, 30% chance)
+    // Assign special AI states for later chapters
     let initialAI = EnemyAIState.Patrol;
-    if (enemyType === 'archer' && this.chapter >= 4 && Math.random() < 0.2) {
+    if (this.chapter >= 4 && enemyType === 'archer' && Math.random() < 0.3) {
       initialAI = EnemyAIState.Flying;
-    } else if (enemyType === 'brute' && this.chapter >= 5 && Math.random() < 0.3) {
+    } else if (this.chapter >= 5 && enemyType === 'brute' && Math.random() < 0.25) {
       initialAI = EnemyAIState.Erratic;
     }
 
@@ -877,11 +903,6 @@ export class LocalSim {
       if (this.player.stamina < 0) this.player.stamina = 0;
     }
 
-    // Apply water speed debuff
-    if (this.inWater) {
-      speed *= C.WATER_SPEED_DEBUFF;
-    }
-
     // Dodge
     if ((flags & InputFlag.Dodge) && now >= this.dodgeCdEnd && this.player.stamina >= C.DODGE_STAMINA_COST) {
       this.dodgeCdEnd = now + C.DODGE_COOLDOWN_MS;
@@ -1138,6 +1159,129 @@ export class LocalSim {
     }
   }
 
+  /** Update encounter state machine for all active encounters */
+  private updateEncounters(dt: number, now: number): void {
+    // Iterate through all encounters
+    for (const encounter of this.encounters) {
+      if (encounter.phase === EncounterPhase.Dormant) {
+        // Check if player is within 25 units of the champion
+        const champion = this.enemies.find(e => e.state.id === encounter.championId);
+        if (!champion || champion.state.aiState === EnemyAIState.Dead) {
+          // Champion dead before encounter even started — mark defeated
+          encounter.phase = EncounterPhase.Defeated;
+          this.activeEncounter = null;
+          continue;
+        }
+
+        if (dist3(this.player.pos, champion.state.pos) < 25) {
+          // Trigger detection phase
+          encounter.phase = EncounterPhase.Detection;
+          this.activeEncounter = encounter;
+          encounter.phaseTimer = 1.5; // 1.5 second pause
+          // Pause all enemies briefly
+          for (const enemy of this.enemies) {
+            if (enemy.state.aiState !== EnemyAIState.Dead && enemy.state.aiState !== EnemyAIState.Flying) {
+              // Save current state and pause
+              if (!enemy.statusExpiry) enemy.statusExpiry = new Map();
+            }
+          }
+          this.onEncounterPhaseChange(EncounterPhase.Detection);
+        }
+      } else if (encounter.phase === EncounterPhase.Detection) {
+        encounter.phaseTimer -= dt;
+        if (encounter.phaseTimer <= 0) {
+          // Transition to Challenge phase
+          encounter.phase = EncounterPhase.Challenge;
+          encounter.phaseTimer = 3.0; // 3 second dialogue
+          const dialogueText = this.getEncounterDialogue(encounter.chapter, 'challenge');
+          encounter.dialogueShown = true;
+          this.onEncounterPhaseChange(EncounterPhase.Challenge, dialogueText);
+        }
+      } else if (encounter.phase === EncounterPhase.Challenge) {
+        encounter.phaseTimer -= dt;
+        if (encounter.phaseTimer <= 0) {
+          // Transition to Phase 1 — actual combat
+          encounter.phase = EncounterPhase.Phase1;
+          this.onEncounterPhaseChange(EncounterPhase.Phase1);
+        }
+      } else if (encounter.phase === EncounterPhase.Phase1) {
+        const champion = this.enemies.find(e => e.state.id === encounter.championId);
+        if (!champion || champion.state.aiState === EnemyAIState.Dead) {
+          // Champion defeated
+          encounter.phase = EncounterPhase.Defeated;
+          encounter.phaseTimer = 1.0;
+          encounter.defeatDialogueShown = true;
+          const defeatText = this.getEncounterDialogue(encounter.chapter, 'defeat');
+          this.onEncounterPhaseChange(EncounterPhase.Defeated, defeatText);
+          this.activeEncounter = null;
+        } else if (champion.state.hp <= champion.state.maxHp * 0.5 && !encounter.midDialogueShown) {
+          // Champion at 50% HP — trigger mid-fight dialogue
+          encounter.phase = EncounterPhase.MidFightDialog;
+          encounter.phaseTimer = 2.0; // 2 second freeze
+          encounter.midDialogueShown = true;
+          const midText = this.getEncounterDialogue(encounter.chapter, 'midFight');
+          this.onEncounterPhaseChange(EncounterPhase.MidFightDialog, midText);
+        }
+      } else if (encounter.phase === EncounterPhase.MidFightDialog) {
+        encounter.phaseTimer -= dt;
+        if (encounter.phaseTimer <= 0) {
+          // Transition to Phase 2 — hard mode
+          encounter.phase = EncounterPhase.Phase2;
+          const champion = this.enemies.find(e => e.state.id === encounter.championId);
+          if (champion) {
+            // Apply Phase 2 buffs
+            champion.state.scale = (champion.state.scale || 1) * 1.2;
+            // Enrage: increase damage output
+            champion.preferredRange = Math.max(8, champion.preferredRange - 2);
+            // Enable Maya illusions if available
+            if (champion.mayaCooldownEnd === undefined) {
+              champion.mayaCooldownEnd = 0;
+            }
+          }
+          this.onEncounterPhaseChange(EncounterPhase.Phase2);
+        }
+      } else if (encounter.phase === EncounterPhase.Defeated) {
+        encounter.phaseTimer -= dt;
+        if (encounter.phaseTimer <= 0) {
+          // Encounter fully resolved
+          this.encounters = this.encounters.filter(e => e.id !== encounter.id);
+        }
+      }
+    }
+  }
+
+  /** Get encounter dialogue for a specific chapter and dialogue type */
+  private getEncounterDialogue(chapter: number, dialogueType: 'challenge' | 'midFight' | 'defeat'): string {
+    const dialogues: Record<number, Record<string, string>> = {
+      1: {
+        challenge: "You dare enter the Dandaka? Khara's demons will feast on your bones!",
+        midFight: "Impossible! How can a mortal wield the Astras of the gods?!",
+        defeat: "The Dandaka is yours... for now.",
+      },
+      2: {
+        challenge: "The vulture Jatayu fell here. You will join him!",
+        midFight: "The Demon Guard... falls? Ravana will hear of this!",
+        defeat: "Jatayu's honor is avenged.",
+      },
+      4: {
+        challenge: "Fools! Ravana's scouts see all! You shall never cross the sea!",
+        midFight: "You think this is over? MAYA! ILLUSIONS! COME FORTH!",
+        defeat: "The sea path is open.",
+      },
+      5: {
+        challenge: "Even Hanuman's fire could not cleanse Lanka's might!",
+        midFight: "I call upon the dark Astras of Lanka! Face the storm!",
+        defeat: "Lanka's elite have fallen.",
+      },
+    };
+
+    const chapterDialogue = dialogues[chapter];
+    if (chapterDialogue && chapterDialogue[dialogueType]) {
+      return chapterDialogue[dialogueType];
+    }
+    return '';
+  }
+
   /** Expire old status effects on an enemy */
   private tickStatusEffects(enemy: LocalEnemy, now: number): void {
     for (const [element, expiry] of enemy.statusExpiry) {
@@ -1153,12 +1297,10 @@ export class LocalSim {
   private killEnemy(enemy: LocalEnemy): void {
     enemy.state.hp = 0;
     enemy.state.aiState = EnemyAIState.Dead;
-    // Illusions don't count toward kill progress or drop loot
+    // Illusions don't count for progress
     if (enemy.isIllusion) return;
     this.chapterEnemiesKilled++;
     if (enemy.isChampion) this.karma.valor += 5;
-    // Update wave tracking
-    this.updateWaveEnemyCount();
     if (this.chapter === 0 && enemy.originalMaxHp === 30) {
       enemy.respawnTime = performance.now() + 3000;
       this.spawnPickup(enemy.state.pos);
@@ -1169,186 +1311,44 @@ export class LocalSim {
     this.checkChapterProgress();
   }
 
-  // ── Asura Maya Illusion System ────────────────────────────
-  private tryMayaIllusion(enemy: LocalEnemy, now: number): void {
-    if (!enemy.isChampion || enemy.isIllusion) return;
-    if (enemy.state.hp > enemy.state.maxHp * C.MAYA_ILLUSION_HP_THRESHOLD) return;
-    if (now < (enemy.mayaCooldownEnd || 0)) return;
-
-    enemy.mayaCooldownEnd = now + C.MAYA_ILLUSION_COOLDOWN_MS;
+  // ── Maya Illusion Spawning ────────────────────────────
+  private spawnMayaIllusions(source: LocalEnemy, now: number): void {
     const illusionIds: number[] = [];
-
-    // Teleport the real enemy to a random position within 8 units
-    const angle = Math.random() * Math.PI * 2;
-    enemy.state.pos.x += Math.cos(angle) * 8;
-    enemy.state.pos.z += Math.sin(angle) * 8;
-
-    // Spawn illusion copies
     for (let i = 0; i < C.MAYA_ILLUSION_COUNT; i++) {
-      const illusionAngle = Math.random() * Math.PI * 2;
-      const illusionPos: Vec3 = {
-        x: enemy.state.pos.x + Math.cos(illusionAngle) * (4 + Math.random() * 4),
-        y: 0,
-        z: enemy.state.pos.z + Math.sin(illusionAngle) * (4 + Math.random() * 4),
+      const angle = (Math.PI * 2 * i) / C.MAYA_ILLUSION_COUNT + Math.random() * 0.5;
+      const offset = 4 + Math.random() * 3;
+      const pos: Vec3 = {
+        x: source.state.pos.x + Math.cos(angle) * offset,
+        y: source.state.pos.y,
+        z: source.state.pos.z + Math.sin(angle) * offset,
       };
-      const illusionHp = enemy.state.maxHp * C.MAYA_ILLUSION_HP_FRACTION;
-      const illusion = this.createEnemy(illusionPos, illusionHp, enemy.enemyType, false);
+      const illusionHp = source.state.maxHp * C.MAYA_ILLUSION_HP_FRACTION;
+      const illusion = this.createEnemy(pos, illusionHp / (this.diffHpMult * (source.state.scale! * source.state.scale!)), source.enemyType, false);
+      // Override to mark as illusion
       illusion.isIllusion = true;
-      illusion.illusionSourceId = enemy.state.id;
+      illusion.illusionSourceId = source.state.id;
       illusion.state.isIllusion = true;
+      illusion.state.hp = illusionHp;
+      illusion.state.maxHp = illusionHp;
+      illusion.state.scale = source.state.scale;
       illusion.state.aiState = EnemyAIState.Chase;
       illusion.state.targetId = 1;
-      // Illusions expire after duration
-      illusion.respawnTime = now + C.MAYA_ILLUSION_DURATION_MS; // reuse as expiry timer
       this.enemies.push(illusion);
       illusionIds.push(illusion.state.id);
     }
-    this.onMayaIllusionCreated(enemy.state.id, illusionIds);
-  }
-
-  /** Expire illusions that have outlived their duration */
-  private expireIllusions(now: number): void {
-    for (const enemy of this.enemies) {
-      if (enemy.isIllusion && enemy.state.aiState !== EnemyAIState.Dead) {
-        if (enemy.respawnTime && now >= enemy.respawnTime) {
-          enemy.state.hp = 0;
-          enemy.state.aiState = EnemyAIState.Dead;
+    // Set cooldown
+    source.mayaCooldownEnd = now + C.MAYA_ILLUSION_COOLDOWN_MS;
+    // Auto-expire illusions after duration
+    setTimeout(() => {
+      for (const id of illusionIds) {
+        const ill = this.enemies.find(e => e.state.id === id);
+        if (ill && ill.state.aiState !== EnemyAIState.Dead) {
+          ill.state.hp = 0;
+          ill.state.aiState = EnemyAIState.Dead;
         }
       }
-    }
-  }
-
-  // ── Wave-Based Spawn System ───────────────────────────────
-  private updateWaveEnemyCount(): void {
-    for (const [chapter, wave] of this.waveStates) {
-      if (wave.waveComplete) continue;
-      const alive = this.enemies.filter(e =>
-        e.state.aiState !== EnemyAIState.Dead && !e.isIllusion
-      ).length;
-      wave.enemiesRemaining = alive;
-      if (alive === 0 && !wave.waveComplete) {
-        wave.waveComplete = true;
-        this.tryNextWave(chapter);
-      }
-    }
-  }
-
-  private tryNextWave(chapter: number): void {
-    const wave = this.waveStates.get(chapter);
-    if (!wave) return;
-    if (wave.currentWave >= 3) return; // Max 3 waves
-
-    wave.currentWave++;
-    wave.waveComplete = false;
-    wave.waveStartedAt = performance.now();
-    this.onWaveAnnouncement(wave.currentWave, 3);
-
-    // Spawn next wave after 3-second delay
-    setTimeout(() => {
-      this.spawnWaveEnemies(chapter, wave.currentWave);
-    }, 3000);
-  }
-
-  private spawnWaveEnemies(chapter: number, waveNum: number): void {
-    const baseX = chapter >= 5 ? 50 : (chapter >= 3 ? -30 : 0);
-    const baseZ = chapter >= 5 ? -40 : (chapter >= 3 ? -60 : -40);
-
-    let count: number;
-    let champCount: number;
-    if (waveNum === 1) { count = 3 + Math.floor(Math.random() * 2); champCount = 0; }
-    else if (waveNum === 2) { count = 4 + Math.floor(Math.random() * 2); champCount = 1; }
-    else { count = 5 + Math.floor(Math.random() * 2); champCount = 2; }
-
-    const types: Array<'soldier' | 'archer' | 'brute'> = ['soldier', 'archer', 'brute'];
-    for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 / count) * i;
-      const r = 8 + Math.random() * 10;
-      const pos: Vec3 = { x: baseX + Math.cos(angle) * r, y: 0, z: baseZ + Math.sin(angle) * r };
-      const type = types[Math.floor(Math.random() * types.length)];
-      const hp = type === 'archer' ? C.ENEMY_ARCHER_HP : type === 'brute' ? C.ENEMY_BRUTE_HP : C.ENEMY_HP;
-      const isChamp = i >= count - champCount;
-      const enemy = this.createEnemy(pos, hp, type, isChamp);
-      this.enemies.push(enemy);
-      if (isChamp) this.onChampionSpawned(enemy.state.id);
-    }
-
-    const wave = this.waveStates.get(chapter);
-    if (wave) wave.enemiesRemaining = count;
-  }
-
-  // ── Checkpoint System ─────────────────────────────────────
-  saveCheckpoint(): void {
-    this.lastCheckpointData = {
-      chapter: this.chapter,
-      playerHp: this.player.hp,
-      playerPos: { ...this.player.pos },
-      karma: { ...this.karma },
-      arrowAmmo: this.arrowAmmo,
-      companions: this.companions.map(c => c.id),
-    };
-    try {
-      localStorage.setItem(C.CHECKPOINT_SAVE_KEY, JSON.stringify(this.lastCheckpointData));
-    } catch { /* storage unavailable */ }
-  }
-
-  loadCheckpoint(): boolean {
-    try {
-      const data = localStorage.getItem(C.CHECKPOINT_SAVE_KEY);
-      if (!data) return false;
-      const cp = JSON.parse(data);
-      if (cp && typeof cp.chapter === 'number') {
-        this.lastCheckpointData = cp;
-        return true;
-      }
-    } catch { /* ignore */ }
-    return false;
-  }
-
-  respawnAtCheckpoint(): void {
-    if (!this.lastCheckpointData) return;
-    const cp = this.lastCheckpointData;
-    this.player.hp = Math.max(cp.playerHp, 50); // At least 50 HP on respawn
-    this.player.pos = { ...cp.playerPos };
-    this.player.vel = { x: 0, y: 0, z: 0 };
-    this.player.status = PlayerStatus.Alive;
-    this.arrowAmmo = Math.max(cp.arrowAmmo, C.STARTING_AMMO);
-    this.karma = { ...cp.karma };
-  }
-
-  // ── Investigation Point System ────────────────────────────
-  private setupInvestigationPoints(chapter: number): void {
-    if (chapter === 3) {
-      this.investigationPoints.push(
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: -50, y: 0, z: -60 }, chapter: 3, clueText: "Scratch marks on the bark... Vali's rage left these scars. Brutes charge blindly — dodge sideways.", investigated: false },
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: -40, y: 0, z: -70 }, chapter: 3, clueText: "Broken arrows with Agni tips litter the ground. The champion here resists fire — use Varuna or Naga Astra instead.", investigated: false },
-      );
-    } else if (chapter === 5) {
-      this.investigationPoints.push(
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: 40, y: 0, z: -50 }, chapter: 5, clueText: "Tracks in three sizes... they fight in coordinated packs. Separate the archers first.", investigated: false },
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: 55, y: 0, z: -55 }, chapter: 5, clueText: "Empty vials of Maya potion. The champion here creates illusions — find the one that takes more damage.", investigated: false },
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: 65, y: 0, z: -40 }, chapter: 5, clueText: "A prayer scroll to Lord Shiva. Even demons have devotion. The Brahmastra's divine energy cuts through all illusions.", investigated: false },
-      );
-    } else if (chapter === 7) {
-      this.investigationPoints.push(
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: 35, y: 0, z: 40 }, chapter: 7, clueText: "Mandodari's tears stain this letter: 'The Amrita in his navel sustains all ten heads. Only Brahma's weapon can end it.'", investigated: false },
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: 45, y: 0, z: 35 }, chapter: 7, clueText: "Vibhishana's map shows Ravana's patterns: he charges after AoE, then stands still — that's your Brahmastra window.", investigated: false },
-        { id: `inv_${this.nextInvestigationId++}`, pos: { x: 55, y: 0, z: 45 }, chapter: 7, clueText: "The head turrets fire in sequence. Destroy them to halve Ravana's ranged pressure in Phase 2.", investigated: false },
-      );
-    }
-  }
-
-  tryInvestigate(playerPos: Vec3): boolean {
-    for (const point of this.investigationPoints) {
-      if (point.investigated) continue;
-      if (point.chapter !== this.chapter) continue;
-      if (dist3(playerPos, point.pos) <= C.INVESTIGATION_POINT_INTERACT_DISTANCE) {
-        point.investigated = true;
-        this.onInvestigationTriggered(point.clueText);
-        this.karma.devotion += C.KARMA_DEVOTION_DIALOGUE;
-        return true;
-      }
-    }
-    return false;
+    }, C.MAYA_ILLUSION_DURATION_MS);
+    this.onMayaIllusionCreated(source.state.id, illusionIds);
   }
 
   // ── Stamina-Tiered Shockwave ────────────────────────────
@@ -1649,6 +1649,9 @@ export class LocalSim {
     }
     this.healthPickups = this.healthPickups.filter(h => !healthPickupsToRemove.includes(h.id));
 
+    // Update encounter state machine
+    this.updateEncounters(dt, now);
+
     // Update boss
     this.updateBoss(dt, now);
 
@@ -1751,18 +1754,20 @@ export class LocalSim {
     this.chapter = 4;
     this.chapterEnemiesKilled = 0;
     this.canMeditate = false;
+    this.encounters = [];
     this.onChapterChange(4, "The March to the Sea",
       "With Sugriv's Vanara armies at your command, the march south begins. Jambavan the immortal bear-king and Sampati the wingless vulture await — ancient witnesses who carry wisdom no warrior can. But Ravana's demon scouts infest the path...");
 
     // Spawn Jambavan as story NPC in Chapter 4
-    const jambPos: Vec3 = { x: -40, y: 0, z: -95 };
+    const base4 = this.CHAPTER_POSITIONS[4];
+    const jambPos: Vec3 = { x: base4.x - 40, y: 0, z: base4.z - 95 };
     this.addStoryNPC({
       id: 'jambavan', name: 'Jambavan', pos: jambPos,
       dialogueTreeId: 'ch4_jambavan', spoken: false,
     });
 
     // Spawn Sampati as story NPC in Chapter 4
-    const sampatiPos: Vec3 = { x: 15, y: 0, z: -105 };
+    const sampatiPos: Vec3 = { x: base4.x + 15, y: 0, z: base4.z - 105 };
     this.addStoryNPC({
       id: 'sampati', name: 'Sampati', pos: sampatiPos,
       dialogueTreeId: 'ch4_sampati', spoken: false,
@@ -1772,14 +1777,31 @@ export class LocalSim {
 
     // Spawn 5 demon scouts in shore area (Encounter: Siege-style)
     const ch4Positions: Vec3[] = [
-      { x: -30, y: 0, z: -85 }, { x: 20, y: 0, z: -90 },
-      { x: 0, y: 0, z: -100 }, { x: -45, y: 0, z: -75 },
-      { x: 35, y: 0, z: -80 },
+      { x: base4.x - 30, y: 0, z: base4.z - 85 },
+      { x: base4.x + 20, y: 0, z: base4.z - 90 },
+      { x: base4.x, y: 0, z: base4.z - 100 },
+      { x: base4.x - 45, y: 0, z: base4.z - 75 },
+      { x: base4.x + 35, y: 0, z: base4.z - 80 },
     ];
     const ch4Types: Array<'soldier' | 'archer' | 'brute'> = ['soldier', 'archer', 'brute', 'soldier', 'archer'];
     const ch4Hps = [70, C.ENEMY_ARCHER_HP, C.ENEMY_BRUTE_HP, 70, C.ENEMY_ARCHER_HP];
     for (let i = 0; i < ch4Positions.length; i++) {
-      this.enemies.push(this.createEnemy(ch4Positions[i], ch4Hps[i], ch4Types[i]));
+      const isChamp = (i === ch4Positions.length - 1);
+      const enemy = this.createEnemy(ch4Positions[i], ch4Hps[i], ch4Types[i], isChamp);
+      this.enemies.push(enemy);
+      if (isChamp) {
+        this.onChampionSpawned(enemy.state.id);
+        this.encounters.push({
+          id: this.nextEncounterId++,
+          phase: EncounterPhase.Dormant,
+          championId: enemy.state.id,
+          chapter: 4,
+          phaseTimer: 0,
+          dialogueShown: false,
+          midDialogueShown: false,
+          defeatDialogueShown: false,
+        });
+      }
     }
     this.midChapterCheckpointSaved = false;
   }
@@ -1804,117 +1826,169 @@ export class LocalSim {
   }
 
   private updateEnemies(dt: number, now: number): void {
-    // Expire old illusions
-    this.expireIllusions(now);
-
     for (const enemy of this.enemies) {
       if (enemy.state.aiState === EnemyAIState.Dead) continue;
       // Tick status effects (expire old elements, expire slow)
       this.tickStatusEffects(enemy, now);
       const nearestDist = dist3(enemy.state.pos, this.player.pos);
       // Apply slow factor to effective dt for this enemy
-      // Scale affects speed: larger = slower, smaller = faster
-      const scaleSpeedMult = enemy.scale ? (1 / enemy.scale * 0.8 + 0.2) : 1.0;
       const eDt = dt * enemy.slowFactor;
-
-      // Maya illusion check for champions
-      this.tryMayaIllusion(enemy, now);
 
       // Update behavior timer
       enemy.behaviorTimer -= eDt;
 
+      // ── Maya Illusion Check (Phase 2 champions) ──
+      if (enemy.isChampion && enemy.mayaCooldownEnd !== undefined
+        && enemy.state.hp > 0
+        && enemy.state.hp <= enemy.state.maxHp * C.MAYA_ILLUSION_HP_THRESHOLD
+        && now >= enemy.mayaCooldownEnd) {
+        this.spawnMayaIllusions(enemy, now);
+      }
+
       // ── Flying Enemy AI ──
       if (enemy.state.aiState === EnemyAIState.Flying) {
-        // Bob sinusoidally in the air
-        enemy.flyingBobOffset = (enemy.flyingBobOffset || 0) + dt * C.FLYING_ENEMY_BOB_SPEED;
-        const bobY = C.FLYING_ENEMY_HEIGHT_MIN +
-          (C.FLYING_ENEMY_HEIGHT_MAX - C.FLYING_ENEMY_HEIGHT_MIN) * 0.5 +
-          Math.sin(enemy.flyingBobOffset) * C.FLYING_ENEMY_BOB_AMPLITUDE;
-        enemy.state.pos.y = bobY;
+        // Initialize flying offset
+        if (enemy.flyingBobOffset === undefined) enemy.flyingBobOffset = Math.random() * Math.PI * 2;
 
-        // Circle around player
-        const circleAngle = enemy.patrolAngle + dt * 0.8 * enemy.strafeDir;
-        enemy.patrolAngle = circleAngle;
-        const targetX = this.player.pos.x + Math.cos(circleAngle) * C.FLYING_ENEMY_CIRCLE_RADIUS;
-        const targetZ = this.player.pos.z + Math.sin(circleAngle) * C.FLYING_ENEMY_CIRCLE_RADIUS;
+        // Sinusoidal vertical bob
+        enemy.flyingBobOffset += C.FLYING_ENEMY_BOB_SPEED * dt;
+        const targetY = C.FLYING_ENEMY_HEIGHT_MIN
+          + (C.FLYING_ENEMY_HEIGHT_MAX - C.FLYING_ENEMY_HEIGHT_MIN) * 0.5
+          + Math.sin(enemy.flyingBobOffset) * C.FLYING_ENEMY_BOB_AMPLITUDE;
+        enemy.state.pos.y += (targetY - enemy.state.pos.y) * 3 * dt;
 
-        const fdx = targetX - enemy.state.pos.x;
-        const fdz = targetZ - enemy.state.pos.z;
-        const fl = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
-        const flySpeed = C.ENEMY_ARCHER_CHASE_SPEED * scaleSpeedMult;
-        enemy.state.pos.x += (fdx / fl) * flySpeed * dt;
-        enemy.state.pos.z += (fdz / fl) * flySpeed * dt;
-        enemy.state.yaw = Math.atan2(this.player.pos.x - enemy.state.pos.x, this.player.pos.z - enemy.state.pos.z);
+        // Circle-strafe around player
+        if (this.player.status === PlayerStatus.Alive && nearestDist < C.ENEMY_DEAGGRO_RANGE) {
+          enemy.state.targetId = 1;
+          const dx = this.player.pos.x - enemy.state.pos.x;
+          const dz = this.player.pos.z - enemy.state.pos.z;
+          const d = Math.sqrt(dx * dx + dz * dz) || 1;
+          enemy.state.yaw = Math.atan2(dx, dz);
 
-        // Ranged attack while flying
-        if (now >= enemy.rangedCdEnd) {
-          const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
-          this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
-          enemy.rangedCdEnd = now + C.ENEMY_ARCHER_RANGED_COOLDOWN_MS;
-        }
+          // Perpendicular orbit at FLYING_ENEMY_CIRCLE_RADIUS
+          const perpX = -dz / d * enemy.strafeDir;
+          const perpZ = dx / d * enemy.strafeDir;
 
-        // Deaggro
-        if (this.player.status !== PlayerStatus.Alive || nearestDist > C.ENEMY_DEAGGRO_RANGE * 1.5) {
+          let chaseSpeed = C.ENEMY_CHASE_SPEED;
+          if (enemy.enemyType === 'archer') chaseSpeed = C.ENEMY_ARCHER_CHASE_SPEED;
+
+          // Orbit movement
+          enemy.state.pos.x += perpX * chaseSpeed * 0.7 * dt;
+          enemy.state.pos.z += perpZ * chaseSpeed * 0.7 * dt;
+
+          // Adjust distance toward preferred circle radius
+          if (d < C.FLYING_ENEMY_CIRCLE_RADIUS - 2) {
+            enemy.state.pos.x -= (dx / d) * chaseSpeed * 0.4 * dt;
+            enemy.state.pos.z -= (dz / d) * chaseSpeed * 0.4 * dt;
+          } else if (d > C.FLYING_ENEMY_CIRCLE_RADIUS + 2) {
+            enemy.state.pos.x += (dx / d) * chaseSpeed * 0.4 * dt;
+            enemy.state.pos.z += (dz / d) * chaseSpeed * 0.4 * dt;
+          }
+
+          // Ranged attack from the air
+          let rangedRange = C.ENEMY_RANGED_RANGE;
+          let rangedCooldown = C.ENEMY_RANGED_COOLDOWN_MS;
+          if (enemy.enemyType === 'archer') {
+            rangedRange = C.ENEMY_ARCHER_RANGED_RANGE;
+            rangedCooldown = C.ENEMY_ARCHER_RANGED_COOLDOWN_MS;
+          }
+          if (d <= rangedRange && now >= enemy.rangedCdEnd) {
+            const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
+            dir.y += 0.05; // slight arc from above
+            this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
+            enemy.rangedCdEnd = now + rangedCooldown;
+          }
+        } else {
+          // Deaggro → patrol (drop to ground)
           enemy.state.aiState = EnemyAIState.Patrol;
-          enemy.state.pos.y = 0;
+          enemy.state.targetId = 0;
         }
-        continue;
+        continue; // Skip standard ground AI
       }
 
       // ── Erratic Enemy AI ──
       if (enemy.state.aiState === EnemyAIState.Erratic) {
-        // Check if in charge recovery
-        if (enemy.erraticRecoveryEnd && now < enemy.erraticRecoveryEnd) {
-          // Standing still during recovery
-          continue;
-        }
+        // Initialize erratic fields
+        if (enemy.erraticDirectionChangeTimer === undefined) enemy.erraticDirectionChangeTimer = 0;
+        if (enemy.erraticChargeEnd === undefined) enemy.erraticChargeEnd = 0;
+        if (enemy.erraticRecoveryEnd === undefined) enemy.erraticRecoveryEnd = 0;
 
-        // Check if currently charging
-        if (enemy.erraticChargeEnd && now < enemy.erraticChargeEnd && enemy.erraticChargeTarget) {
-          const ct = enemy.erraticChargeTarget;
-          const cdx = ct.x - enemy.state.pos.x;
-          const cdz = ct.z - enemy.state.pos.z;
-          const cl = Math.sqrt(cdx * cdx + cdz * cdz) || 1;
-          const chargeSpeed = C.ENEMY_BRUTE_CHASE_SPEED * C.ERRATIC_ENEMY_CHARGE_SPEED_MULTIPLIER * scaleSpeedMult;
-          enemy.state.pos.x += (cdx / cl) * chargeSpeed * dt;
-          enemy.state.pos.z += (cdz / cl) * chargeSpeed * dt;
-          this.pushOutOfObstacles(enemy.state.pos);
-
-          // Melee hit during charge
-          if (nearestDist <= C.ENEMY_BRUTE_MELEE_RANGE * 1.5 && !this.player.isDodging) {
-            const dmg = C.ENEMY_BRUTE_MELEE_DAMAGE * this.diffDmgMult * (enemy.isChampion ? C.CHAMPION_DAMAGE_MULTIPLIER : 1);
-            this.damagePlayer(dmg, 200 + enemy.state.id);
-            enemy.erraticChargeEnd = now; // End charge on hit
-            enemy.erraticRecoveryEnd = now + C.ERRATIC_ENEMY_CHARGE_RECOVERY * 1000;
-          }
-          continue;
-        }
-
-        // Random direction changes
-        enemy.erraticDirectionChangeTimer = (enemy.erraticDirectionChangeTimer || 0) - dt;
-        if (enemy.erraticDirectionChangeTimer <= 0) {
-          // Random movement
-          const randAngle = Math.random() * Math.PI * 2;
-          const bruteSpeed = C.ENEMY_BRUTE_CHASE_SPEED * scaleSpeedMult;
-          enemy.state.pos.x += Math.cos(randAngle) * bruteSpeed * dt * 3;
-          enemy.state.pos.z += Math.sin(randAngle) * bruteSpeed * dt * 3;
-          enemy.state.yaw = randAngle;
-          enemy.erraticDirectionChangeTimer = C.ERRATIC_ENEMY_DIRECTION_CHANGE_MIN +
-            Math.random() * (C.ERRATIC_ENEMY_DIRECTION_CHANGE_MAX - C.ERRATIC_ENEMY_DIRECTION_CHANGE_MIN);
-
-          // Occasionally trigger charge attack (20% chance per direction change)
-          if (Math.random() < 0.2 && nearestDist < 20) {
-            enemy.erraticChargeTarget = { ...this.player.pos };
-            enemy.erraticChargeEnd = now + C.ERRATIC_ENEMY_CHARGE_DURATION * 1000;
-          }
-        }
-
-        this.pushOutOfObstacles(enemy.state.pos);
-        // Deaggro
         if (this.player.status !== PlayerStatus.Alive || nearestDist > C.ENEMY_DEAGGRO_RANGE) {
           enemy.state.aiState = EnemyAIState.Patrol;
+          enemy.state.targetId = 0;
+          continue;
         }
-        continue;
+        enemy.state.targetId = 1;
+
+        const dx = this.player.pos.x - enemy.state.pos.x;
+        const dz = this.player.pos.z - enemy.state.pos.z;
+        const d = Math.sqrt(dx * dx + dz * dz) || 1;
+        enemy.state.yaw = Math.atan2(dx, dz);
+
+        let chaseSpeed = C.ENEMY_CHASE_SPEED;
+        if (enemy.enemyType === 'brute') chaseSpeed = C.ENEMY_BRUTE_CHASE_SPEED;
+
+        // Recovery period after charge — stand still, vulnerable
+        if (now < enemy.erraticRecoveryEnd) {
+          // Do nothing — stunned from charge
+        }
+        // Active charge — rush in a straight line at 3x speed
+        else if (now < enemy.erraticChargeEnd) {
+          if (enemy.erraticChargeTarget) {
+            const cdx = enemy.erraticChargeTarget.x - enemy.state.pos.x;
+            const cdz = enemy.erraticChargeTarget.z - enemy.state.pos.z;
+            const cd = Math.sqrt(cdx * cdx + cdz * cdz) || 1;
+            const chargeSpd = chaseSpeed * C.ERRATIC_ENEMY_CHARGE_SPEED_MULTIPLIER;
+            enemy.state.pos.x += (cdx / cd) * chargeSpd * dt;
+            enemy.state.pos.z += (cdz / cd) * chargeSpd * dt;
+            this.pushOutOfObstacles(enemy.state.pos);
+
+            // Melee hit during charge
+            if (nearestDist <= C.ENEMY_MELEE_RANGE * 1.5 && !this.player.isDodging) {
+              let dmg = (enemy.enemyType === 'brute' ? C.ENEMY_BRUTE_MELEE_DAMAGE : C.ENEMY_MELEE_DAMAGE) * this.diffDmgMult;
+              if (enemy.isChampion) dmg *= C.CHAMPION_DAMAGE_MULTIPLIER;
+              this.damagePlayer(dmg, 200 + enemy.state.id);
+              this.onDamageDirection(enemy.state.pos);
+              // End charge on hit
+              enemy.erraticChargeEnd = 0;
+              enemy.erraticRecoveryEnd = now + C.ERRATIC_ENEMY_CHARGE_RECOVERY * 1000;
+            }
+          }
+        }
+        // Random movement with sudden direction changes + initiate charges
+        else {
+          enemy.erraticDirectionChangeTimer -= dt;
+
+          if (enemy.erraticDirectionChangeTimer <= 0) {
+            // Random new direction offset
+            enemy.strafeDir = Math.random() > 0.5 ? 1 : -1;
+            const changeInterval = C.ERRATIC_ENEMY_DIRECTION_CHANGE_MIN
+              + Math.random() * (C.ERRATIC_ENEMY_DIRECTION_CHANGE_MAX - C.ERRATIC_ENEMY_DIRECTION_CHANGE_MIN);
+            enemy.erraticDirectionChangeTimer = changeInterval;
+
+            // 25% chance to initiate a charge if close enough
+            if (d < 20 && Math.random() < 0.25) {
+              enemy.erraticChargeEnd = now + C.ERRATIC_ENEMY_CHARGE_DURATION * 1000;
+              enemy.erraticChargeTarget = { x: this.player.pos.x, y: 0, z: this.player.pos.z };
+              continue;
+            }
+          }
+
+          // Erratic zigzag movement toward player
+          const zigzagAngle = Math.atan2(dx, dz) + (Math.PI / 6) * enemy.strafeDir;
+          enemy.state.pos.x += Math.sin(zigzagAngle) * chaseSpeed * 1.2 * dt;
+          enemy.state.pos.z += Math.cos(zigzagAngle) * chaseSpeed * 1.2 * dt;
+          this.pushOutOfObstacles(enemy.state.pos);
+
+          // Ranged attack while erratic
+          if (d <= C.ENEMY_RANGED_RANGE && now >= enemy.rangedCdEnd) {
+            const dir = normalize3(sub3(this.player.pos, enemy.state.pos));
+            dir.y += 0.1;
+            this.spawnProjectile(200 + enemy.state.id, ProjectileType.EnemyProjectile, enemy.state.pos, dir, C.ENEMY_RANGED_DAMAGE);
+            enemy.rangedCdEnd = now + C.ENEMY_RANGED_COOLDOWN_MS;
+          }
+        }
+        continue; // Skip standard ground AI
       }
 
       if (enemy.state.aiState === EnemyAIState.Patrol) {
@@ -2394,7 +2468,6 @@ export class LocalSim {
     if (this.chapter === 1 && this.chapterEnemiesKilled >= 4) {
       this.completeGoal(1);
       this.chapter = 2;
-      this.saveCheckpoint();
       this.chapterEnemiesKilled = 0;
       this.onChapterChange(2, "Jatayu's Legacy", "Beyond the fallen sentinels lies the place where noble Jatayu gave his life defending Sita. Ravana's Demon Guard patrol these bloodied grounds — elite warriors who sold their honour for power. Avenge the vulture king...");
       this.onMapWaypoint(0, 0, 6, 'Chapter 2 — Jatayu\'s Legacy', 2); // ChapterGate = 6
@@ -2408,9 +2481,13 @@ export class LocalSim {
       });
 
       // Spawn 4 tougher enemies + 1 mini-boss champion for chapter 2
+      this.encounters = [];
+      const base2 = this.CHAPTER_POSITIONS[2];
       const chapter2Positions: Vec3[] = [
-        { x: -25, y: 0, z: -50 }, { x: 15, y: 0, z: -60 },
-        { x: -10, y: 0, z: -70 }, { x: 30, y: 0, z: -55 },
+        { x: base2.x - 25, y: 0, z: base2.z - 50 },
+        { x: base2.x + 15, y: 0, z: base2.z - 60 },
+        { x: base2.x - 10, y: 0, z: base2.z - 70 },
+        { x: base2.x + 30, y: 0, z: base2.z - 55 },
       ];
       for (let i = 0; i < chapter2Positions.length; i++) {
         const pos = chapter2Positions[i];
@@ -2421,7 +2498,19 @@ export class LocalSim {
         const isChamp = (i === chapter2Positions.length - 1);
         const enemy = this.createEnemy(pos, hp, type, isChamp);
         this.enemies.push(enemy);
-        if (isChamp) this.onChampionSpawned(enemy.state.id);
+        if (isChamp) {
+          this.onChampionSpawned(enemy.state.id);
+          this.encounters.push({
+            id: this.nextEncounterId++,
+            phase: EncounterPhase.Dormant,
+            championId: enemy.state.id,
+            chapter: 2,
+            phaseTimer: 0,
+            dialogueShown: false,
+            midDialogueShown: false,
+            defeatDialogueShown: false,
+          });
+        }
       }
       // Mid-chapter checkpoint
       this.midChapterCheckpointSaved = false;
@@ -2430,8 +2519,6 @@ export class LocalSim {
     else if (this.chapter === 2 && this.chapterEnemiesKilled >= 4) {
       this.completeGoal(2);
       this.chapter = 3;
-      this.saveCheckpoint();
-      this.setupInvestigationPoints(3);
       this.chapterEnemiesKilled = 0;
       this.canMeditate = true;
       this.onChapterChange(3, "Kishkindha — The Vanara Alliance",
@@ -2450,8 +2537,6 @@ export class LocalSim {
     else if (this.chapter === 4 && this.chapterEnemiesKilled >= 5) {
       this.completeGoal(4);
       this.chapter = 5;
-      this.saveCheckpoint();
-      this.setupInvestigationPoints(5);
       this.chapterEnemiesKilled = 0;
 
       // Hanuman joins as companion
@@ -2469,7 +2554,8 @@ export class LocalSim {
       this.onMapReveal(this.player.pos.x, this.player.pos.z, 30, 5, 'Hanuman scouted the demon positions ahead');
 
       // Spawn Angad as story NPC in Chapter 5
-      const angadNpcPos: Vec3 = { x: 55, y: 0, z: -35 };
+      const base5 = this.CHAPTER_POSITIONS[5];
+      const angadNpcPos: Vec3 = { x: base5.x + 55, y: 0, z: base5.z - 35 };
       this.addStoryNPC({
         id: 'angad_npc', name: 'Angad', pos: angadNpcPos,
         dialogueTreeId: 'ch5_angad', spoken: false,
@@ -2485,10 +2571,13 @@ export class LocalSim {
       }, 5000);
 
       // Spawn 5 elite demon warriors + champion mini-boss in Ch5
+      this.encounters = [];
       const ch5Positions: Vec3[] = [
-        { x: 35, y: 0, z: -45 }, { x: 60, y: 0, z: -25 },
-        { x: 45, y: 0, z: -55 }, { x: 70, y: 0, z: -10 },
-        { x: 55, y: 0, z: -60 },
+        { x: base5.x + 35, y: 0, z: base5.z - 45 },
+        { x: base5.x + 60, y: 0, z: base5.z - 25 },
+        { x: base5.x + 45, y: 0, z: base5.z - 55 },
+        { x: base5.x + 70, y: 0, z: base5.z - 10 },
+        { x: base5.x + 55, y: 0, z: base5.z - 60 },
       ];
       const ch5Types: Array<'soldier' | 'archer' | 'brute'> = ['soldier', 'archer', 'brute', 'archer', 'brute'];
       const ch5Hps = [90, C.ENEMY_ARCHER_HP, C.ENEMY_BRUTE_HP, C.ENEMY_ARCHER_HP, C.ENEMY_BRUTE_HP];
@@ -2496,7 +2585,19 @@ export class LocalSim {
         const isChamp = (i === ch5Positions.length - 1); // Last is champion
         const enemy = this.createEnemy(ch5Positions[i], ch5Hps[i], ch5Types[i], isChamp);
         this.enemies.push(enemy);
-        if (isChamp) this.onChampionSpawned(enemy.state.id);
+        if (isChamp) {
+          this.onChampionSpawned(enemy.state.id);
+          this.encounters.push({
+            id: this.nextEncounterId++,
+            phase: EncounterPhase.Dormant,
+            championId: enemy.state.id,
+            chapter: 5,
+            phaseTimer: 0,
+            dialogueShown: false,
+            midDialogueShown: false,
+            defeatDialogueShown: false,
+          });
+        }
       }
       this.midChapterCheckpointSaved = false;
     }
@@ -2504,7 +2605,6 @@ export class LocalSim {
     else if (this.chapter === 5 && this.chapterEnemiesKilled >= 5) {
       this.completeGoal(5);
       this.chapter = 6;
-      this.saveCheckpoint();
       this.chapterEnemiesKilled = 0;
       this.canMeditate = true;
 
@@ -2554,9 +2654,6 @@ export class LocalSim {
     this.chapterEnemiesKilled = 0;
     this.canMeditate = false;
     this.stopMeditation();
-
-    this.saveCheckpoint();
-    this.setupInvestigationPoints(7);
 
     this.onChapterChange(7, "The Fall of Ravana",
       "Before you stands Lanka — the golden city that Ravana stole from his brother Kubera. Within those walls, ten-headed Ravana sits upon his throne of conquest, and Sita endures in the Ashoka Vatika. Vibhishana has revealed the secret: the Amrita in Ravana's navel sustains his ten heads. The Brahmastra must strike true. End the Adharma. Restore the balance of three worlds...");
@@ -2625,16 +2722,40 @@ export class LocalSim {
 
   private spawnChapter1Enemies(): void {
     this.enemies = [];
+    this.encounters = [];
     this.nextEnemyId = 1;
+    const base = this.CHAPTER_POSITIONS[1];
+
+    // Spawn 4 enemies around the chapter center with random offsets
     const chapter1Positions: Vec3[] = [
-      { x: -20, y: 0, z: -20 }, { x: 20, y: 0, z: -25 },
-      { x: -30, y: 0, z: 10 }, { x: 15, y: 0, z: 30 },
+      { x: base.x - 20, y: 0, z: base.z - 20 },
+      { x: base.x + 20, y: 0, z: base.z - 25 },
+      { x: base.x - 30, y: 0, z: base.z + 10 },
+      { x: base.x + 15, y: 0, z: base.z + 30 },
     ];
-    for (const pos of chapter1Positions) {
+    for (let i = 0; i < chapter1Positions.length; i++) {
+      const pos = chapter1Positions[i];
       const isArcher = Math.random() < 0.4;
       const type = isArcher ? 'archer' : 'soldier';
       const hp = isArcher ? C.ENEMY_ARCHER_HP : C.ENEMY_HP;
-      this.enemies.push(this.createEnemy(pos, hp, type));
+      const isChamp = (i === chapter1Positions.length - 1);
+      const enemy = this.createEnemy(pos, hp, type, isChamp);
+      this.enemies.push(enemy);
+
+      // Create encounter for the champion (last enemy)
+      if (isChamp) {
+        this.encounters.push({
+          id: this.nextEncounterId++,
+          phase: EncounterPhase.Dormant,
+          championId: enemy.state.id,
+          chapter: 1,
+          phaseTimer: 0,
+          dialogueShown: false,
+          midDialogueShown: false,
+          defeatDialogueShown: false,
+        });
+        this.onChampionSpawned(enemy.state.id);
+      }
     }
     this.midChapterCheckpointSaved = false;
   }

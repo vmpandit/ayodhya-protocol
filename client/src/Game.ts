@@ -14,7 +14,7 @@ import { HapticsManager, HapticMotif } from './HapticsManager';
 import { PerformanceManager } from './PerformanceManager';
 import { AudioManager, SFX } from './AudioManager';
 import { TextureLoader } from './TextureLoader';
-import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType, AstraCombo, KarmaScore } from '@shared/types';
+import { GameSnapshot, PlayerState, ProjectileState, PlayerStatus, BossPhase, InputFlag, AbilityType, SpecialArrowType, AstraCombo, KarmaScore, EncounterPhase } from '@shared/types';
 import { DamageTargetType } from '@shared/protocol';
 import { MapRenderer, WaypointType } from './MapRenderer';
 
@@ -308,6 +308,24 @@ export class Game {
       this.audio.play(SFX.BossRoar);
     };
 
+    this.localSim.onEncounterPhaseChange = (phase, dialogue) => {
+      if (dialogue) {
+        this.hud.showDialogueSequence([{ name: 'Encounter', message: dialogue }]);
+      }
+      // Show phase notifications
+      if (phase === EncounterPhase.Detection) {
+        this.hud.showNotification('ENEMY DETECTED');
+        this.audio.play(SFX.BossRoar);
+      } else if (phase === EncounterPhase.Phase2) {
+        this.hud.showNotification('PHASE 2 — ENRAGED');
+        this.controller?.triggerShake(0.2);
+        this.audio.play(SFX.BossRoar);
+      } else if (phase === EncounterPhase.Defeated) {
+        this.hud.showNotification('ENCOUNTER COMPLETE');
+        this.audio.play(SFX.Victory);
+      }
+    };
+
     this.localSim.onRavanaHeadSpawned = (_headId, _pos) => {
       this.hud.addKillFeedEntry('RAVANA HEAD DETACHED', '#ff4444');
     };
@@ -320,24 +338,6 @@ export class Game {
     this.localSim.onCheckpointSaved = () => {
       this.saveGame();
       this.hud.showNotification('MID-CHAPTER CHECKPOINT');
-    };
-
-    // ── Agent 3: Combat & AI Callbacks ────────────────────────────
-    this.localSim.onInvestigationTriggered = (clue) => {
-      this.hud.showNotification('CLUE FOUND');
-      this.hud.showDialogueSequence([{ name: 'Investigation', message: clue }]);
-      this.audio.play(SFX.UIStart);
-    };
-
-    this.localSim.onWaveAnnouncement = (waveNumber, totalWaves) => {
-      this.hud.showNotification(`WAVE ${waveNumber} OF ${totalWaves} — INCOMING`);
-      this.controller?.triggerShake(0.1);
-      this.audio.play(SFX.BossRoar);
-    };
-
-    this.localSim.onMayaIllusionCreated = (_realId, _illusionIds) => {
-      this.hud.showNotification('MAYA ILLUSION — FIND THE REAL ONE');
-      this.audio.play(SFX.FireArrowCast);
     };
 
     this.localSim.onPickupSpawned = (id, pos, arrows) => {
@@ -833,12 +833,6 @@ export class Game {
             const snap = this.localSim.update(dt);
             this.lastSnapshot = snap;
             this.interpolation.pushSnapshot(snap);
-
-            // Update water physics: check if player is in water
-            const player = snap.players.find(p => p.id === this.localPlayerId);
-            if (player) {
-              this.localSim.inWater = this.world.isInWater(player.pos.x, player.pos.z);
-            }
           }
         } else if (this.network) {
           this.network.sendInput(input);

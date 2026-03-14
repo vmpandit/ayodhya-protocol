@@ -7,7 +7,7 @@ import {
   MeshBuilder, StandardMaterial, PBRMaterial, Color3, Vector3, Mesh,
   Scene, TransformNode, InstancedMesh,
   Texture, Color4, GlowLayer, ParticleSystem, PointLight, DynamicTexture,
-  Engine, VertexBuffer, VertexData,
+  Engine,
 } from '@babylonjs/core';
 import { Renderer } from './Renderer';
 import { LoadedAssets } from './TextureLoader';
@@ -50,14 +50,6 @@ export class World {
   private campfireMesh: Mesh | null = null;
   private riverSegments: Mesh[] = [];
   private oceanMesh: Mesh | null = null;
-  private heightmap: Float32Array | null = null;
-  private heightmapResolution = 0; // Side length of the heightmap grid
-  private heightmapScale = 0; // Scale factor for UV to world space conversion
-
-  // Biome transition tracking
-  private biomeTransitionEnd = 0; // Time when transition completes
-  private currentBiomeColors: { ground: Color3; fog: Color3; sun: Color3 } | null = null;
-  private targetBiomeColors: { ground: Color3; fog: Color3; sun: Color3 } | null = null;
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -114,6 +106,7 @@ export class World {
     this.buildGround();
     this.buildTrees();
     this.buildBossArena();
+    this.buildRamSetuBridge();
     this.buildChapterLandmarks();
     this.buildWaterFeatures();
     // Only build fallback skybox if TextureLoader didn't build one
@@ -290,10 +283,11 @@ export class World {
 
   private buildGround(): void {
     // Subdivided ground for vertex color variation (pseudo-terrain)
+    // Larger ground for 800x800 world
     const ground = MeshBuilder.CreateGround('ground_main', {
       width: C.WORLD_SIZE * 1.2,
       height: C.WORLD_SIZE * 1.2,
-      subdivisions: 40,
+      subdivisions: 128,  // Increased resolution for larger world
       updatable: false,
     }, this.scene);
     ground.position.y = 0;
@@ -304,13 +298,13 @@ export class World {
     const groundPBR = this.assets?.materials.get('ground_jungle');
     if (groundPBR?.albedoTexture) {
       groundMat.albedoTexture = groundPBR.albedoTexture;
-      (groundMat.albedoTexture as Texture).uScale = 12;
-      (groundMat.albedoTexture as Texture).vScale = 12;
+      (groundMat.albedoTexture as Texture).uScale = 20;  // Increased tiling for larger world
+      (groundMat.albedoTexture as Texture).vScale = 20;
     }
     if (groundPBR?.bumpTexture) {
       groundMat.bumpTexture = groundPBR.bumpTexture;
-      (groundMat.bumpTexture as Texture).uScale = 12;
-      (groundMat.bumpTexture as Texture).vScale = 12;
+      (groundMat.bumpTexture as Texture).uScale = 20;
+      (groundMat.bumpTexture as Texture).vScale = 20;
     }
     groundMat.albedoColor = new Color3(0.15, 0.28, 0.1); // lush green base
     groundMat.metallic = 0.0;
@@ -320,8 +314,8 @@ export class World {
     // Add scattered ground cover: upright triangular grass blades
     const rng = mulberry32(9999);
 
-    // Grass blade patches (~200 blades for scattered coverage)
-    for (let i = 0; i < 200; i++) {
+    // Grass blade patches (~1200 blades = 200 * 6x for larger world)
+    for (let i = 0; i < 1200; i++) {
       const x = (rng() - 0.5) * C.WORLD_SIZE;
       const z = (rng() - 0.5) * C.WORLD_SIZE;
       // Skip near spawn
@@ -349,8 +343,8 @@ export class World {
       blade.material = bladeMat;
     }
 
-    // Add flower patches: small colored spheres in clusters
-    for (let cluster = 0; cluster < 8; cluster++) {
+    // Add flower patches: small colored spheres in clusters (~50 clusters = 8 * 6x)
+    for (let cluster = 0; cluster < 50; cluster++) {
       const cx = (rng() - 0.5) * C.WORLD_SIZE * 0.8;
       const cz = (rng() - 0.5) * C.WORLD_SIZE * 0.8;
       // Skip near spawn
@@ -383,12 +377,12 @@ export class World {
       }
     }
 
-    // Rocks scattered around (small gray boulders)
+    // Rocks scattered around (small gray boulders) (~180 rocks = 30 * 6x)
     const rockMat = new StandardMaterial('rockMat', this.scene);
     rockMat.diffuseColor = new Color3(0.4, 0.38, 0.35);
     rockMat.specularColor = new Color3(0.1, 0.1, 0.1);
 
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 180; i++) {
       const x = (rng() - 0.5) * C.WORLD_SIZE;
       const z = (rng() - 0.5) * C.WORLD_SIZE;
       if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
@@ -403,180 +397,21 @@ export class World {
       rock.material = rockMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(rock);
     }
-
-    // Generate heightmap for terrain after creating ground
-    this.generateHeightmap();
-    this.applyHeightmapToGround(ground);
-  }
-
-  /**
-   * Generate a procedural heightmap using multiple sine/cosine octaves.
-   * Height range: 0 to 3 units. Flattens near spawn and boss arena.
-   */
-  private generateHeightmap(): void {
-    // Use 64x64 resolution for the heightmap grid
-    this.heightmapResolution = 64;
-    this.heightmapScale = C.WORLD_SIZE * 1.2 / this.heightmapResolution;
-    const hm = new Float32Array(this.heightmapResolution * this.heightmapResolution);
-
-    const halfWorld = (C.WORLD_SIZE * 1.2) / 2;
-    const spawnFlatRadius = 15;
-    const bossArenaFlatRadius = 25;
-
-    for (let i = 0; i < this.heightmapResolution; i++) {
-      for (let j = 0; j < this.heightmapResolution; j++) {
-        const uvX = i / this.heightmapResolution;
-        const uvZ = j / this.heightmapResolution;
-
-        // Convert UV to world space
-        const worldX = (uvX - 0.5) * (C.WORLD_SIZE * 1.2);
-        const worldZ = (uvZ - 0.5) * (C.WORLD_SIZE * 1.2);
-
-        // Multi-octave Perlin-like noise using sine/cosine
-        let height = 0;
-        let amplitude = 1.0;
-        let frequency = 1.0;
-
-        for (let octave = 0; octave < 4; octave++) {
-          const x = worldX * frequency * 0.01;
-          const z = worldZ * frequency * 0.01;
-          height += amplitude * Math.sin(x) * Math.cos(z);
-          amplitude *= 0.5;
-          frequency *= 2.0;
-        }
-
-        // Normalize to 0-3 range
-        height = ((height + 2) / 4) * 3;
-
-        // Flatten near spawn
-        const distToSpawn = Math.sqrt(worldX * worldX + worldZ * worldZ);
-        if (distToSpawn < spawnFlatRadius) {
-          const falloff = distToSpawn / spawnFlatRadius;
-          height *= falloff * falloff;
-        }
-
-        // Flatten near boss arena
-        const distToBoss = Math.sqrt(
-          (worldX - C.BOSS_ARENA_CENTER.x) ** 2 +
-          (worldZ - C.BOSS_ARENA_CENTER.z) ** 2
-        );
-        if (distToBoss < bossArenaFlatRadius) {
-          const falloff = distToBoss / bossArenaFlatRadius;
-          height *= falloff * falloff;
-        }
-
-        hm[j * this.heightmapResolution + i] = Math.max(0, height);
-      }
-    }
-
-    this.heightmap = hm;
-  }
-
-  /**
-   * Apply the heightmap to the ground mesh vertices.
-   */
-  private applyHeightmapToGround(ground: Mesh): void {
-    if (!this.heightmap) return;
-
-    const positions = ground.getVerticesData(VertexBuffer.PositionKind);
-    if (!positions) return;
-
-    const halfWorld = (C.WORLD_SIZE * 1.2) / 2;
-
-    // Update Y positions based on heightmap
-    for (let i = 0; i < positions.length; i += 3) {
-      const x = positions[i];
-      const z = positions[i + 2];
-
-      // Convert world position to heightmap UV
-      const uvX = (x + halfWorld) / (C.WORLD_SIZE * 1.2);
-      const uvZ = (z + halfWorld) / (C.WORLD_SIZE * 1.2);
-
-      // Clamp to valid range
-      const clampedUvX = Math.max(0, Math.min(1, uvX));
-      const clampedUvZ = Math.max(0, Math.min(1, uvZ));
-
-      // Sample heightmap with bilinear interpolation
-      const sampleX = clampedUvX * (this.heightmapResolution - 1);
-      const sampleZ = clampedUvZ * (this.heightmapResolution - 1);
-
-      const x0 = Math.floor(sampleX);
-      const x1 = Math.min(x0 + 1, this.heightmapResolution - 1);
-      const z0 = Math.floor(sampleZ);
-      const z1 = Math.min(z0 + 1, this.heightmapResolution - 1);
-
-      const fx = sampleX - x0;
-      const fz = sampleZ - z0;
-
-      const h00 = this.heightmap[z0 * this.heightmapResolution + x0];
-      const h10 = this.heightmap[z0 * this.heightmapResolution + x1];
-      const h01 = this.heightmap[z1 * this.heightmapResolution + x0];
-      const h11 = this.heightmap[z1 * this.heightmapResolution + x1];
-
-      // Bilinear interpolation
-      const h0 = h00 * (1 - fx) + h10 * fx;
-      const h1 = h01 * (1 - fx) + h11 * fx;
-      const height = h0 * (1 - fz) + h1 * fz;
-
-      positions[i + 1] = height;
-    }
-
-    // Update vertex data
-    ground.updateVerticesData(VertexBuffer.PositionKind, positions);
-
-    // Recalculate normals for proper lighting
-    const normals: number[] = [];
-    VertexData.ComputeNormals(positions, ground.getIndices(), normals);
-    ground.updateVerticesData(VertexBuffer.NormalKind, normals);
-  }
-
-  /**
-   * Get terrain height at a world position using heightmap bilinear interpolation.
-   */
-  getTerrainHeight(x: number, z: number): number {
-    if (!this.heightmap) return 0;
-
-    const halfWorld = (C.WORLD_SIZE * 1.2) / 2;
-
-    // Convert world position to heightmap UV
-    const uvX = (x + halfWorld) / (C.WORLD_SIZE * 1.2);
-    const uvZ = (z + halfWorld) / (C.WORLD_SIZE * 1.2);
-
-    // Clamp to valid range
-    const clampedUvX = Math.max(0, Math.min(1, uvX));
-    const clampedUvZ = Math.max(0, Math.min(1, uvZ));
-
-    // Sample heightmap with bilinear interpolation
-    const sampleX = clampedUvX * (this.heightmapResolution - 1);
-    const sampleZ = clampedUvZ * (this.heightmapResolution - 1);
-
-    const x0 = Math.floor(sampleX);
-    const x1 = Math.min(x0 + 1, this.heightmapResolution - 1);
-    const z0 = Math.floor(sampleZ);
-    const z1 = Math.min(z0 + 1, this.heightmapResolution - 1);
-
-    const fx = sampleX - x0;
-    const fz = sampleZ - z0;
-
-    const h00 = this.heightmap[z0 * this.heightmapResolution + x0];
-    const h10 = this.heightmap[z0 * this.heightmapResolution + x1];
-    const h01 = this.heightmap[z1 * this.heightmapResolution + x0];
-    const h11 = this.heightmap[z1 * this.heightmapResolution + x1];
-
-    // Bilinear interpolation
-    const h0 = h00 * (1 - fx) + h10 * fx;
-    const h1 = h01 * (1 - fx) + h11 * fx;
-    return h0 * (1 - fz) + h1 * fz;
   }
 
   private buildTrees(): void {
     const rng = mulberry32(12345);
     const treeCount = C.TREE_COUNT;
-    const half = C.WORLD_SIZE / 2;
 
-    // Master tree mesh (better looking: trunk + 3 layered canopy spheres)
-    const masterTrunk = MeshBuilder.CreateCylinder('masterTrunk', { height: 3.0, diameterTop: 0.3, diameterBottom: 0.5, tessellation: 8 }, this.scene);
-    masterTrunk.position.y = 1.5;
+    // Master tree mesh: tall thin trunk with single large canopy above player
+    const trunkHeight = (C.TREE_TRUNK_HEIGHT_MIN + C.TREE_TRUNK_HEIGHT_MAX) / 2; // ~17
+    const masterTrunk = MeshBuilder.CreateCylinder('masterTrunk', {
+      height: trunkHeight,
+      diameterTop: C.TREE_TRUNK_DIAMETER * 0.4,
+      diameterBottom: C.TREE_TRUNK_DIAMETER,
+      tessellation: 8
+    }, this.scene);
+    masterTrunk.position.y = trunkHeight / 2;
     masterTrunk.setEnabled(false);
 
     const trunkMat = new StandardMaterial('treeTrunkMat', this.scene);
@@ -584,80 +419,55 @@ export class World {
     trunkMat.specularColor = new Color3(0, 0, 0);
     masterTrunk.material = trunkMat;
 
-    // Three canopy layers (lower=wider, upper=smaller) for a more natural look
-    const canopyMats: StandardMaterial[] = [];
-    const canopyShades = [
-      new Color3(0.12, 0.35, 0.08),  // dark green base
-      new Color3(0.18, 0.45, 0.12),  // medium green middle
-      new Color3(0.22, 0.55, 0.15),  // light green top
-    ];
-    for (let i = 0; i < 3; i++) {
-      const m = new StandardMaterial(`canopyMat_${i}`, this.scene);
-      m.diffuseColor = canopyShades[i];
-      m.specularColor = new Color3(0, 0, 0);
-      canopyMats.push(m);
-    }
+    // Single large canopy sphere positioned high above ground (above camera at Y=8)
+    const canopyMat = new StandardMaterial('canopyMat', this.scene);
+    canopyMat.diffuseColor = new Color3(0.15, 0.4, 0.1);  // forest green
+    canopyMat.specularColor = new Color3(0, 0, 0);
 
-    const masterCanopy0 = MeshBuilder.CreateSphere('masterCanopy0', { diameter: 3.5, segments: 6 }, this.scene);
-    masterCanopy0.position.y = 3.5;
-    masterCanopy0.scaling.y = 0.7; // flatten slightly
-    masterCanopy0.material = canopyMats[0];
-    masterCanopy0.setEnabled(false);
+    const masterCanopy = MeshBuilder.CreateSphere('masterCanopy', {
+      diameter: (C.TREE_CANOPY_RADIUS_MIN + C.TREE_CANOPY_RADIUS_MAX),
+      segments: 8
+    }, this.scene);
+    masterCanopy.position.y = C.TREE_CANOPY_HEIGHT;  // High up at Y=18
+    masterCanopy.material = canopyMat;
+    masterCanopy.setEnabled(false);
 
-    const masterCanopy1 = MeshBuilder.CreateSphere('masterCanopy1', { diameter: 2.8, segments: 6 }, this.scene);
-    masterCanopy1.position.y = 4.4;
-    masterCanopy1.scaling.y = 0.65;
-    masterCanopy1.material = canopyMats[1];
-    masterCanopy1.setEnabled(false);
-
-    const masterCanopy2 = MeshBuilder.CreateSphere('masterCanopy2', { diameter: 1.8, segments: 6 }, this.scene);
-    masterCanopy2.position.y = 5.1;
-    masterCanopy2.scaling.y = 0.6;
-    masterCanopy2.material = canopyMats[2];
-    masterCanopy2.setEnabled(false);
-
-    // Place trees
+    // Place trees throughout world, with denser forest in Ch0-3 zones
     for (let i = 0; i < treeCount; i++) {
       const x = (rng() - 0.5) * C.WORLD_SIZE;
       const z = (rng() - 0.5) * C.WORLD_SIZE;
 
-      // Skip near spawn, boss arena, and river path
+      // Skip near spawn
       if (Math.abs(x) < 5 && Math.abs(z) < 5) continue;
-      const dBoss = Math.sqrt((x - C.BOSS_ARENA_CENTER.x) ** 2 + (z - C.BOSS_ARENA_CENTER.z) ** 2);
-      if (dBoss < C.BOSS_ARENA_RADIUS + 5) continue;
-      // Skip near river path
-      const nearRiver = Math.abs(x - (8 + z * -0.12)) < 5 && z > -85 && z < 10;
-      if (nearRiver) continue;
 
-      const scale = 0.7 + rng() * 0.8; // tree size variation
+      // Skip near boss arena
+      const dBoss = Math.sqrt((x - C.BOSS_ARENA_CENTER.x) ** 2 + (z - C.BOSS_ARENA_CENTER.z) ** 2);
+      if (dBoss < C.BOSS_ARENA_RADIUS + 10) continue;
+
+      // Skip near Ram Setu bridge path
+      const nearBridge = Math.abs(x - ((C.RAM_SETU_START.x + C.RAM_SETU_END.x) / 2)) < 20 &&
+                         Math.abs(z - ((C.RAM_SETU_START.z + C.RAM_SETU_END.z) / 2)) < 100;
+      if (nearBridge) continue;
+
+      // Scale variation: 0.7 to 1.3
+      const scale = 0.7 + rng() * 0.6;
       const yRot = rng() * Math.PI * 2;
 
       // Trunk instance
       const trunk = masterTrunk.createInstance(`tree_trunk_${i}`);
-      trunk.position.set(x, 1.5 * scale, z);
+      const trunkHeightScaled = trunkHeight * scale;
+      trunk.position.set(x, trunkHeightScaled / 2, z);
       trunk.scaling.setAll(scale);
       trunk.rotation.y = yRot;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(trunk);
       this.treeInstances.push(trunk);
 
-      // Canopy instances (3 layers)
-      const c0 = masterCanopy0.createInstance(`tree_c0_${i}`);
-      c0.position.set(x, 3.5 * scale, z);
-      c0.scaling.set(scale * (0.9 + rng() * 0.3), scale * 0.7, scale * (0.9 + rng() * 0.3));
-      c0.rotation.y = yRot;
-      this.treeInstances.push(c0);
-
-      const c1 = masterCanopy1.createInstance(`tree_c1_${i}`);
-      c1.position.set(x, 4.4 * scale, z);
-      c1.scaling.set(scale * (0.85 + rng() * 0.25), scale * 0.65, scale * (0.85 + rng() * 0.25));
-      c1.rotation.y = yRot + 0.5;
-      this.treeInstances.push(c1);
-
-      const c2 = masterCanopy2.createInstance(`tree_c2_${i}`);
-      c2.position.set(x, 5.1 * scale, z);
-      c2.scaling.set(scale * (0.8 + rng() * 0.2), scale * 0.6, scale * (0.8 + rng() * 0.2));
-      c2.rotation.y = yRot + 1.0;
-      this.treeInstances.push(c2);
+      // Single canopy instance positioned at top of trunk
+      const canopy = masterCanopy.createInstance(`tree_canopy_${i}`);
+      canopy.position.set(x, (C.TREE_CANOPY_HEIGHT - 2) * scale + trunkHeightScaled * 0.5, z);
+      canopy.scaling.setAll(scale);
+      canopy.rotation.y = yRot;
+      this.treeInstances.push(canopy);
     }
   }
 
@@ -729,6 +539,97 @@ export class World {
       veinMat.backFaceCulling = false;
       vein.material = veinMat;
     }
+  }
+
+  private buildRamSetuBridge(): void {
+    // Build traversable stone bridge from RAM_SETU_START to RAM_SETU_END
+    const start = C.RAM_SETU_START;
+    const end = C.RAM_SETU_END;
+    const width = C.RAM_SETU_WIDTH;
+
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const bridgeLength = Math.sqrt(dx * dx + dz * dz);
+    const angle = Math.atan2(dx, dz);
+
+    // Build bridge from 20-30 stone segments
+    const segmentCount = 25;
+    const segmentLength = bridgeLength / segmentCount;
+    const stoneMat = new StandardMaterial('stoneMat', this.scene);
+    stoneMat.diffuseColor = new Color3(0.5, 0.45, 0.4);
+    stoneMat.specularColor = new Color3(0.15, 0.15, 0.15);
+
+    const rng = mulberry32(555);
+
+    for (let i = 0; i < segmentCount; i++) {
+      const t = i / (segmentCount - 1);
+      const segX = start.x + dx * t;
+      const segZ = start.z + dz * t;
+      const segY = 0.5 + Math.sin(t * Math.PI) * 0.5; // Slight arc above water
+
+      // Stone segment (box)
+      const segment = MeshBuilder.CreateBox(`bridgeSegment_${i}`, {
+        width: width,
+        height: 0.4,
+        depth: segmentLength * 1.1
+      }, this.scene);
+
+      segment.position.set(segX, segY, segZ);
+      segment.rotation.y = angle;
+      const randomYOffset = (rng() - 0.5) * 0.1;
+      segment.position.y += randomYOffset;
+      segment.material = stoneMat;
+
+      if (this.renderer.shadowGenerator) {
+        this.renderer.shadowGenerator.addShadowCaster(segment);
+      }
+    }
+
+    // Low wall edges on both sides (0.5m high boxes)
+    const wallHeight = 0.5;
+    const wallMat = new StandardMaterial('wallMat', this.scene);
+    wallMat.diffuseColor = new Color3(0.45, 0.4, 0.35);
+    wallMat.specularColor = new Color3(0.1, 0.1, 0.1);
+
+    for (let i = 0; i < segmentCount; i++) {
+      const t = i / (segmentCount - 1);
+      const segX = start.x + dx * t;
+      const segZ = start.z + dz * t;
+      const segY = 0.5 + Math.sin(t * Math.PI) * 0.5;
+
+      // Left wall
+      const wallL = MeshBuilder.CreateBox(`wallL_${i}`, {
+        width: 0.3,
+        height: wallHeight,
+        depth: segmentLength * 1.1
+      }, this.scene);
+      wallL.position.set(segX - Math.cos(angle) * (width / 2 + 0.15), segY + wallHeight / 2, segZ - Math.sin(angle) * (width / 2 + 0.15));
+      wallL.rotation.y = angle;
+      wallL.material = wallMat;
+
+      // Right wall
+      const wallR = MeshBuilder.CreateBox(`wallR_${i}`, {
+        width: 0.3,
+        height: wallHeight,
+        depth: segmentLength * 1.1
+      }, this.scene);
+      wallR.position.set(segX + Math.cos(angle) * (width / 2 + 0.15), segY + wallHeight / 2, segZ + Math.sin(angle) * (width / 2 + 0.15));
+      wallR.rotation.y = angle;
+      wallR.material = wallMat;
+    }
+
+    // Carved "RAMA" text at midpoint (glowing disc)
+    const midX = (start.x + end.x) / 2;
+    const midZ = (start.z + end.z) / 2;
+    const midY = 0.5 + 0.5; // At arc peak
+    const ramaDisc = MeshBuilder.CreateDisc('ramaDisc', { radius: 1.5, tessellation: 32 }, this.scene);
+    ramaDisc.rotation.x = Math.PI / 2;
+    ramaDisc.position.set(midX, midY + 0.2, midZ);
+    const ramaMat = new StandardMaterial('ramaMat', this.scene);
+    ramaMat.emissiveColor = new Color3(1.0, 0.85, 0.3);
+    ramaMat.diffuseColor = new Color3(0.8, 0.7, 0.2);
+    ramaMat.disableLighting = true;
+    ramaDisc.material = ramaMat;
   }
 
   private buildSkybox(): void {
@@ -1065,33 +966,15 @@ export class World {
     root.position.set(state.pos.x, state.pos.y, state.pos.z);
     root.rotation.y = state.yaw;
 
-    // Apply enemy scale from state
-    const scale = state.scale ?? 1.0;
-    root.scaling.set(scale, scale, scale);
-
-    // Illusion transparency: make illusions semi-transparent with a shimmer
-    if (state.isIllusion) {
-      const shimmer = 0.35 + Math.sin(performance.now() / 200 + state.id) * 0.15;
-      root.getChildMeshes().forEach(mesh => {
-        if (mesh.material && 'alpha' in mesh.material) {
-          (mesh.material as StandardMaterial).alpha = shimmer;
-        }
-      });
-    }
-
-    // Walking animation: bob and sway when moving
+    // Walking animation: bob and sway when moving (Patrol, Chase, Strafe, Retreat, Flank)
     const isMoving = state.aiState === EnemyAIState.Patrol || state.aiState === EnemyAIState.Chase ||
                       state.aiState === EnemyAIState.Strafe || state.aiState === EnemyAIState.Retreat ||
-                      state.aiState === EnemyAIState.Flank || state.aiState === EnemyAIState.Flying ||
-                      state.aiState === EnemyAIState.Erratic;
+                      state.aiState === EnemyAIState.Flank;
     if (isMoving) {
       const t = performance.now() / 1000;
-      const bobFreq = (state.aiState === EnemyAIState.Chase || state.aiState === EnemyAIState.Flank ||
-                       state.aiState === EnemyAIState.Erratic) ? 10 : 5;
-      // Flying enemies don't bob vertically (they have their own Y positioning)
-      if (state.aiState !== EnemyAIState.Flying) {
-        root.position.y += Math.sin(t * bobFreq + state.id) * 0.08;
-      }
+      const bobFreq = (state.aiState === EnemyAIState.Chase || state.aiState === EnemyAIState.Flank) ? 10 : 5;
+      root.position.y += Math.sin(t * bobFreq + state.id) * 0.08;
+      // Slight lateral tilt for walking feel
       root.rotation.z = Math.sin(t * bobFreq * 0.5 + state.id) * 0.04;
     } else {
       root.rotation.z = 0;
@@ -1493,19 +1376,83 @@ export class World {
   }
 
   spawnPickup(id: number, pos: Vec3, arrows: number): void {
-    // Create a glowing golden arrow bundle on the ground
-    const mesh = MeshBuilder.CreateCylinder(`pickup_${id}`, { height: 0.4, diameter: 0.15, tessellation: 6 }, this.scene);
-    mesh.position.set(pos.x, 0.3, pos.z);
-    mesh.rotation.x = Math.PI / 2; // lay flat
-    mesh.rotation.z = Math.random() * Math.PI; // random rotation
+    // Create a glowing arrow bundle (3-5 thin cylinders bundled together)
+    const arrowCount = Math.min(5, Math.max(3, arrows));
+    const bundleContainer = new TransformNode(`pickup_${id}`, this.scene);
+    bundleContainer.position.set(pos.x, 0.3, pos.z);
 
-    const mat = new StandardMaterial(`pickupMat_${id}`, this.scene);
-    mat.emissiveColor = new Color3(1.0, 0.85, 0.2); // golden glow
-    mat.diffuseColor = new Color3(0.8, 0.6, 0.1);
-    mat.disableLighting = true;
-    mesh.material = mat;
+    // Arrow shaft material (golden-brown)
+    const shaftMat = new StandardMaterial(`arrowShaftMat_${id}`, this.scene);
+    shaftMat.diffuseColor = new Color3(0.7, 0.55, 0.2);
+    shaftMat.specularColor = new Color3(0.4, 0.3, 0.1);
 
-    this.pickupMeshes.set(id, mesh);
+    // Arrowhead material (golden)
+    const headMat = new StandardMaterial(`arrowHeadMat_${id}`, this.scene);
+    headMat.emissiveColor = new Color3(1.0, 0.85, 0.2);
+    headMat.diffuseColor = new Color3(0.9, 0.75, 0.2);
+    headMat.disableLighting = true;
+
+    // Fletching material (brown)
+    const fletchMat = new StandardMaterial(`fletchMat_${id}`, this.scene);
+    fletchMat.diffuseColor = new Color3(0.5, 0.3, 0.1);
+    fletchMat.specularColor = new Color3(0, 0, 0);
+    fletchMat.backFaceCulling = false;
+
+    // Build each arrow in the bundle
+    for (let i = 0; i < arrowCount; i++) {
+      const angleOffset = (Math.PI * 2 / arrowCount) * i;
+      const tilt = 0.15 + (i % 2) * 0.1;  // Slight angle variation
+
+      // Shaft (thin cylinder)
+      const shaft = MeshBuilder.CreateCylinder(`shaft_${id}_${i}`, {
+        height: 0.8,
+        diameter: 0.03,
+        tessellation: 6
+      }, this.scene);
+      shaft.parent = bundleContainer;
+      shaft.position.set(
+        Math.cos(angleOffset) * 0.05,
+        0,
+        Math.sin(angleOffset) * 0.05
+      );
+      shaft.rotation.x = tilt;
+      shaft.material = shaftMat;
+
+      // Arrowhead (small cone at the tip)
+      const head = MeshBuilder.CreateCylinder(`head_${id}_${i}`, {
+        diameterTop: 0,
+        diameterBottom: 0.03,
+        height: 0.12,
+        tessellation: 6
+      }, this.scene);
+      head.parent = bundleContainer;
+      head.position.set(
+        Math.cos(angleOffset) * 0.05,
+        0.46,
+        Math.sin(angleOffset) * 0.05
+      );
+      head.rotation.x = tilt;
+      head.material = headMat;
+
+      // Fletching (2 small planes at the back)
+      for (let f = 0; f < 2; f++) {
+        const fletching = MeshBuilder.CreatePlane(`fletch_${id}_${i}_${f}`, {
+          width: 0.04,
+          height: 0.15
+        }, this.scene);
+        fletching.parent = bundleContainer;
+        fletching.position.set(
+          Math.cos(angleOffset) * 0.05 + (f === 0 ? 0.02 : -0.02),
+          -0.38,
+          Math.sin(angleOffset) * 0.05
+        );
+        fletching.rotation.y = f === 0 ? Math.PI / 4 : -Math.PI / 4;
+        fletching.rotation.x = tilt;
+        fletching.material = fletchMat;
+      }
+    }
+
+    this.pickupMeshes.set(id, bundleContainer as Mesh);
   }
 
   removePickup(id: number): void {
@@ -1985,33 +1932,33 @@ export class World {
   private buildChapterLandmarks(): void {
     const rng = mulberry32(777); // seeded RNG for deterministic random offsets
 
-    // Ch0: Vishwamitra's Ashram (center, around 0, 0, -5)
-    this.buildChapter0Landmarks(rng);
+    // Ch0: Panchavati — Tutorial
+    this.buildChapter0Landmarks(rng, C.CHAPTER_ZONES[0]);
 
-    // Ch1: Dandaka Forest (center-south, around 0, 0, -25)
-    this.buildChapter1Landmarks(rng);
+    // Ch1: Dandaka Forest
+    this.buildChapter1Landmarks(rng, C.CHAPTER_ZONES[1]);
 
-    // Ch2: Panchavati/Jatayu (south, around -20, 0, -55)
-    this.buildChapter2Landmarks(rng);
+    // Ch2: Jatayu's Fall
+    this.buildChapter2Landmarks(rng, C.CHAPTER_ZONES[2]);
 
-    // Ch3: Kishkindha (southwest, around -55, 0, -65)
-    this.buildChapter3Landmarks(rng);
+    // Ch3: Kishkindha
+    this.buildChapter3Landmarks(rng, C.CHAPTER_ZONES[3]);
 
-    // Ch4: Southern Shore (far south, around -10, 0, -95)
-    this.buildChapter4Landmarks(rng);
+    // Ch4: Southern Shore
+    this.buildChapter4Landmarks(rng, C.CHAPTER_ZONES[4]);
 
-    // Ch5: Rama Setu (from (20, 0, -90) toward (45, 0, -60))
-    this.buildChapter5Landmarks(rng);
+    // Ch5: Ram Setu Bridge (covered by buildRamSetuBridge, but build adjacent landmarks)
+    this.buildChapter5Landmarks(rng, C.CHAPTER_ZONES[5]);
 
-    // Ch6: Lanka Outskirts (east, around 40, 0, 25)
-    this.buildChapter6Landmarks(rng);
+    // Ch6: Lanka Outskirts
+    this.buildChapter6Landmarks(rng, C.CHAPTER_ZONES[6]);
 
-    // Ch7: Ravana's Palace (boss arena at (50, 0, 50) — ceremonial pillars only)
-    this.buildChapter7Landmarks(rng);
+    // Ch7: Ravana's Lanka (boss arena already built, ceremonial pillars only)
+    this.buildChapter7Landmarks(rng, C.CHAPTER_ZONES[7]);
   }
 
-  private buildChapter0Landmarks(rng: () => number): void {
-    const centerX = 0, centerZ = -5;
+  private buildChapter0Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    const centerX = zone.x, centerZ = zone.z;
 
     // 3 training posts: cylinders with cross-beams
     for (let i = 0; i < 3; i++) {
@@ -2070,8 +2017,8 @@ export class World {
     fireLight.range = 6;
   }
 
-  private buildChapter1Landmarks(rng: () => number): void {
-    const centerX = 0, centerZ = -25;
+  private buildChapter1Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    const centerX = zone.x, centerZ = zone.z;
 
     // 4 ruin pillars: cylinders with moss-green tint
     for (let i = 0; i < 4; i++) {
@@ -2123,8 +2070,8 @@ export class World {
     campfireLight.range = 8;
   }
 
-  private buildChapter2Landmarks(rng: () => number): void {
-    const centerX = -20, centerZ = -55;
+  private buildChapter2Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    const centerX = zone.x, centerZ = zone.z;
 
     // 4 charred stumps: black cylinders with emissive
     for (let i = 0; i < 4; i++) {
@@ -2193,8 +2140,8 @@ export class World {
     }
   }
 
-  private buildChapter3Landmarks(rng: () => number): void {
-    const centerX = -55, centerZ = -65;
+  private buildChapter3Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    const centerX = zone.x, centerZ = zone.z;
 
     // Cave entrance: 2 tall pillars + horizontal beam
     const pillar1 = MeshBuilder.CreateBox(`ch3_pillar1`, { width: 1.5, height: 8, depth: 1.5 }, this.scene);
@@ -2267,8 +2214,8 @@ export class World {
     }
   }
 
-  private buildChapter4Landmarks(rng: () => number): void {
-    const centerX = -10, centerZ = -95;
+  private buildChapter4Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    const centerX = zone.x, centerZ = zone.z;
 
     // 6 coastal boulders: spheres partially buried
     const boulderMat = new StandardMaterial(`ch4_boulderMat`, this.scene);
@@ -2319,43 +2266,36 @@ export class World {
     this.renderer.shadowGenerator.addShadowCaster(markerFlag);
   }
 
-  private buildChapter5Landmarks(rng: () => number): void {
-    // THE BRIDGE: Rama Setu from (20, 0, -90) toward (42, 0, -62)
-    const startX = 20, startZ = -90;
-    const endX = 42, endZ = -62;
-    const deltaX = endX - startX;
-    const deltaZ = endZ - startZ;
-    const bridgeLength = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
-    const numStones = 12;
+  private buildChapter5Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    // Ram Setu Bridge shrine structures near bridge center
+    const centerX = zone.x, centerZ = zone.z;
 
-    const stoneMat = new StandardMaterial(`ch5_stoneMat`, this.scene);
-    stoneMat.diffuseColor = new Color3(0.7, 0.6, 0.35);
-    stoneMat.specularColor = new Color3(0.3, 0.3, 0.3);
-
-    for (let i = 0; i < numStones; i++) {
-      const t = i / (numStones - 1);
-      const stoneX = startX + deltaX * t;
-      const stoneZ = startZ + deltaZ * t;
-
-      const stone = MeshBuilder.CreateBox(`ch5_bridgeStone_${i}`, { width: 3, height: 0.8, depth: 3 }, this.scene);
-      stone.position.set(stoneX, 0.3, stoneZ);
-      stone.material = stoneMat;
-      this.renderer.shadowGenerator.addShadowCaster(stone);
-    }
-
-    // 3 floating pillars next to bridge
+    // 3 sacred stone pillars at shrine center
     const pillarMat = new StandardMaterial(`ch5_pillarMat`, this.scene);
-    pillarMat.diffuseColor = new Color3(0.5, 0.45, 0.4);
+    pillarMat.diffuseColor = new Color3(0.6, 0.55, 0.45);
+    pillarMat.specularColor = new Color3(0.2, 0.2, 0.2);
 
     for (let i = 0; i < 3; i++) {
-      const t = 0.2 + i * 0.3;
-      const pillarX = startX + deltaX * t + (rng() - 0.5) * 3;
-      const pillarZ = startZ + deltaZ * t + (rng() - 0.5) * 3;
+      const angle = (i / 3) * Math.PI * 2;
+      const px = centerX + Math.cos(angle) * 8;
+      const pz = centerZ + Math.sin(angle) * 8;
 
-      const pillar = MeshBuilder.CreateCylinder(`ch5_pillar_${i}`, { height: 2.5, diameter: 1.2, tessellation: 12 }, this.scene);
-      pillar.position.set(pillarX, -0.5, pillarZ);
+      const pillar = MeshBuilder.CreateCylinder(`ch5_pillar_${i}`, {
+        height: 4,
+        diameter: 1.0,
+        tessellation: 12
+      }, this.scene);
+      pillar.position.set(px, 2, pz);
       pillar.material = pillarMat;
-      this.renderer.shadowGenerator.addShadowCaster(pillar);
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pillar);
+
+      // Top ornament (small sphere)
+      const ornament = MeshBuilder.CreateSphere(`ch5_ornament_${i}`, { diameter: 0.5, segments: 6 }, this.scene);
+      ornament.position.set(px, 4.3, pz);
+      const ornMat = new StandardMaterial(`ch5_ornMat_${i}`, this.scene);
+      ornMat.emissiveColor = new Color3(0.8, 0.7, 0.3);
+      ornMat.disableLighting = true;
+      ornament.material = ornMat;
     }
 
     // 2 camp tents: angled boxes forming A-shape
@@ -2363,27 +2303,27 @@ export class World {
     tentMat.diffuseColor = new Color3(0.5, 0.35, 0.2);
 
     for (let i = 0; i < 2; i++) {
-      const tentCenterX = startX + (i === 0 ? -8 : 8) + (rng() - 0.5) * 2;
-      const tentCenterZ = startZ + (rng() - 0.5) * 4;
+      const tentCenterX = centerX + (i === 0 ? -12 : 12) + (rng() - 0.5) * 2;
+      const tentCenterZ = centerZ + (rng() - 0.5) * 4;
 
       // Left side of tent
       const tentL = MeshBuilder.CreateBox(`ch5_tentL_${i}`, { width: 0.3, height: 2, depth: 2.5 }, this.scene);
       tentL.position.set(tentCenterX - 1, 1, tentCenterZ);
       tentL.rotation.z = Math.PI / 6;
       tentL.material = tentMat;
-      this.renderer.shadowGenerator.addShadowCaster(tentL);
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(tentL);
 
       // Right side of tent
       const tentR = MeshBuilder.CreateBox(`ch5_tentR_${i}`, { width: 0.3, height: 2, depth: 2.5 }, this.scene);
       tentR.position.set(tentCenterX + 1, 1, tentCenterZ);
       tentR.rotation.z = -Math.PI / 6;
       tentR.material = tentMat;
-      this.renderer.shadowGenerator.addShadowCaster(tentR);
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(tentR);
     }
   }
 
-  private buildChapter6Landmarks(rng: () => number): void {
-    const centerX = 40, centerZ = 25;
+  private buildChapter6Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    const centerX = zone.x, centerZ = zone.z;
 
     // 2 watch towers: dark cylinders with red lights
     const towerMat = new StandardMaterial(`ch6_towerMat`, this.scene);
@@ -2462,25 +2402,27 @@ export class World {
     }
   }
 
-  private buildChapter7Landmarks(rng: () => number): void {
-    // Ch7: 4 ceremonial pillars flanking south approach to boss arena
+  private buildChapter7Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
+    // Ch7: Ravana's Lanka - 4 ceremonial pillars flanking approach to boss arena
+    const centerX = zone.x, centerZ = zone.z;
     const positions = [
-      { x: 48, z: 38 },
-      { x: 52, z: 38 },
-      { x: 48, z: 44 },
-      { x: 52, z: 44 },
+      { x: centerX - 15, z: centerZ - 40 },
+      { x: centerX + 15, z: centerZ - 40 },
+      { x: centerX - 15, z: centerZ - 30 },
+      { x: centerX + 15, z: centerZ - 30 },
     ];
 
     const pillarMat = new StandardMaterial(`ch7_pillarMat`, this.scene);
     pillarMat.diffuseColor = new Color3(0.75, 0.6, 0.15);
     pillarMat.specularColor = new Color3(0.5, 0.5, 0.5);
+    pillarMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
 
     for (let i = 0; i < positions.length; i++) {
       const pos = positions[i];
       const pillar = MeshBuilder.CreateCylinder(`ch7_ceremonialPillar_${i}`, { height: 8, diameter: 1.2, tessellation: 12 }, this.scene);
       pillar.position.set(pos.x, 4, pos.z);
       pillar.material = pillarMat;
-      this.renderer.shadowGenerator.addShadowCaster(pillar);
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pillar);
     }
   }
 
@@ -2489,15 +2431,22 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   private buildWaterFeatures(): void {
-    // ── Curved River: 10 connected segments following a winding path ──────
+    // ── Curved River: winding path from Panchavati (spawn) through to Southern Shore ──
+    // River flows south along the journey, eventually reaching the ocean
     const riverPath: { x: number; z: number }[] = [
-      { x: 15, z: 5 }, { x: 12, z: -5 }, { x: 8, z: -15 },
-      { x: 3, z: -22 }, { x: -2, z: -30 }, { x: -5, z: -38 },
-      { x: -3, z: -48 }, { x: 2, z: -55 }, { x: 8, z: -62 },
-      { x: 10, z: -72 }, { x: 6, z: -82 },
+      { x: 15, z: 5 },
+      { x: 12, z: -30 },
+      { x: 5, z: -70 },
+      { x: -10, z: -120 },
+      { x: -30, z: -180 },
+      { x: -50, z: -250 },
+      { x: -40, z: -320 },
+      { x: -30, z: -380 },
+      { x: 0, z: -440 },
+      { x: 50, z: -500 },
     ];
 
-    const riverWidth = 3.5;
+    const riverWidth = 4.5;
     this.riverSegments = []; // Reset river segments array
     for (let i = 0; i < riverPath.length - 1; i++) {
       const p0 = riverPath[i];
@@ -2539,8 +2488,8 @@ export class World {
       }
     }
 
-    // ── Lily pads on water surface ───────────────────────────────────────
-    for (let i = 0; i < 6; i++) {
+    // ── Lily pads on water surface (~20 lily pads across the longer river) ──
+    for (let i = 0; i < 20; i++) {
       const idx = Math.floor(rng() * (riverPath.length - 1));
       const p = riverPath[idx];
       const lily = MeshBuilder.CreateDisc(`lilyPad_${i}`, { radius: 0.25 + rng() * 0.2, tessellation: 8 }, this.scene);
@@ -2553,10 +2502,11 @@ export class World {
       lily.material = lilyMat;
     }
 
-    // ── Ocean: large water plane at far south ────────────────────────────
-    const ocean = MeshBuilder.CreatePlane(`waterOcean`, { width: 140, height: 50 }, this.scene);
+    // ── Ocean: large water plane at far south (coastal region at Ch4) ──────
+    // Positioned around Southern Shore zone, much larger to fill the gap
+    const ocean = MeshBuilder.CreatePlane(`waterOcean`, { width: 300, height: 200 }, this.scene);
     ocean.rotation.x = Math.PI / 2;
-    ocean.position.set(0, 0.04, -115);
+    ocean.position.set(-50, 0.04, -550);  // Near southern shore and between bridge/Lanka
 
     const oceanMat = new StandardMaterial(`oceanMat`, this.scene);
     oceanMat.diffuseColor = new Color3(0.05, 0.15, 0.4);
@@ -2662,60 +2612,6 @@ export class World {
     if (this.campfireLight) {
       this.campfireLight.intensity = 4.5 + Math.random() * 1.5;
     }
-  }
-
-  /**
-   * Check if a position is within water (river or ocean bounds).
-   */
-  public isInWater(x: number, z: number): boolean {
-    // Check river segments
-    const riverWidth = 3.5;
-    const riverPath: { x: number; z: number }[] = [
-      { x: 15, z: 5 }, { x: 12, z: -5 }, { x: 8, z: -15 },
-      { x: 3, z: -22 }, { x: -2, z: -30 }, { x: -5, z: -38 },
-      { x: -3, z: -48 }, { x: 2, z: -55 }, { x: 8, z: -62 },
-      { x: 10, z: -72 }, { x: 6, z: -82 },
-    ];
-
-    for (let i = 0; i < riverPath.length - 1; i++) {
-      const p0 = riverPath[i];
-      const p1 = riverPath[i + 1];
-
-      // Calculate distance from point to line segment
-      const dx = p1.x - p0.x;
-      const dz = p1.z - p0.z;
-      const lenSq = dx * dx + dz * dz;
-
-      if (lenSq === 0) {
-        // Segment is a point
-        const dist = Math.sqrt((x - p0.x) ** 2 + (z - p0.z) ** 2);
-        if (dist < riverWidth) return true;
-        continue;
-      }
-
-      const t = Math.max(0, Math.min(1, ((x - p0.x) * dx + (z - p0.z) * dz) / lenSq));
-      const closestX = p0.x + t * dx;
-      const closestZ = p0.z + t * dz;
-      const dist = Math.sqrt((x - closestX) ** 2 + (z - closestZ) ** 2);
-
-      if (dist < riverWidth) return true;
-    }
-
-    // Check ocean bounds
-    const oceanX = 0;
-    const oceanZ = -115;
-    const oceanWidth = 140;
-    const oceanHeight = 50;
-    const oceanLeft = oceanX - oceanWidth / 2;
-    const oceanRight = oceanX + oceanWidth / 2;
-    const oceanTop = oceanZ - oceanHeight / 2;
-    const oceanBottom = oceanZ + oceanHeight / 2;
-
-    if (x >= oceanLeft && x <= oceanRight && z >= oceanTop && z <= oceanBottom) {
-      return true;
-    }
-
-    return false;
   }
 
   /**
@@ -2905,6 +2801,10 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   setChapterBiome(chapter: number): void {
+    // Get the ground mesh
+    const ground = this.scene.getMeshByName('ground_main');
+    const groundMat = ground?.material as PBRMaterial;
+
     // Define biome settings per chapter
     const biomes: Record<number, { groundColor: [number, number, number]; fogColor: [number, number, number]; fogDensity: number; sunColor: [number, number, number]; sunIntensity: number }> = {
       0: { groundColor: [0.15, 0.28, 0.1], fogColor: [0.2, 0.25, 0.15], fogDensity: 0.004, sunColor: [1.0, 0.85, 0.5], sunIntensity: 1.8 }, // Ashram - serene golden morning
@@ -2919,26 +2819,42 @@ export class World {
 
     const b = biomes[chapter] ?? biomes[0];
 
-    // Set up transition animation (2 seconds = 2000ms)
-    this.biomeTransitionEnd = Date.now() + 2000;
-    this.targetBiomeColors = {
-      ground: new Color3(...b.groundColor),
-      fog: new Color3(...b.fogColor),
-      sun: new Color3(...b.sunColor),
-    };
-
-    // Initialize current colors if not set
-    const ground = this.scene.getMeshByName('ground_main');
-    const groundMat = ground?.material as PBRMaterial;
-    if (!this.currentBiomeColors) {
-      this.currentBiomeColors = {
-        ground: groundMat?.albedoColor?.clone() ?? new Color3(0.15, 0.28, 0.1),
-        fog: this.scene.fogColor?.clone() ?? new Color3(0.2, 0.25, 0.15),
-        sun: new Color3(1.0, 0.85, 0.5),
-      };
+    if (groundMat) {
+      groundMat.albedoColor = new Color3(...b.groundColor);
     }
 
-    // Update ambient particles immediately
+    this.scene.fogColor = new Color3(...b.fogColor);
+    this.scene.fogDensity = b.fogDensity;
+
+    // Update directional light (sun)
+    const sun = this.scene.getLightByName('sun');
+    if (sun && 'diffuse' in sun) {
+      (sun as any).diffuse = new Color3(...b.sunColor);
+      (sun as any).intensity = b.sunIntensity;
+    }
+
+    // Update hemisphere ambient for Ch0 peaceful ashram
+    const ambient = this.scene.getLightByName('ambient');
+    if (ambient && 'groundColor' in ambient) {
+      if (chapter === 0) {
+        (ambient as any).diffuse = new Color3(0.75, 0.7, 0.55);   // warm golden upper sky
+        (ambient as any).groundColor = new Color3(0.2, 0.25, 0.15); // lush green bounce
+        (ambient as any).intensity = 0.75;
+        this.scene.clearColor = new Color4(0.15, 0.18, 0.1, 1); // green-tinted dawn sky
+      } else if (chapter <= 3) {
+        (ambient as any).diffuse = new Color3(0.65, 0.55, 0.45);
+        (ambient as any).groundColor = new Color3(0.18, 0.14, 0.22);
+        (ambient as any).intensity = 0.62;
+        this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
+      } else {
+        (ambient as any).diffuse = new Color3(0.5, 0.4, 0.35);
+        (ambient as any).groundColor = new Color3(0.15, 0.1, 0.2);
+        (ambient as any).intensity = 0.55;
+        this.scene.clearColor = new Color4(0.04, 0.02, 0.04, 1);
+      }
+    }
+
+    // Update ambient particle colors per chapter biome
     if (this.emberParticles) {
       if (chapter <= 2) {
         // Forest: warm fireflies
@@ -2974,80 +2890,6 @@ export class World {
         this.ashParticles.color2 = new Color4(0.1, 0.07, 0.05, 0.6);
         this.ashParticles.emitRate = 20;
       }
-    }
-
-    // Update hemisphere ambient and clear color immediately
-    const ambient = this.scene.getLightByName('ambient');
-    if (ambient && 'groundColor' in ambient) {
-      if (chapter === 0) {
-        (ambient as any).diffuse = new Color3(0.75, 0.7, 0.55);
-        (ambient as any).groundColor = new Color3(0.2, 0.25, 0.15);
-        (ambient as any).intensity = 0.75;
-        this.scene.clearColor = new Color4(0.15, 0.18, 0.1, 1);
-      } else if (chapter <= 3) {
-        (ambient as any).diffuse = new Color3(0.65, 0.55, 0.45);
-        (ambient as any).groundColor = new Color3(0.18, 0.14, 0.22);
-        (ambient as any).intensity = 0.62;
-        this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
-      } else {
-        (ambient as any).diffuse = new Color3(0.5, 0.4, 0.35);
-        (ambient as any).groundColor = new Color3(0.15, 0.1, 0.2);
-        (ambient as any).intensity = 0.55;
-        this.scene.clearColor = new Color4(0.04, 0.02, 0.04, 1);
-      }
-    }
-
-    // Initiate smooth color transition in render loop
-    this.scene.onBeforeRenderObservable.addOnce(() => {
-      this.updateBiomeTransition();
-    });
-  }
-
-  /**
-   * Update biome colors smoothly over 2 seconds.
-   * Called from render loop during transition.
-   */
-  private updateBiomeTransition(): void {
-    if (!this.targetBiomeColors || !this.currentBiomeColors) return;
-
-    const now = Date.now();
-    const progress = Math.min(1, (this.biomeTransitionEnd - now) / 2000);
-
-    if (progress > 0) {
-      // Lerp colors
-      const ground = this.scene.getMeshByName('ground_main');
-      const groundMat = ground?.material as PBRMaterial;
-
-      if (groundMat) {
-        groundMat.albedoColor = new Color3(
-          this.currentBiomeColors.ground.r + (this.targetBiomeColors.ground.r - this.currentBiomeColors.ground.r) * (1 - progress),
-          this.currentBiomeColors.ground.g + (this.targetBiomeColors.ground.g - this.currentBiomeColors.ground.g) * (1 - progress),
-          this.currentBiomeColors.ground.b + (this.targetBiomeColors.ground.b - this.currentBiomeColors.ground.b) * (1 - progress),
-        );
-      }
-
-      this.scene.fogColor = new Color3(
-        this.currentBiomeColors.fog.r + (this.targetBiomeColors.fog.r - this.currentBiomeColors.fog.r) * (1 - progress),
-        this.currentBiomeColors.fog.g + (this.targetBiomeColors.fog.g - this.currentBiomeColors.fog.g) * (1 - progress),
-        this.currentBiomeColors.fog.b + (this.targetBiomeColors.fog.b - this.currentBiomeColors.fog.b) * (1 - progress),
-      );
-
-      const sun = this.scene.getLightByName('sun');
-      if (sun && 'diffuse' in sun) {
-        (sun as any).diffuse = new Color3(
-          this.currentBiomeColors.sun.r + (this.targetBiomeColors.sun.r - this.currentBiomeColors.sun.r) * (1 - progress),
-          this.currentBiomeColors.sun.g + (this.targetBiomeColors.sun.g - this.currentBiomeColors.sun.g) * (1 - progress),
-          this.currentBiomeColors.sun.b + (this.targetBiomeColors.sun.b - this.currentBiomeColors.sun.b) * (1 - progress),
-        );
-      }
-
-      // Continue next frame
-      this.scene.onBeforeRenderObservable.addOnce(() => {
-        this.updateBiomeTransition();
-      });
-    } else {
-      // Transition complete
-      this.currentBiomeColors = this.targetBiomeColors;
     }
   }
 }

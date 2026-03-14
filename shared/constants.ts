@@ -105,13 +105,37 @@ export const BOSS_PHASE3_HP_PCT = 0.25;
 export const BOSS_ENRAGE_MULTIPLIER = 1.5;
 
 // World
-export const WORLD_SIZE = 120;
-export const TREE_COUNT = 80;
+export const WORLD_SIZE = 800;
+export const TREE_COUNT = 300;
 export const SPAWN_POINT = { x: 0, y: 1, z: 0 };
-export const BOSS_ARENA_CENTER = { x: 50, y: 0, z: 50 };
-export const BOSS_ARENA_RADIUS = 20;
-export const TUTORIAL_BOUNDARY = 35; // Ch0 player clamped to ±35 around origin
-export const WATER_SPEED_DEBUFF = 0.5; // Speed multiplier when in water
+export const BOSS_ARENA_CENTER = { x: 600, y: 0, z: -700 };
+export const BOSS_ARENA_RADIUS = 30;
+export const TUTORIAL_BOUNDARY = 50;
+
+// ── Chapter Zone Centers (Ramayana geographic journey) ──
+export const CHAPTER_ZONES = {
+  0: { x: 0, z: 0, name: 'Panchavati — Tutorial' },
+  1: { x: -30, z: -100, name: 'Dandaka Forest' },
+  2: { x: -80, z: -200, name: 'Jatayu\'s Fall' },
+  3: { x: -150, z: -320, name: 'Kishkindha' },
+  4: { x: -50, z: -450, name: 'Southern Shore' },
+  5: { x: 200, z: -550, name: 'Ram Setu Bridge' },
+  6: { x: 450, z: -650, name: 'Lanka Outskirts' },
+  7: { x: 600, z: -700, name: 'Ravana\'s Lanka' },
+};
+
+// Ram Setu Bridge geometry
+export const RAM_SETU_START = { x: -50, z: -470 };
+export const RAM_SETU_END = { x: 450, z: -650 };
+export const RAM_SETU_WIDTH = 12;
+
+// Tree dimensions (towering Dandaka forest)
+export const TREE_TRUNK_HEIGHT_MIN = 12;
+export const TREE_TRUNK_HEIGHT_MAX = 22;
+export const TREE_TRUNK_DIAMETER = 0.8;
+export const TREE_CANOPY_HEIGHT = 18;
+export const TREE_CANOPY_RADIUS_MIN = 4;
+export const TREE_CANOPY_RADIUS_MAX = 8;
 
 // ── Snap Shot vs Charged Shot ──
 export const SNAP_SHOT_DAMAGE = 12;

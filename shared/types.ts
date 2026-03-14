@@ -216,6 +216,17 @@ export const enum EncounterType {
   Hunt = 4,
 }
 
+// ── Encounter Phase State Machine ──
+export const enum EncounterPhase {
+  Dormant = 0,       // Not yet triggered
+  Detection = 1,     // Player spotted, dramatic pause
+  Challenge = 2,     // Pre-fight dialogue/taunt
+  Phase1 = 3,        // Standard combat
+  MidFightDialog = 4, // Dramatic mid-fight pause when enemy at 50% HP
+  Phase2 = 5,        // Hard fight — Maya illusions, special Astras, enrage
+  Defeated = 6,      // Post-defeat dialogue
+}
+
 // ── Karma Categories ──
 export interface KarmaScore {
   mercy: number;

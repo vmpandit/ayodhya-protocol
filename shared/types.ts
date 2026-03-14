@@ -122,6 +122,8 @@ export const enum EnemyAIState {
   Strafe = 5,    // Circle-strafe while attacking
   Retreat = 6,   // Back away to optimal range
   Flank = 7,     // Move to player's side/rear
+  Flying = 8,    // Hover in air, only damaged by arrows
+  Erratic = 9,   // Random direction changes with charge attacks
 }
 
 export interface EnemyState {
@@ -132,6 +134,8 @@ export interface EnemyState {
   maxHp: number;
   aiState: EnemyAIState;
   targetId: number;
+  isIllusion?: boolean;  // Maya illusion decoy
+  scale?: number;        // Enemy scale multiplier
 }
 
 // ── Boss state ──

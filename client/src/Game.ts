@@ -322,6 +322,24 @@ export class Game {
       this.hud.showNotification('MID-CHAPTER CHECKPOINT');
     };
 
+    // ── Agent 3: Combat & AI Callbacks ────────────────────────────
+    this.localSim.onInvestigationTriggered = (clue) => {
+      this.hud.showNotification('CLUE FOUND');
+      this.hud.showDialogueSequence([{ name: 'Investigation', message: clue }]);
+      this.audio.play(SFX.UIStart);
+    };
+
+    this.localSim.onWaveAnnouncement = (waveNumber, totalWaves) => {
+      this.hud.showNotification(`WAVE ${waveNumber} OF ${totalWaves} — INCOMING`);
+      this.controller?.triggerShake(0.1);
+      this.audio.play(SFX.BossRoar);
+    };
+
+    this.localSim.onMayaIllusionCreated = (_realId, _illusionIds) => {
+      this.hud.showNotification('MAYA ILLUSION — FIND THE REAL ONE');
+      this.audio.play(SFX.FireArrowCast);
+    };
+
     this.localSim.onPickupSpawned = (id, pos, arrows) => {
       this.world.spawnPickup(id, pos, arrows);
     };
@@ -815,6 +833,12 @@ export class Game {
             const snap = this.localSim.update(dt);
             this.lastSnapshot = snap;
             this.interpolation.pushSnapshot(snap);
+
+            // Update water physics: check if player is in water
+            const player = snap.players.find(p => p.id === this.localPlayerId);
+            if (player) {
+              this.localSim.inWater = this.world.isInWater(player.pos.x, player.pos.z);
+            }
           }
         } else if (this.network) {
           this.network.sendInput(input);

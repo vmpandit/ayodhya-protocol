@@ -111,6 +111,7 @@ export const SPAWN_POINT = { x: 0, y: 1, z: 0 };
 export const BOSS_ARENA_CENTER = { x: 50, y: 0, z: 50 };
 export const BOSS_ARENA_RADIUS = 20;
 export const TUTORIAL_BOUNDARY = 35; // Ch0 player clamped to ±35 around origin
+export const WATER_SPEED_DEBUFF = 0.5; // Speed multiplier when in water
 
 // ── Snap Shot vs Charged Shot ──
 export const SNAP_SHOT_DAMAGE = 12;
@@ -196,3 +197,36 @@ export const KARMA_DEVOTION_DIALOGUE = 3;
 // ── Encounter Recipes ──
 export const SIEGE_DURATION_MS = 60000;
 export const SIEGE_WAVE_INTERVAL_MS = 15000;
+
+// ── Asura Maya Illusion Mechanics ──
+export const MAYA_ILLUSION_HP_THRESHOLD = 0.5;        // Trigger at 50% HP
+export const MAYA_ILLUSION_DURATION_MS = 5000;        // Decoys last 5 seconds
+export const MAYA_ILLUSION_COOLDOWN_MS = 20000;       // Cooldown between uses
+export const MAYA_ILLUSION_COUNT = 2;                  // Number of decoys
+export const MAYA_ILLUSION_HP_FRACTION = 0.15;        // Decoys have 15% of original HP
+export const MAYA_ILLUSION_DAMAGE_MULTIPLIER = 0.5;   // Decoys deal 50% damage
+
+// ── Variable Enemy Scale System ──
+export const ENEMY_SCALE_SMALL = 0.7;
+export const ENEMY_SCALE_NORMAL = 1.0;
+export const ENEMY_SCALE_LARGE = 1.3;
+export const ENEMY_SCALE_GIANT = 1.8;
+
+// ── Flying/Erratic Enemy Behavior ──
+export const FLYING_ENEMY_HEIGHT_MIN = 4.0;
+export const FLYING_ENEMY_HEIGHT_MAX = 6.0;
+export const FLYING_ENEMY_BOB_SPEED = 2.0;
+export const FLYING_ENEMY_BOB_AMPLITUDE = 0.5;
+export const FLYING_ENEMY_CIRCLE_RADIUS = 12.0;
+
+export const ERRATIC_ENEMY_DIRECTION_CHANGE_MIN = 0.5;
+export const ERRATIC_ENEMY_DIRECTION_CHANGE_MAX = 1.5;
+export const ERRATIC_ENEMY_CHARGE_SPEED_MULTIPLIER = 3.0;
+export const ERRATIC_ENEMY_CHARGE_DURATION = 0.5;      // seconds
+export const ERRATIC_ENEMY_CHARGE_RECOVERY = 2.0;      // seconds
+
+// ── Checkpoint/Savepoint System ──
+export const CHECKPOINT_SAVE_KEY = 'ayodhya_checkpoint';
+
+// ── Investigation Point System ──
+export const INVESTIGATION_POINT_INTERACT_DISTANCE = 3.0;

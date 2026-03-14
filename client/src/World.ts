@@ -7,7 +7,7 @@ import {
   MeshBuilder, StandardMaterial, PBRMaterial, Color3, Vector3, Mesh,
   Scene, TransformNode, InstancedMesh,
   Texture, Color4, GlowLayer, ParticleSystem, PointLight, DynamicTexture,
-  Engine,
+  Engine, VertexBuffer, VertexData,
 } from '@babylonjs/core';
 import { Renderer } from './Renderer';
 import { LoadedAssets } from './TextureLoader';
@@ -50,6 +50,14 @@ export class World {
   private campfireMesh: Mesh | null = null;
   private riverSegments: Mesh[] = [];
   private oceanMesh: Mesh | null = null;
+  private heightmap: Float32Array | null = null;
+  private heightmapResolution = 0; // Side length of the heightmap grid
+  private heightmapScale = 0; // Scale factor for UV to world space conversion
+
+  // Biome transition tracking
+  private biomeTransitionEnd = 0; // Time when transition completes
+  private currentBiomeColors: { ground: Color3; fog: Color3; sun: Color3 } | null = null;
+  private targetBiomeColors: { ground: Color3; fog: Color3; sun: Color3 } | null = null;
 
   /** Shared PBR material cache — keyed by a descriptive string */
   private matCache = new Map<string, PBRMaterial>();
@@ -395,6 +403,170 @@ export class World {
       rock.material = rockMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(rock);
     }
+
+    // Generate heightmap for terrain after creating ground
+    this.generateHeightmap();
+    this.applyHeightmapToGround(ground);
+  }
+
+  /**
+   * Generate a procedural heightmap using multiple sine/cosine octaves.
+   * Height range: 0 to 3 units. Flattens near spawn and boss arena.
+   */
+  private generateHeightmap(): void {
+    // Use 64x64 resolution for the heightmap grid
+    this.heightmapResolution = 64;
+    this.heightmapScale = C.WORLD_SIZE * 1.2 / this.heightmapResolution;
+    const hm = new Float32Array(this.heightmapResolution * this.heightmapResolution);
+
+    const halfWorld = (C.WORLD_SIZE * 1.2) / 2;
+    const spawnFlatRadius = 15;
+    const bossArenaFlatRadius = 25;
+
+    for (let i = 0; i < this.heightmapResolution; i++) {
+      for (let j = 0; j < this.heightmapResolution; j++) {
+        const uvX = i / this.heightmapResolution;
+        const uvZ = j / this.heightmapResolution;
+
+        // Convert UV to world space
+        const worldX = (uvX - 0.5) * (C.WORLD_SIZE * 1.2);
+        const worldZ = (uvZ - 0.5) * (C.WORLD_SIZE * 1.2);
+
+        // Multi-octave Perlin-like noise using sine/cosine
+        let height = 0;
+        let amplitude = 1.0;
+        let frequency = 1.0;
+
+        for (let octave = 0; octave < 4; octave++) {
+          const x = worldX * frequency * 0.01;
+          const z = worldZ * frequency * 0.01;
+          height += amplitude * Math.sin(x) * Math.cos(z);
+          amplitude *= 0.5;
+          frequency *= 2.0;
+        }
+
+        // Normalize to 0-3 range
+        height = ((height + 2) / 4) * 3;
+
+        // Flatten near spawn
+        const distToSpawn = Math.sqrt(worldX * worldX + worldZ * worldZ);
+        if (distToSpawn < spawnFlatRadius) {
+          const falloff = distToSpawn / spawnFlatRadius;
+          height *= falloff * falloff;
+        }
+
+        // Flatten near boss arena
+        const distToBoss = Math.sqrt(
+          (worldX - C.BOSS_ARENA_CENTER.x) ** 2 +
+          (worldZ - C.BOSS_ARENA_CENTER.z) ** 2
+        );
+        if (distToBoss < bossArenaFlatRadius) {
+          const falloff = distToBoss / bossArenaFlatRadius;
+          height *= falloff * falloff;
+        }
+
+        hm[j * this.heightmapResolution + i] = Math.max(0, height);
+      }
+    }
+
+    this.heightmap = hm;
+  }
+
+  /**
+   * Apply the heightmap to the ground mesh vertices.
+   */
+  private applyHeightmapToGround(ground: Mesh): void {
+    if (!this.heightmap) return;
+
+    const positions = ground.getVerticesData(VertexBuffer.PositionKind);
+    if (!positions) return;
+
+    const halfWorld = (C.WORLD_SIZE * 1.2) / 2;
+
+    // Update Y positions based on heightmap
+    for (let i = 0; i < positions.length; i += 3) {
+      const x = positions[i];
+      const z = positions[i + 2];
+
+      // Convert world position to heightmap UV
+      const uvX = (x + halfWorld) / (C.WORLD_SIZE * 1.2);
+      const uvZ = (z + halfWorld) / (C.WORLD_SIZE * 1.2);
+
+      // Clamp to valid range
+      const clampedUvX = Math.max(0, Math.min(1, uvX));
+      const clampedUvZ = Math.max(0, Math.min(1, uvZ));
+
+      // Sample heightmap with bilinear interpolation
+      const sampleX = clampedUvX * (this.heightmapResolution - 1);
+      const sampleZ = clampedUvZ * (this.heightmapResolution - 1);
+
+      const x0 = Math.floor(sampleX);
+      const x1 = Math.min(x0 + 1, this.heightmapResolution - 1);
+      const z0 = Math.floor(sampleZ);
+      const z1 = Math.min(z0 + 1, this.heightmapResolution - 1);
+
+      const fx = sampleX - x0;
+      const fz = sampleZ - z0;
+
+      const h00 = this.heightmap[z0 * this.heightmapResolution + x0];
+      const h10 = this.heightmap[z0 * this.heightmapResolution + x1];
+      const h01 = this.heightmap[z1 * this.heightmapResolution + x0];
+      const h11 = this.heightmap[z1 * this.heightmapResolution + x1];
+
+      // Bilinear interpolation
+      const h0 = h00 * (1 - fx) + h10 * fx;
+      const h1 = h01 * (1 - fx) + h11 * fx;
+      const height = h0 * (1 - fz) + h1 * fz;
+
+      positions[i + 1] = height;
+    }
+
+    // Update vertex data
+    ground.updateVerticesData(VertexBuffer.PositionKind, positions);
+
+    // Recalculate normals for proper lighting
+    const normals: number[] = [];
+    VertexData.ComputeNormals(positions, ground.getIndices(), normals);
+    ground.updateVerticesData(VertexBuffer.NormalKind, normals);
+  }
+
+  /**
+   * Get terrain height at a world position using heightmap bilinear interpolation.
+   */
+  getTerrainHeight(x: number, z: number): number {
+    if (!this.heightmap) return 0;
+
+    const halfWorld = (C.WORLD_SIZE * 1.2) / 2;
+
+    // Convert world position to heightmap UV
+    const uvX = (x + halfWorld) / (C.WORLD_SIZE * 1.2);
+    const uvZ = (z + halfWorld) / (C.WORLD_SIZE * 1.2);
+
+    // Clamp to valid range
+    const clampedUvX = Math.max(0, Math.min(1, uvX));
+    const clampedUvZ = Math.max(0, Math.min(1, uvZ));
+
+    // Sample heightmap with bilinear interpolation
+    const sampleX = clampedUvX * (this.heightmapResolution - 1);
+    const sampleZ = clampedUvZ * (this.heightmapResolution - 1);
+
+    const x0 = Math.floor(sampleX);
+    const x1 = Math.min(x0 + 1, this.heightmapResolution - 1);
+    const z0 = Math.floor(sampleZ);
+    const z1 = Math.min(z0 + 1, this.heightmapResolution - 1);
+
+    const fx = sampleX - x0;
+    const fz = sampleZ - z0;
+
+    const h00 = this.heightmap[z0 * this.heightmapResolution + x0];
+    const h10 = this.heightmap[z0 * this.heightmapResolution + x1];
+    const h01 = this.heightmap[z1 * this.heightmapResolution + x0];
+    const h11 = this.heightmap[z1 * this.heightmapResolution + x1];
+
+    // Bilinear interpolation
+    const h0 = h00 * (1 - fx) + h10 * fx;
+    const h1 = h01 * (1 - fx) + h11 * fx;
+    return h0 * (1 - fz) + h1 * fz;
   }
 
   private buildTrees(): void {
@@ -893,15 +1065,33 @@ export class World {
     root.position.set(state.pos.x, state.pos.y, state.pos.z);
     root.rotation.y = state.yaw;
 
-    // Walking animation: bob and sway when moving (Patrol, Chase, Strafe, Retreat, Flank)
+    // Apply enemy scale from state
+    const scale = state.scale ?? 1.0;
+    root.scaling.set(scale, scale, scale);
+
+    // Illusion transparency: make illusions semi-transparent with a shimmer
+    if (state.isIllusion) {
+      const shimmer = 0.35 + Math.sin(performance.now() / 200 + state.id) * 0.15;
+      root.getChildMeshes().forEach(mesh => {
+        if (mesh.material && 'alpha' in mesh.material) {
+          (mesh.material as StandardMaterial).alpha = shimmer;
+        }
+      });
+    }
+
+    // Walking animation: bob and sway when moving
     const isMoving = state.aiState === EnemyAIState.Patrol || state.aiState === EnemyAIState.Chase ||
                       state.aiState === EnemyAIState.Strafe || state.aiState === EnemyAIState.Retreat ||
-                      state.aiState === EnemyAIState.Flank;
+                      state.aiState === EnemyAIState.Flank || state.aiState === EnemyAIState.Flying ||
+                      state.aiState === EnemyAIState.Erratic;
     if (isMoving) {
       const t = performance.now() / 1000;
-      const bobFreq = (state.aiState === EnemyAIState.Chase || state.aiState === EnemyAIState.Flank) ? 10 : 5;
-      root.position.y += Math.sin(t * bobFreq + state.id) * 0.08;
-      // Slight lateral tilt for walking feel
+      const bobFreq = (state.aiState === EnemyAIState.Chase || state.aiState === EnemyAIState.Flank ||
+                       state.aiState === EnemyAIState.Erratic) ? 10 : 5;
+      // Flying enemies don't bob vertically (they have their own Y positioning)
+      if (state.aiState !== EnemyAIState.Flying) {
+        root.position.y += Math.sin(t * bobFreq + state.id) * 0.08;
+      }
       root.rotation.z = Math.sin(t * bobFreq * 0.5 + state.id) * 0.04;
     } else {
       root.rotation.z = 0;
@@ -2475,6 +2665,60 @@ export class World {
   }
 
   /**
+   * Check if a position is within water (river or ocean bounds).
+   */
+  public isInWater(x: number, z: number): boolean {
+    // Check river segments
+    const riverWidth = 3.5;
+    const riverPath: { x: number; z: number }[] = [
+      { x: 15, z: 5 }, { x: 12, z: -5 }, { x: 8, z: -15 },
+      { x: 3, z: -22 }, { x: -2, z: -30 }, { x: -5, z: -38 },
+      { x: -3, z: -48 }, { x: 2, z: -55 }, { x: 8, z: -62 },
+      { x: 10, z: -72 }, { x: 6, z: -82 },
+    ];
+
+    for (let i = 0; i < riverPath.length - 1; i++) {
+      const p0 = riverPath[i];
+      const p1 = riverPath[i + 1];
+
+      // Calculate distance from point to line segment
+      const dx = p1.x - p0.x;
+      const dz = p1.z - p0.z;
+      const lenSq = dx * dx + dz * dz;
+
+      if (lenSq === 0) {
+        // Segment is a point
+        const dist = Math.sqrt((x - p0.x) ** 2 + (z - p0.z) ** 2);
+        if (dist < riverWidth) return true;
+        continue;
+      }
+
+      const t = Math.max(0, Math.min(1, ((x - p0.x) * dx + (z - p0.z) * dz) / lenSq));
+      const closestX = p0.x + t * dx;
+      const closestZ = p0.z + t * dz;
+      const dist = Math.sqrt((x - closestX) ** 2 + (z - closestZ) ** 2);
+
+      if (dist < riverWidth) return true;
+    }
+
+    // Check ocean bounds
+    const oceanX = 0;
+    const oceanZ = -115;
+    const oceanWidth = 140;
+    const oceanHeight = 50;
+    const oceanLeft = oceanX - oceanWidth / 2;
+    const oceanRight = oceanX + oceanWidth / 2;
+    const oceanTop = oceanZ - oceanHeight / 2;
+    const oceanBottom = oceanZ + oceanHeight / 2;
+
+    if (x >= oceanLeft && x <= oceanRight && z >= oceanTop && z <= oceanBottom) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Water animation: gently oscillates river alpha, shifts Y positions for flowing effect,
    * and undulates ocean alpha and Y.
    */
@@ -2661,10 +2905,6 @@ export class World {
   // ══════════════════════════════════════════════════════════════════════════
 
   setChapterBiome(chapter: number): void {
-    // Get the ground mesh
-    const ground = this.scene.getMeshByName('ground_main');
-    const groundMat = ground?.material as PBRMaterial;
-
     // Define biome settings per chapter
     const biomes: Record<number, { groundColor: [number, number, number]; fogColor: [number, number, number]; fogDensity: number; sunColor: [number, number, number]; sunIntensity: number }> = {
       0: { groundColor: [0.15, 0.28, 0.1], fogColor: [0.2, 0.25, 0.15], fogDensity: 0.004, sunColor: [1.0, 0.85, 0.5], sunIntensity: 1.8 }, // Ashram - serene golden morning
@@ -2679,42 +2919,26 @@ export class World {
 
     const b = biomes[chapter] ?? biomes[0];
 
-    if (groundMat) {
-      groundMat.albedoColor = new Color3(...b.groundColor);
+    // Set up transition animation (2 seconds = 2000ms)
+    this.biomeTransitionEnd = Date.now() + 2000;
+    this.targetBiomeColors = {
+      ground: new Color3(...b.groundColor),
+      fog: new Color3(...b.fogColor),
+      sun: new Color3(...b.sunColor),
+    };
+
+    // Initialize current colors if not set
+    const ground = this.scene.getMeshByName('ground_main');
+    const groundMat = ground?.material as PBRMaterial;
+    if (!this.currentBiomeColors) {
+      this.currentBiomeColors = {
+        ground: groundMat?.albedoColor?.clone() ?? new Color3(0.15, 0.28, 0.1),
+        fog: this.scene.fogColor?.clone() ?? new Color3(0.2, 0.25, 0.15),
+        sun: new Color3(1.0, 0.85, 0.5),
+      };
     }
 
-    this.scene.fogColor = new Color3(...b.fogColor);
-    this.scene.fogDensity = b.fogDensity;
-
-    // Update directional light (sun)
-    const sun = this.scene.getLightByName('sun');
-    if (sun && 'diffuse' in sun) {
-      (sun as any).diffuse = new Color3(...b.sunColor);
-      (sun as any).intensity = b.sunIntensity;
-    }
-
-    // Update hemisphere ambient for Ch0 peaceful ashram
-    const ambient = this.scene.getLightByName('ambient');
-    if (ambient && 'groundColor' in ambient) {
-      if (chapter === 0) {
-        (ambient as any).diffuse = new Color3(0.75, 0.7, 0.55);   // warm golden upper sky
-        (ambient as any).groundColor = new Color3(0.2, 0.25, 0.15); // lush green bounce
-        (ambient as any).intensity = 0.75;
-        this.scene.clearColor = new Color4(0.15, 0.18, 0.1, 1); // green-tinted dawn sky
-      } else if (chapter <= 3) {
-        (ambient as any).diffuse = new Color3(0.65, 0.55, 0.45);
-        (ambient as any).groundColor = new Color3(0.18, 0.14, 0.22);
-        (ambient as any).intensity = 0.62;
-        this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
-      } else {
-        (ambient as any).diffuse = new Color3(0.5, 0.4, 0.35);
-        (ambient as any).groundColor = new Color3(0.15, 0.1, 0.2);
-        (ambient as any).intensity = 0.55;
-        this.scene.clearColor = new Color4(0.04, 0.02, 0.04, 1);
-      }
-    }
-
-    // Update ambient particle colors per chapter biome
+    // Update ambient particles immediately
     if (this.emberParticles) {
       if (chapter <= 2) {
         // Forest: warm fireflies
@@ -2750,6 +2974,80 @@ export class World {
         this.ashParticles.color2 = new Color4(0.1, 0.07, 0.05, 0.6);
         this.ashParticles.emitRate = 20;
       }
+    }
+
+    // Update hemisphere ambient and clear color immediately
+    const ambient = this.scene.getLightByName('ambient');
+    if (ambient && 'groundColor' in ambient) {
+      if (chapter === 0) {
+        (ambient as any).diffuse = new Color3(0.75, 0.7, 0.55);
+        (ambient as any).groundColor = new Color3(0.2, 0.25, 0.15);
+        (ambient as any).intensity = 0.75;
+        this.scene.clearColor = new Color4(0.15, 0.18, 0.1, 1);
+      } else if (chapter <= 3) {
+        (ambient as any).diffuse = new Color3(0.65, 0.55, 0.45);
+        (ambient as any).groundColor = new Color3(0.18, 0.14, 0.22);
+        (ambient as any).intensity = 0.62;
+        this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
+      } else {
+        (ambient as any).diffuse = new Color3(0.5, 0.4, 0.35);
+        (ambient as any).groundColor = new Color3(0.15, 0.1, 0.2);
+        (ambient as any).intensity = 0.55;
+        this.scene.clearColor = new Color4(0.04, 0.02, 0.04, 1);
+      }
+    }
+
+    // Initiate smooth color transition in render loop
+    this.scene.onBeforeRenderObservable.addOnce(() => {
+      this.updateBiomeTransition();
+    });
+  }
+
+  /**
+   * Update biome colors smoothly over 2 seconds.
+   * Called from render loop during transition.
+   */
+  private updateBiomeTransition(): void {
+    if (!this.targetBiomeColors || !this.currentBiomeColors) return;
+
+    const now = Date.now();
+    const progress = Math.min(1, (this.biomeTransitionEnd - now) / 2000);
+
+    if (progress > 0) {
+      // Lerp colors
+      const ground = this.scene.getMeshByName('ground_main');
+      const groundMat = ground?.material as PBRMaterial;
+
+      if (groundMat) {
+        groundMat.albedoColor = new Color3(
+          this.currentBiomeColors.ground.r + (this.targetBiomeColors.ground.r - this.currentBiomeColors.ground.r) * (1 - progress),
+          this.currentBiomeColors.ground.g + (this.targetBiomeColors.ground.g - this.currentBiomeColors.ground.g) * (1 - progress),
+          this.currentBiomeColors.ground.b + (this.targetBiomeColors.ground.b - this.currentBiomeColors.ground.b) * (1 - progress),
+        );
+      }
+
+      this.scene.fogColor = new Color3(
+        this.currentBiomeColors.fog.r + (this.targetBiomeColors.fog.r - this.currentBiomeColors.fog.r) * (1 - progress),
+        this.currentBiomeColors.fog.g + (this.targetBiomeColors.fog.g - this.currentBiomeColors.fog.g) * (1 - progress),
+        this.currentBiomeColors.fog.b + (this.targetBiomeColors.fog.b - this.currentBiomeColors.fog.b) * (1 - progress),
+      );
+
+      const sun = this.scene.getLightByName('sun');
+      if (sun && 'diffuse' in sun) {
+        (sun as any).diffuse = new Color3(
+          this.currentBiomeColors.sun.r + (this.targetBiomeColors.sun.r - this.currentBiomeColors.sun.r) * (1 - progress),
+          this.currentBiomeColors.sun.g + (this.targetBiomeColors.sun.g - this.currentBiomeColors.sun.g) * (1 - progress),
+          this.currentBiomeColors.sun.b + (this.targetBiomeColors.sun.b - this.currentBiomeColors.sun.b) * (1 - progress),
+        );
+      }
+
+      // Continue next frame
+      this.scene.onBeforeRenderObservable.addOnce(() => {
+        this.updateBiomeTransition();
+      });
+    } else {
+      // Transition complete
+      this.currentBiomeColors = this.targetBiomeColors;
     }
   }
 }

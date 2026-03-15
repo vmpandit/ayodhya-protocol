@@ -807,6 +807,21 @@ export class HUD {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  //  ASHRAM REST STOP INDICATOR
+  // ══════════════════════════════════════════════════════════════════════════
+
+  updateAshramHint(nearby: boolean): void {
+    const el = document.getElementById('ashramHint');
+    if (el) {
+      if (nearby) {
+        el.classList.add('visible');
+      } else {
+        el.classList.remove('visible');
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   //  P3-4: ACHIEVEMENT SYSTEM
   // ══════════════════════════════════════════════════════════════════════════
 

@@ -552,8 +552,38 @@ const ch4_sampati_tree: DialogueTree = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Export all dialogue trees
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Return dialogue trees (for re-visiting NPCs at ashrams/rest stops)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ch1_sage_return_tree: DialogueTree = {
+  startNodeId: 'r1',
+  nodes: {
+    r1: {
+      id: 'r1',
+      speaker: 'Sage Agastya',
+      text: "Ah, you return, Prince Rama. The ashram is always open to you. Rest here, reflect upon your Dharma, and let the sacred fire restore your spirit.",
+      choices: [
+        { label: "Tell me again about the Astras.", nextNodeId: 'r2' },
+        { label: "I seek your blessing, Sage.", nextNodeId: 'r3' },
+      ],
+    },
+    r2: {
+      id: 'r2',
+      speaker: 'Sage Agastya',
+      text: "The Agni Astra burns with Agni's divine flame. The Vayu Astra carries the storm-wind of Hanuman's father. The Varuna Astra slows with the weight of ocean tides. The Naga Astra binds with serpent venom. And the Brahmastra — use it only when all other paths fail, for it carries the weight of creation itself.",
+    },
+    r3: {
+      id: 'r3',
+      speaker: 'Sage Agastya',
+      text: "My blessing goes with you always, Rama. Remember: Dharma is not only in the battlefield. It is in mercy shown to the fallen, devotion to your purpose, and valor when all seems lost. The ashram fire will heal your wounds — rest as long as you need.",
+    },
+  },
+};
+
 export const DIALOGUE_TREES: Record<string, DialogueTree> = {
   ch1_sage: ch1_sage_tree,
+  ch1_sage_return: ch1_sage_return_tree,
   ch2_jatayu: ch2_jatayu_tree,
   ch3_sugriv: ch3_sugriv_tree,
   ch4_jambavan: ch4_jambavan_tree,

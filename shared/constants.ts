@@ -271,3 +271,18 @@ export const CHECKPOINT_SAVE_KEY = 'ayodhya_checkpoint';
 
 // ── Investigation Point System ──
 export const INVESTIGATION_POINT_INTERACT_DISTANCE = 3.0;
+
+// ── Ashram Rest Stops ──
+// Ashram fire pits heal the player when standing nearby
+export const ASHRAM_HEAL_RADIUS = 8;         // Distance from fire to receive healing
+export const ASHRAM_HEAL_RATE = 12;           // HP per second while in range
+export const ASHRAM_STAMINA_RATE = 15;        // Stamina per second while in range
+export const ASHRAM_ARROW_INTERVAL = 3;       // Seconds between arrow restores
+export const ASHRAM_ARROW_AMOUNT = 2;         // Arrows restored per interval
+// Ashram fire pit positions (near each chapter zone center)
+export const ASHRAM_POSITIONS = [
+  { x: 0, z: -2 },             // Ch0: Tutorial ashram fire pit
+  { x: -30, z: -102 },         // Ch1: Dandaka rest fire
+  { x: -150, z: -322 },        // Ch3: Kishkindha camp
+  { x: -50, z: -452 },         // Ch4: Southern shore campfire
+];

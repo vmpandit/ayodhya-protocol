@@ -375,6 +375,18 @@
     }
     #meditationHint.visible { opacity: 1; animation: meditPulse 2s ease-in-out infinite; }
 
+    /* Ashram rest stop hint */
+    #ashramHint {
+      position: fixed; bottom: 220px; left: 50%; transform: translateX(-50%);
+      font-family: 'Rajdhani', monospace; font-size: 14px; color: #ffd700;
+      text-shadow: 0 0 12px rgba(255,215,0,0.5); letter-spacing: 3px;
+      pointer-events: none; opacity: 0; transition: opacity 0.5s;
+      z-index: 160; padding: 6px 16px;
+      background: rgba(0,0,0,0.5); border: 1px solid rgba(255,215,0,0.3);
+      border-radius: 6px;
+    }
+    #ashramHint.visible { opacity: 1; animation: meditPulse 2s ease-in-out infinite; }
+
     /* Companion tutorial overlay (G-03) */
     #companionTutorial {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -820,6 +832,9 @@
     <!-- Meditation hint -->
     <div id="meditationHint">Press V to Meditate</div>
 
+    <!-- Ashram rest stop hint -->
+    <div id="ashramHint">ASHRAM — Healing &amp; Restoring</div>
+
     <!-- Companion tutorial overlay (G-03) -->
     <div id="companionTutorial">
       <div class="companion-tutorial-content"></div>
@@ -908,7 +923,7 @@
       <div class="tutorial-step" data-step="shockwave"><span class="tut-check">○</span> E — Shockwave</div>
       <div class="tutorial-step" data-step="jump"><span class="tut-check">○</span> Space — Jump</div>
       <div class="tutorial-step" data-step="meditate"><span class="tut-check">○</span> V — Meditate</div>
-      <div class="tutorial-step" data-step="talk"><span class="tut-check">○</span> T — Talk to NPC</div>
+      <div class="tutorial-step" data-step="talk"><span class="tut-check">○</span> F — Talk to NPC</div>
     </div>
 
     <!-- Backstory overlay -->
@@ -1000,6 +1015,9 @@
         <div class="instr-row"><span class="instr-key">F</span><span class="instr-desc">Talk to nearby NPC (sages, allies, story characters)</span></div>
         <div class="instr-row"><span class="instr-key">V</span><span class="instr-desc">Meditate — restore health and focus (available in rest chapters)</span></div>
         <div class="instr-row"><span class="instr-key">M</span><span class="instr-desc">Open Map — view explored areas, waypoints, save/load game</span></div>
+        <div class="instr-row"><span class="instr-key">T</span><span class="instr-desc">Toggle Torch — lights the area around you in dark zones</span></div>
+        <div class="instr-row"><span class="instr-key">G</span><span class="instr-desc">Place Campfire — create a rest point for healing</span></div>
+        <div class="instr-row"><span class="instr-key">X</span><span class="instr-desc">Companion Ability — activate your companion's special power</span></div>
         <div class="instr-row"><span class="instr-key">R</span><span class="instr-desc">Revive downed teammate (hold near them, 3 s)</span></div>
       </div>
 

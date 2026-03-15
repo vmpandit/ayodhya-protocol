@@ -175,6 +175,10 @@ export class LocalSim {
   // Karma scoring
   public karma: KarmaScore = { mercy: 0, valor: 0, devotion: 0 };
 
+  // Ashram rest stop
+  public ashramNearby = false;
+  private ashramArrowTimer = 0;
+
   // Astra Synergy combo callback
   public onAstraCombo: (combo: AstraCombo, pos: Vec3, damage: number) => void = () => {};
   // Damage direction callback
@@ -417,8 +421,9 @@ export class LocalSim {
   public onMayaIllusionCreated: (realEnemyId: number, illusionIds: number[]) => void = () => {};
 
   constructor() {
+    const spawnY = getTerrainHeight(C.SPAWN_POINT.x, C.SPAWN_POINT.z);
     this.player = {
-      id: 1, pos: { ...C.SPAWN_POINT }, vel: { x: 0, y: 0, z: 0 }, yaw: 0,
+      id: 1, pos: { x: C.SPAWN_POINT.x, y: spawnY, z: C.SPAWN_POINT.z }, vel: { x: 0, y: 0, z: 0 }, yaw: 0,
       hp: C.PLAYER_MAX_HP, maxHp: C.PLAYER_MAX_HP, stamina: C.PLAYER_MAX_STAMINA,
       status: PlayerStatus.Alive, isDodging: false, lastProcessedSeq: 0,
     };
@@ -495,6 +500,10 @@ export class LocalSim {
   }
 
   // ── Dialogue System ──────────────────────────────────────────
+  hasDialogueTree(treeId: string): boolean {
+    return !!DIALOGUE_TREES[treeId];
+  }
+
   startDialogue(treeId: string): void {
     const tree = DIALOGUE_TREES[treeId];
     if (!tree) {
@@ -549,12 +558,12 @@ export class LocalSim {
   endDialogue(): void {
     if (!this.dialogueInProgress) return;
 
-    // Mark the NPC as spoken to and reveal map area
+    // Mark the NPC as spoken to and reveal map area (first time only)
     if (this.nearbyNPCId) {
       const npc = this.storyNPCs.find(n => n.id === this.nearbyNPCId);
-      if (npc) {
+      if (npc && !npc.spoken) {
         npc.spoken = true;
-        // Apply blessing from this NPC
+        // Apply blessing from this NPC (first conversation only)
         this.applyBlessing(npc.id);
         // NPC reveals a large map area + waypoint
         this.onMapWaypoint(npc.pos.x, npc.pos.z, 1, npc.name, this.chapter); // NPCLocation = 1
@@ -630,9 +639,12 @@ export class LocalSim {
       : enemyType === 'brute' ? 3 + Math.random() * 2
       : 10 + Math.random() * 10;
 
+    // Snap spawn position to terrain height
+    const spawnPos = { ...pos, y: getTerrainHeight(pos.x, pos.z) };
+
     return {
-      state: { id, pos: { ...pos }, yaw: 0, hp: scaledHp, maxHp: scaledHp, aiState: EnemyAIState.Patrol, targetId: 0, scale },
-      patrolOrigin: { ...pos }, patrolAngle: Math.random() * Math.PI * 2,
+      state: { id, pos: spawnPos, yaw: 0, hp: scaledHp, maxHp: scaledHp, aiState: EnemyAIState.Patrol, targetId: 0, scale },
+      patrolOrigin: { ...spawnPos }, patrolAngle: Math.random() * Math.PI * 2,
       meleeCdEnd: 0, rangedCdEnd: 0, telegraphEnd: 0,
       behaviorTimer: 0,
       strafeDir: Math.random() > 0.5 ? 1 : -1,
@@ -944,11 +956,12 @@ export class LocalSim {
     // Push player out of obstacles
     this.pushOutOfObstacles(this.player.pos);
 
-    // Simple gravity
+    // Simple gravity with terrain height
     this.playerVelY += C.GRAVITY * input.dt;
     this.player.pos.y += this.playerVelY * input.dt;
-    if (this.player.pos.y <= 0) {
-      this.player.pos.y = 0;
+    const groundY = getTerrainHeight(this.player.pos.x, this.player.pos.z);
+    if (this.player.pos.y <= groundY) {
+      this.player.pos.y = groundY;
       this.playerVelY = 0;
       this.grounded = true;
     }
@@ -1450,14 +1463,45 @@ export class LocalSim {
       }
     }
 
-    // ── Check story NPC proximity ────────────────────────────────
+    // ── Ashram rest stop healing ─────────────────────────────────
+    this.ashramNearby = false;
+    for (const ashramPos of C.ASHRAM_POSITIONS) {
+      const adx = this.player.pos.x - ashramPos.x;
+      const adz = this.player.pos.z - ashramPos.z;
+      const ashramDist = Math.sqrt(adx * adx + adz * adz);
+      if (ashramDist < C.ASHRAM_HEAL_RADIUS) {
+        this.ashramNearby = true;
+        // Heal HP and stamina
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + C.ASHRAM_HEAL_RATE * dt);
+        this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + C.ASHRAM_STAMINA_RATE * dt);
+        // Restore arrows periodically
+        this.ashramArrowTimer += dt;
+        if (this.ashramArrowTimer >= C.ASHRAM_ARROW_INTERVAL) {
+          this.ashramArrowTimer = 0;
+          this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + C.ASHRAM_ARROW_AMOUNT);
+        }
+        break; // Only one ashram at a time
+      }
+    }
+    if (!this.ashramNearby) {
+      this.ashramArrowTimer = 0;
+    }
+
+    // ── Check story NPC proximity (allow re-talking to spoken NPCs) ──
     this.nearbyNPCId = null;
     for (const npc of this.storyNPCs) {
       const dist = dist3(this.player.pos, npc.pos);
-      if (!npc.spoken && dist < 5) {
+      if (dist < 5) {
         // Set nearby NPC for "Press F to Talk" prompt
         this.nearbyNPCId = npc.id;
         this.onNPCNearby(npc.id, npc.name);
+      }
+    }
+
+    // ── Snap all enemies to terrain height ────────────────────────
+    for (const enemy of this.enemies) {
+      if (enemy.state.aiState !== EnemyAIState.Dead) {
+        enemy.state.pos.y = getTerrainHeight(enemy.state.pos.x, enemy.state.pos.z);
       }
     }
 
@@ -1843,6 +1887,9 @@ export class LocalSim {
           }
         }
       }
+
+      // Snap companion to terrain height
+      comp.pos.y = getTerrainHeight(comp.pos.x, comp.pos.z);
     }
   }
 
@@ -2817,6 +2864,27 @@ export class LocalSim {
       difficulty: this.difficulty,
     };
   }
+}
+
+// ── Terrain height sampling (must match World.ts terrainNoise * biomeAmplitude) ──
+function terrainNoise(x: number, z: number): number {
+  const n1 = Math.sin(x * 0.05) * Math.cos(z * 0.05);
+  const n2 = Math.sin(x * 0.13 + 2.7) * Math.cos(z * 0.11 + 1.3) * 0.5;
+  return n1 + n2;
+}
+
+function biomeAmplitude(z: number): number {
+  if (z > -50) return 2.5;
+  if (z > -150) return 2.0;
+  if (z > -250) return 3.5;
+  if (z > -380) return 4.5;
+  if (z > -490) return 0.8;
+  if (z > -580) return 0.2;
+  return 3.5;
+}
+
+function getTerrainHeight(x: number, z: number): number {
+  return terrainNoise(x, z) * biomeAmplitude(z);
 }
 
 function dist3(a: Vec3, b: Vec3): number {

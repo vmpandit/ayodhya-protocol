@@ -2220,62 +2220,156 @@ export class World {
 
   private buildChapter0Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
     const centerX = zone.x, centerZ = zone.z;
+    const woodColor = new Color3(0.45, 0.32, 0.18);
+    const thatchColor = new Color3(0.55, 0.45, 0.22);
+    const stoneColor = new Color3(0.5, 0.45, 0.4);
+    const warmOrange = new Color3(0.8, 0.4, 0.1);
 
-    // 3 training posts: cylinders with cross-beams
+    // ─── ASHRAM HUT: Thatched-roof shelter with 4 pillars ───
+    const hutX = centerX + 8, hutZ = centerZ - 5;
+    const hutMat = new StandardMaterial('ch0_hutMat', this.scene);
+    hutMat.diffuseColor = woodColor;
+
+    // 4 wooden support pillars
+    const pillarPositions = [[-2, -2], [2, -2], [-2, 2], [2, 2]];
+    for (let i = 0; i < 4; i++) {
+      const [px, pz] = pillarPositions[i];
+      const pillar = MeshBuilder.CreateCylinder(`ch0_hutPillar_${i}`, { height: 3.5, diameter: 0.25, tessellation: 8 }, this.scene);
+      pillar.position.set(hutX + px, 1.75, hutZ + pz);
+      pillar.material = hutMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    // Raised wooden platform floor
+    const floor = MeshBuilder.CreateBox('ch0_hutFloor', { width: 5, height: 0.2, depth: 5 }, this.scene);
+    floor.position.set(hutX, 0.3, hutZ);
+    floor.material = hutMat;
+    this.renderer.shadowGenerator.addShadowCaster(floor);
+
+    // Thatched roof (cone)
+    const roof = MeshBuilder.CreateCylinder('ch0_hutRoof', {
+      height: 2, diameterTop: 0, diameterBottom: 7, tessellation: 4,
+    }, this.scene);
+    roof.position.set(hutX, 4.5, hutZ);
+    roof.rotation.y = Math.PI / 4; // rotate 45 degrees for square shape
+    const roofMat = new StandardMaterial('ch0_roofMat', this.scene);
+    roofMat.diffuseColor = thatchColor;
+    roof.material = roofMat;
+    this.renderer.shadowGenerator.addShadowCaster(roof);
+
+    // Cross-beams under roof
+    for (let i = 0; i < 2; i++) {
+      const beam = MeshBuilder.CreateBox(`ch0_hutBeam_${i}`, { width: i === 0 ? 5 : 0.12, height: 0.12, depth: i === 0 ? 0.12 : 5 }, this.scene);
+      beam.position.set(hutX, 3.5, hutZ);
+      beam.material = hutMat;
+    }
+
+    // Warm interior light inside hut
+    const hutLight = new PointLight('ch0_hutLight', new Vector3(hutX, 2.5, hutZ), this.scene);
+    hutLight.diffuse = new Color3(1.0, 0.75, 0.4);
+    hutLight.intensity = 1.5;
+    hutLight.range = 8;
+
+    // ─── SACRED FIRE PIT (Havan Kund) ───
+    const fireX = centerX, fireZ = centerZ - 2;
+
+    // Square fire pit base (brick-like)
+    const pitBase = MeshBuilder.CreateBox('ch0_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
+    pitBase.position.set(fireX, 0.2, fireZ);
+    const pitMat = new StandardMaterial('ch0_pitMat', this.scene);
+    pitMat.diffuseColor = new Color3(0.6, 0.35, 0.2);
+    pitBase.material = pitMat;
+
+    // Inner fire glow
+    const fireCore = MeshBuilder.CreateBox('ch0_fireCore', { width: 0.8, height: 0.3, depth: 0.8 }, this.scene);
+    fireCore.position.set(fireX, 0.5, fireZ);
+    const fireMat = new StandardMaterial('ch0_fireMat', this.scene);
+    fireMat.diffuseColor = warmOrange;
+    fireMat.emissiveColor = warmOrange;
+    fireCore.material = fireMat;
+
+    const fireLight = new PointLight('ch0_fireLight', new Vector3(fireX, 1.5, fireZ), this.scene);
+    fireLight.diffuse = new Color3(1.0, 0.6, 0.2);
+    fireLight.intensity = 3;
+    fireLight.range = 12;
+
+    // ─── MEDITATION CIRCLE (Tapasya spot) ───
+    const discRadius = 3;
+    const disc = MeshBuilder.CreateDisc('ch0_meditationDisc', { radius: discRadius, tessellation: 32 }, this.scene);
+    disc.rotation.x = Math.PI / 2;
+    disc.position.set(centerX, 0.05, centerZ + 6);
+    const discMat = new StandardMaterial('ch0_discMat', this.scene);
+    discMat.diffuseColor = new Color3(0.4, 0.35, 0.28);
+    disc.material = discMat;
+
+    // 8 stone boundary markers around meditation circle
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 / 8) * i;
+      const stoneX = centerX + Math.cos(angle) * (discRadius + 0.5);
+      const stoneZ = (centerZ + 6) + Math.sin(angle) * (discRadius + 0.5);
+
+      const stone = MeshBuilder.CreateCylinder(`ch0_stone_${i}`, { height: 0.6 + rng() * 0.4, diameter: 0.35, tessellation: 6 }, this.scene);
+      stone.position.set(stoneX, 0.35, stoneZ);
+      const sMat = new StandardMaterial(`ch0_sMat_${i}`, this.scene);
+      sMat.diffuseColor = stoneColor;
+      stone.material = sMat;
+      this.renderer.shadowGenerator.addShadowCaster(stone);
+    }
+
+    // ─── TRAINING POSTS (moved beside the ashram) ───
     for (let i = 0; i < 3; i++) {
-      const offsetX = (i - 1) * 4 + (rng() - 0.5) * 1.5;
-      const offsetZ = (rng() - 0.5) * 2;
-      const postX = centerX + offsetX;
-      const postZ = centerZ + offsetZ;
+      const offsetX = (i - 1) * 4;
+      const postX = centerX + offsetX - 8;
+      const postZ = centerZ;
 
       const post = MeshBuilder.CreateCylinder(`ch0_post_${i}`, { height: 3, diameter: 0.3, tessellation: 8 }, this.scene);
       post.position.set(postX, 1.5, postZ);
-      const postMat = new StandardMaterial(`ch0_postMat_${i}`, this.scene);
-      postMat.diffuseColor = new Color3(0.45, 0.35, 0.2);
-      post.material = postMat;
+      post.material = hutMat;
       this.renderer.shadowGenerator.addShadowCaster(post);
 
       const beam = MeshBuilder.CreateBox(`ch0_beam_${i}`, { width: 1.5, height: 0.15, depth: 0.15 }, this.scene);
       beam.position.set(postX, 2.5, postZ);
-      beam.material = postMat;
+      beam.material = hutMat;
       this.renderer.shadowGenerator.addShadowCaster(beam);
+
+      // Target disc on post
+      const target = MeshBuilder.CreateDisc(`ch0_target_${i}`, { radius: 0.4, tessellation: 16 }, this.scene);
+      target.position.set(postX, 1.8, postZ - 0.16);
+      const tMat = new StandardMaterial(`ch0_tMat_${i}`, this.scene);
+      tMat.diffuseColor = new Color3(0.7, 0.15, 0.1);
+      tMat.emissiveColor = new Color3(0.3, 0.05, 0.0);
+      target.material = tMat;
     }
 
-    // Meditation circle: flat disc with surrounding stones
-    const discRadius = 3;
-    const disc = MeshBuilder.CreateDisc(`ch0_meditationDisc`, { radius: discRadius, tessellation: 32 }, this.scene);
-    disc.rotation.x = Math.PI / 2;
-    disc.position.set(centerX, 0.1, centerZ);
-    const discMat = new StandardMaterial(`ch0_discMat`, this.scene);
-    discMat.diffuseColor = new Color3(0.35, 0.3, 0.25);
-    disc.material = discMat;
+    // ─── ASHRAM ENTRANCE GATE (Torana) ───
+    const gateX = centerX, gateZ = centerZ - 12;
+    const gateMat = new StandardMaterial('ch0_gateMat', this.scene);
+    gateMat.diffuseColor = new Color3(0.5, 0.38, 0.22);
 
-    // 6 small stone cylinders around meditation circle
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI * 2 / 6) * i;
-      const stoneX = centerX + Math.cos(angle) * (discRadius + 1.5);
-      const stoneZ = centerZ + Math.sin(angle) * (discRadius + 1.5);
-
-      const stone = MeshBuilder.CreateCylinder(`ch0_stone_${i}`, { height: 0.8, diameter: 0.4, tessellation: 8 }, this.scene);
-      stone.position.set(stoneX, 0.4, stoneZ);
-      const stoneMat = new StandardMaterial(`ch0_stoneMat_${i}`, this.scene);
-      stoneMat.diffuseColor = new Color3(0.5, 0.45, 0.4);
-      stone.material = stoneMat;
-      this.renderer.shadowGenerator.addShadowCaster(stone);
+    // Two gate pillars
+    for (const side of [-1, 1]) {
+      const gPillar = MeshBuilder.CreateCylinder(`ch0_gate_${side}`, { height: 4, diameter: 0.35, tessellation: 8 }, this.scene);
+      gPillar.position.set(gateX + side * 2.5, 2, gateZ);
+      gPillar.material = gateMat;
+      this.renderer.shadowGenerator.addShadowCaster(gPillar);
     }
 
-    // Sacred fire: small box with orange light
-    const fireBox = MeshBuilder.CreateBox(`ch0_fireBox`, { width: 0.5, height: 0.3, depth: 0.5 }, this.scene);
-    fireBox.position.set(centerX, 0.2, centerZ - 2.5);
-    const fireMat = new StandardMaterial(`ch0_fireMat`, this.scene);
-    fireMat.diffuseColor = new Color3(0.8, 0.4, 0.1);
-    fireMat.emissiveColor = new Color3(0.8, 0.4, 0.1);
-    fireBox.material = fireMat;
+    // Gate crossbar
+    const crossbar = MeshBuilder.CreateBox('ch0_gateCross', { width: 5.5, height: 0.3, depth: 0.3 }, this.scene);
+    crossbar.position.set(gateX, 4, gateZ);
+    crossbar.material = gateMat;
+    this.renderer.shadowGenerator.addShadowCaster(crossbar);
 
-    const fireLight = new PointLight(`ch0_fireLight`, new Vector3(centerX, 1, centerZ - 2.5), this.scene);
-    fireLight.diffuse = new Color3(1.0, 0.6, 0.2);
-    fireLight.intensity = 2;
-    fireLight.range = 6;
+    // Gate overhead decoration (small pyramid)
+    const gateTop = MeshBuilder.CreateCylinder('ch0_gateTop', {
+      height: 1, diameterTop: 0, diameterBottom: 1.5, tessellation: 4,
+    }, this.scene);
+    gateTop.position.set(gateX, 4.7, gateZ);
+    gateTop.rotation.y = Math.PI / 4;
+    const gateTopMat = new StandardMaterial('ch0_gateTopMat', this.scene);
+    gateTopMat.diffuseColor = warmOrange;
+    gateTopMat.emissiveColor = new Color3(0.3, 0.15, 0.05);
+    gateTop.material = gateTopMat;
   }
 
   private buildChapter1Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {

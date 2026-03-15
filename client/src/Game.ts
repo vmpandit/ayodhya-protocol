@@ -755,9 +755,17 @@ export class Game {
       const talkPressed = this.controller.consumeTalkKey();
       if (talkPressed) {
         const nearbyNpc = this.localSim.getNearbyNPC();
-        if (nearbyNpc && !nearbyNpc.spoken && !this.localSim.dialogueInProgress) {
-          // Start dialogue with this NPC
-          this.localSim.startDialogue(nearbyNpc.dialogueTreeId);
+        if (nearbyNpc && !this.localSim.dialogueInProgress) {
+          // Start dialogue — first time uses full tree, repeat visits use return dialogue
+          const treeId = nearbyNpc.spoken
+            ? nearbyNpc.dialogueTreeId + '_return'
+            : nearbyNpc.dialogueTreeId;
+          // Try return tree first; fall back to original if it doesn't exist
+          if (nearbyNpc.spoken && !this.localSim.hasDialogueTree(treeId)) {
+            this.localSim.startDialogue(nearbyNpc.dialogueTreeId);
+          } else {
+            this.localSim.startDialogue(treeId);
+          }
           this.hud.hideTalkPrompt();
         }
       }
@@ -825,6 +833,11 @@ export class Game {
           }, 15000);
         }
       }
+    }
+
+    // ── Suppress movement/jump during dialogue & backstory ──────────────
+    if (this.controller && this.localSim) {
+      this.controller.suppressMovement = !!(this.localSim.dialogueInProgress || this.localSim.backstoryInProgress);
     }
 
     // ── Backstory advancement (Space key) & Dialogue end (Space key) ───
@@ -965,6 +978,9 @@ export class Game {
       for (const comp of this.localSim.companions) {
         this.world.updateCompanion(comp.id, comp.pos);
       }
+      // Ashram rest stop indicator
+      this.hud.updateAshramHint(this.localSim.ashramNearby);
+
       // Update meditation bar progress
       if (this.localSim.isMeditating) {
         this.hud.updateMeditationBar(this.localSim.meditationTimer / this.localSim.maxMeditationTime);

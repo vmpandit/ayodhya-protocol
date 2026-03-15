@@ -27,6 +27,9 @@ export class PlayerController {
   private rightMouseDown = false;
   private rightMouseDragged = false;
 
+  // ── Input suppression (when dialogue/backstory is active) ──
+  public suppressMovement = false;
+
   // ── Shared state ──
   private yaw = 0;
   private pitch = 0;
@@ -476,13 +479,15 @@ export class PlayerController {
       }
       flags |= this.touchFlags;
     } else {
-      if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) flags |= InputFlag.Forward;
-      if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) flags |= InputFlag.Backward;
-      if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) flags |= InputFlag.Left;
-      if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) flags |= InputFlag.Right;
-      if (this.keys.has('Space')) flags |= InputFlag.Jump;
-      if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) flags |= InputFlag.Sprint;
-      if (this.keys.has('ControlLeft') || this.keys.has('KeyC')) flags |= InputFlag.Dodge;
+      if (!this.suppressMovement) {
+        if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) flags |= InputFlag.Forward;
+        if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) flags |= InputFlag.Backward;
+        if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) flags |= InputFlag.Left;
+        if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) flags |= InputFlag.Right;
+        if (this.keys.has('Space')) flags |= InputFlag.Jump;
+        if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) flags |= InputFlag.Sprint;
+        if (this.keys.has('ControlLeft') || this.keys.has('KeyC')) flags |= InputFlag.Dodge;
+      }
     }
 
     if (this.touchShootTapped) {

@@ -768,16 +768,28 @@ export class HUD {
   //  KARMA SCORE DISPLAY (end-of-game stats)
   // ══════════════════════════════════════════════════════════════════════════
 
-  showKarmaScore(title: string, mercy: number, valor: number, devotion: number): void {
+  showKarmaScore(title: string, mercy: number, valor: number, devotion: number, narrative?: string): void {
     const el = document.getElementById('karmaDisplay');
     const titleEl = document.getElementById('karmaTitle');
     const statsEl = document.getElementById('karmaStats');
     if (el && titleEl && statsEl) {
       titleEl.textContent = title;
+
+      // P3-3: Determine dominant karma axis for narrative flavor
+      const maxAxis = Math.max(mercy, valor, devotion);
+      let axisTitle = 'Balanced Dharma';
+      if (maxAxis === mercy && mercy > valor && mercy > devotion) axisTitle = 'The Merciful King';
+      else if (maxAxis === valor && valor > mercy && valor > devotion) axisTitle = 'The Warrior of Dharma';
+      else if (maxAxis === devotion && devotion > mercy && devotion > valor) axisTitle = 'The Devoted Soul';
+
       statsEl.innerHTML = `
-        <div>Mercy: ${mercy}</div>
-        <div>Valor: ${valor}</div>
-        <div>Devotion: ${devotion}</div>
+        <div style="font-size:16px;color:#c89b3c;margin-bottom:8px;font-style:italic;">${axisTitle}</div>
+        <div style="display:flex;justify-content:space-around;gap:16px;">
+          <div style="text-align:center;"><div style="color:#90ee90;font-size:22px;font-weight:bold;">${Math.round(mercy)}</div><div style="color:#aaa;font-size:11px;">Mercy</div></div>
+          <div style="text-align:center;"><div style="color:#ff6633;font-size:22px;font-weight:bold;">${Math.round(valor)}</div><div style="color:#aaa;font-size:11px;">Valor</div></div>
+          <div style="text-align:center;"><div style="color:#ffd700;font-size:22px;font-weight:bold;">${Math.round(devotion)}</div><div style="color:#aaa;font-size:11px;">Devotion</div></div>
+        </div>
+        ${narrative ? `<div style="margin-top:12px;font-size:12px;color:#ccc;line-height:1.5;max-width:400px;">${narrative}</div>` : ''}
       `;
       el.style.display = 'block';
       el.style.opacity = '1';
@@ -792,6 +804,84 @@ export class HUD {
         el.style.display = 'none';
       }, 300);
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  P3-4: ACHIEVEMENT SYSTEM
+  // ══════════════════════════════════════════════════════════════════════════
+
+  private unlockedAchievements = new Set<string>();
+  private achievementQueue: { title: string; desc: string }[] = [];
+  private achievementShowing = false;
+
+  showAchievement(id: string, title: string, desc: string): void {
+    if (this.unlockedAchievements.has(id)) return;
+    this.unlockedAchievements.add(id);
+    this.achievementQueue.push({ title, desc });
+    this.processAchievementQueue();
+  }
+
+  private processAchievementQueue(): void {
+    if (this.achievementShowing || this.achievementQueue.length === 0) return;
+    this.achievementShowing = true;
+    const { title, desc } = this.achievementQueue.shift()!;
+    const popup = document.getElementById('achievementPopup');
+    const titleEl = document.getElementById('achievementTitle');
+    const descEl = document.getElementById('achievementDesc');
+    if (popup && titleEl && descEl) {
+      titleEl.textContent = title;
+      descEl.textContent = desc;
+      popup.style.display = 'block';
+      requestAnimationFrame(() => {
+        popup.style.opacity = '1';
+        popup.style.transform = 'translateX(0)';
+      });
+      setTimeout(() => {
+        popup.style.opacity = '0';
+        popup.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+          popup.style.display = 'none';
+          this.achievementShowing = false;
+          this.processAchievementQueue();
+        }, 400);
+      }, 4000);
+    } else {
+      this.achievementShowing = false;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  P3-6: BRAHMASTRA CHARGE HUD
+  // ══════════════════════════════════════════════════════════════════════════
+
+  updateBrahmaCharge(charge: number, maxCharge: number): void {
+    const bar = document.getElementById('brahmaChargeBar');
+    const fill = document.getElementById('brahmaChargeFill');
+    const label = document.getElementById('brahmaChargeLabel');
+    if (!bar || !fill || !label) return;
+
+    // Only show after player has unlocked Brahmastra (chapter 2+)
+    bar.style.display = 'block';
+    const pct = Math.min(100, (charge / maxCharge) * 100);
+    fill.style.width = `${pct}%`;
+    label.textContent = `${Math.round(charge)} / ${maxCharge}`;
+
+    // Glow when fully charged
+    if (charge >= maxCharge) {
+      fill.style.background = 'linear-gradient(90deg, #ffd700, #fff8dc)';
+      fill.style.boxShadow = '0 0 10px rgba(255,215,0,0.8)';
+      label.style.color = '#ffd700';
+      label.textContent = 'READY';
+    } else {
+      fill.style.background = 'linear-gradient(90deg, #c89b3c, #ffd700)';
+      fill.style.boxShadow = 'none';
+      label.style.color = '#888';
+    }
+  }
+
+  hideBrahmaCharge(): void {
+    const bar = document.getElementById('brahmaChargeBar');
+    if (bar) bar.style.display = 'none';
   }
 
   // ══════════════════════════════════════════════════════════════════════════

@@ -253,10 +253,36 @@ export class Game {
       this.audio.play(won ? SFX.Victory : SFX.Defeat);
       if (won) {
         this.hud.addKillFeedEntry('DHARMA PREVAILS — RAVANA DEFEATED', '#ffd700');
-        // Show final karma score
+        // P3-3: Show final karma score with narrative summary
         if (this.localSim) {
           const k = this.localSim.karma;
-          this.hud.showKarmaScore('KARMA REPORT', k.mercy, k.valor, k.devotion);
+          // Generate narrative based on dominant karma axis and player choices
+          const maxK = Math.max(k.mercy, k.valor, k.devotion);
+          let narrative = '';
+          if (maxK === k.mercy && k.mercy > k.valor && k.mercy > k.devotion) {
+            narrative = 'Like Rama who wept for Ravana after the battle, you chose compassion over conquest. ' +
+              'The sages sing of a king who sought peace before war, who healed before he harmed. ' +
+              'Your mercy echoes through the three worlds — Ayodhya welcomes a gentle ruler home.';
+          } else if (maxK === k.valor && k.valor > k.mercy && k.valor > k.devotion) {
+            narrative = 'As Rama drew the divine Kodanda bow, none could stand before its thunder. ' +
+              'You carved a warrior\'s path through Lanka, felling champions and clearing every wave. ' +
+              'The Vanara army roars your name — the Warrior of Dharma returns to claim the throne.';
+          } else if (maxK === k.devotion && k.devotion > k.mercy && k.devotion > k.valor) {
+            narrative = 'With every Brahmastra loosed and every sacred clue uncovered, you walked the path of devotion. ' +
+              'Like Hanuman who carried the mountain itself for his lord, your faith never wavered. ' +
+              'The gods themselves bow — the Devoted Soul of Rama has restored Dharma to the earth.';
+          } else {
+            narrative = 'You walked the balanced path — merciful yet fierce, devoted yet pragmatic. ' +
+              'As Rama embodied all virtues without excess, so too did you carry the weight of Dharma evenly. ' +
+              'The ideal king returns to Ayodhya — balanced in all things, wanting in none.';
+          }
+          // Append Lakshman choice flavor
+          if (this.localSim.lakshmanChoice === 'accepted') {
+            narrative += ' Lakshman stood at your side through the final battle — brotherhood endured.';
+          } else if (this.localSim.lakshmanChoice === 'declined') {
+            narrative += ' You faced Ravana alone, carrying the full burden of Dharma on a single pair of shoulders.';
+          }
+          this.hud.showKarmaScore('KARMA REPORT', k.mercy, k.valor, k.devotion, narrative);
         }
       }
     };
@@ -381,6 +407,19 @@ export class Game {
 
       this.hud.showChapterBanner(chapter, title, subtitle);
       this.audio.play(SFX.BossRoar); // dramatic chapter transition sound
+
+      // P3-4: Lore-authentic achievement triggers on chapter transitions
+      const chapterAchievements: Record<number, { id: string; title: string; desc: string }> = {
+        1: { id: 'exile_begins', title: 'The Exile Begins', desc: 'Left the ashram and entered the Dandaka forest.' },
+        2: { id: 'jatayu_avenged', title: 'Jatayu Avenged', desc: 'Honored the great eagle who fought Ravana for Sita.' },
+        3: { id: 'alliance_forged', title: 'Alliance Forged', desc: 'United with Sugriv and the Vanara army at Kishkindha.' },
+        4: { id: 'bridge_builder', title: 'Bridge Builder', desc: 'Crossed Ram Setu — the bridge built by devotion and stone.' },
+        5: { id: 'lanka_gates', title: 'At Lanka\'s Gates', desc: 'Reached the golden city where Sita awaits deliverance.' },
+        6: { id: 'vibhishana_truth', title: 'Vibhishana\'s Truth', desc: 'Welcomed the defector who chose Dharma over blood.' },
+        7: { id: 'final_battle', title: 'The Final Battle', desc: 'Faced Ravana himself — ten heads, twenty arms, limitless pride.' },
+      };
+      const ach = chapterAchievements[chapter];
+      if (ach) this.hud.showAchievement(ach.id, ach.title, ach.desc);
 
       // Update world biome visuals for this chapter
       this.world.setChapterBiome(chapter);
@@ -761,12 +800,14 @@ export class Game {
         this.chapter6ReadyToAdvance = true;
         this.hud.hideLakshmanChoice();
         this.hud.showNotification('LAKSHMAN JOINS YOUR SIDE');
+        this.hud.showAchievement('brothers_united', 'Brothers United', 'Accepted Lakshman — as in the Ramayana, brothers stand together.');
       } else if (key === 'N') {
         this.localSim.declineLakshman();
         this.lakshmanChoiceActive = false;
         this.chapter6ReadyToAdvance = true;
         this.hud.hideLakshmanChoice();
         this.hud.showNotification('LONE WARRIOR — +30% DAMAGE');
+        this.hud.showAchievement('lone_warrior', 'Lone Warrior', 'Chose to face Ravana alone — bearing the full weight of Dharma.');
       }
     }
 
@@ -980,6 +1021,26 @@ export class Game {
         } else if (bp === BossPhase.Dead) {
           this.haptics.play(HapticMotif.BossDefeated);
           this.audio.play(SFX.BossDefeated);
+          // P3-4: Boss death achievement
+          this.hud.showAchievement('lanka_liberated', 'Lanka Liberated', 'Defeated Ravana and restored Dharma across the three worlds.');
+          // P3-5: Boss death cinematic — slow-mo + sequential head collapse + screen effects
+          this.killSlowdownTimer = 3.0; // Extended slow-mo for the final kill
+          this.controller?.triggerShake(0.5); // Heavy screen shake on death
+          // Sequential head-by-head collapse kill feed (staggered 400ms apart)
+          const headNames = ['Pride', 'Lust', 'Anger', 'Greed', 'Delusion', 'Jealousy', 'Cruelty', 'Selfishness', 'Injustice', 'Ego'];
+          headNames.forEach((name, i) => {
+            setTimeout(() => {
+              this.hud.addKillFeedEntry(`HEAD OF ${name.toUpperCase()} — SILENCED`, '#ff6633');
+              if (i < headNames.length - 1) {
+                this.controller?.triggerShake(0.08);
+              }
+            }, 500 + i * 400);
+          });
+          // Final flash after all heads
+          setTimeout(() => {
+            this.hud.addKillFeedEntry('ALL TEN HEADS HAVE FALLEN', '#ffd700');
+            this.controller?.triggerShake(0.3);
+          }, 500 + headNames.length * 400);
           // Victory Dharma dialogue — faithful to Ramayana's aftermath
           setTimeout(() => {
             this.hud.showDialogueSequence([
@@ -1026,6 +1087,10 @@ export class Game {
     if (snap.boss && snap.boss.phase !== BossPhase.Idle) this.hud.updateBossBar(snap.boss);
     if (this.localSim) {
       this.hud.updateAmmo(this.localSim.arrowAmmo, this.localSim.maxArrowAmmo);
+      // P3-6: Update Brahmastra charge HUD (show from chapter 2+)
+      if (this.localSim.chapter >= 2) {
+        this.hud.updateBrahmaCharge(this.localSim.brahmaCharge, C.BRAHMA_MAX_CHARGE);
+      }
     }
     if (this.controller) {
       this.hud.updateCooldowns(this.controller.getFireArrowCd(), this.controller.getShockwaveCd());

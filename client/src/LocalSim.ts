@@ -580,20 +580,28 @@ export class LocalSim {
   }
 
   // ── Difficulty Selector ──────────────────────────────────
+  // P3-1: Stamina regen multiplier per difficulty
+  private staminaRegenMult = 1.0;
+
   setDifficulty(diff: Difficulty): void {
     this.difficulty = diff;
     if (diff === Difficulty.Story) {
       this.diffHpMult = C.DIFFICULTY_STORY_HP;
       this.diffDmgMult = C.DIFFICULTY_STORY_DMG;
       this.diffDropMult = C.DIFFICULTY_STORY_DROPS;
+      this.staminaRegenMult = C.DIFFICULTY_STORY_STAMINA_REGEN;
+      this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + C.DIFFICULTY_STORY_AMMO_BONUS);
     } else if (diff === Difficulty.Tapasya) {
       this.diffHpMult = C.DIFFICULTY_TAPASYA_HP;
       this.diffDmgMult = C.DIFFICULTY_TAPASYA_DMG;
       this.diffDropMult = C.DIFFICULTY_TAPASYA_DROPS;
+      this.staminaRegenMult = C.DIFFICULTY_TAPASYA_STAMINA_REGEN;
+      this.arrowAmmo = Math.max(5, this.arrowAmmo + C.DIFFICULTY_TAPASYA_AMMO_BONUS);
     } else {
       this.diffHpMult = 1.0;
       this.diffDmgMult = 1.0;
       this.diffDropMult = 1.0;
+      this.staminaRegenMult = 1.0;
     }
     // Scale existing enemies
     for (const enemy of this.enemies) {
@@ -974,8 +982,8 @@ export class LocalSim {
       // (headshots tracked at hit time, not here)
     }
 
-    // Stamina regen
-    this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + C.STAMINA_REGEN_RATE * input.dt);
+    // Stamina regen (P3-1: scaled by difficulty)
+    this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + C.STAMINA_REGEN_RATE * this.staminaRegenMult * input.dt);
     this.player.vel = { x: moveX * speed, y: this.playerVelY, z: moveZ * speed };
     this.player.lastProcessedSeq = input.seq;
   }
@@ -1022,7 +1030,7 @@ export class LocalSim {
         this.lastBrahmaFireTime = now;
         this.arrowAmmo -= C.BRAHMA_ARROW_COST;
         this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE * mult);
-        this.karma.devotion += 5; // Brahmastra is a divine weapon — devotion act
+        this.karma.devotion += C.KARMA_DEVOTION_BRAHMASTRA; // Divine weapon = devotion
       }
     }
     // ── Pashupatastra (Lone Warrior exclusive) ──
@@ -1320,7 +1328,7 @@ export class LocalSim {
     enemy.state.aiState = EnemyAIState.Dead;
     // Don't count illusion kills for chapter progress
     if (!enemy.isIllusion) this.chapterEnemiesKilled++;
-    if (enemy.isChampion) this.karma.valor += 5;
+    if (enemy.isChampion) this.karma.valor += C.KARMA_VALOR_CHAMPION_KILL;
     // P2-2: Brahmastra charge on kill
     if (!enemy.isIllusion) {
       this.brahmaCharge = Math.min(C.BRAHMA_MAX_CHARGE, this.brahmaCharge + C.BRAHMA_CHARGE_PER_KILL);
@@ -1423,7 +1431,12 @@ export class LocalSim {
     // ── Companion HP regen buff + Dharma Bond ──────────────────
     for (const comp of this.companions) {
       if (comp.hpRegenBuff > 0) {
+        const prevHp = this.player.hp;
         this.player.hp = Math.min(this.player.maxHp, this.player.hp + comp.hpRegenBuff * dt);
+        // P3-2: Mercy karma from companion healing (every 10 HP healed = 1 mercy tick)
+        if (Math.floor(this.player.hp / 10) > Math.floor(prevHp / 10)) {
+          this.karma.mercy += C.KARMA_MERCY_COMPANION_HEAL;
+        }
       }
     }
     // Dharma Bond: Brotherhood path extra heal when companions nearby
@@ -1661,6 +1674,9 @@ export class LocalSim {
       if (!point.investigated && dist3(this.player.pos, point.pos) < C.INVESTIGATION_POINT_INTERACT_DISTANCE) {
         point.investigated = true;
         this.onInvestigationTriggered(point.clueText);
+        // P3-2: Karma for investigating lore points
+        this.karma.mercy += C.KARMA_MERCY_INVESTIGATION;
+        this.karma.devotion += C.KARMA_DEVOTION_INVESTIGATION;
       }
     }
 

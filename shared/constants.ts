@@ -209,20 +209,31 @@ export const RAVANA_HEAD_COOLDOWN_MS = 1500;
 export const RAVANA_HEAD_DAMAGE = 10;
 export const RAVANA_HEAD_COUNT = 2;
 
-// ── Difficulty Scalars ──
-export const DIFFICULTY_STORY_HP = 0.7;
-export const DIFFICULTY_STORY_DMG = 0.7;
-export const DIFFICULTY_STORY_DROPS = 2.0;
-export const DIFFICULTY_TAPASYA_HP = 1.3;
-export const DIFFICULTY_TAPASYA_DMG = 1.3;
-export const DIFFICULTY_TAPASYA_DROPS = 0.7;
+// ── Difficulty Scalars (P3-1: Full balance pass) ──
+export const DIFFICULTY_STORY_HP = 0.6;       // Enemies have 60% HP (was 0.7)
+export const DIFFICULTY_STORY_DMG = 0.5;      // Player takes 50% damage (was 0.7)
+export const DIFFICULTY_STORY_DROPS = 2.5;    // 2.5x drop rate (was 2.0)
+export const DIFFICULTY_STORY_AMMO_BONUS = 10; // +10 starting ammo
+export const DIFFICULTY_STORY_STAMINA_REGEN = 1.3; // 30% faster stamina regen
+export const DIFFICULTY_TAPASYA_HP = 1.5;     // Enemies have 150% HP (was 1.3)
+export const DIFFICULTY_TAPASYA_DMG = 1.5;    // Player takes 150% damage (was 1.3)
+export const DIFFICULTY_TAPASYA_DROPS = 0.5;  // Half drop rate (was 0.7)
+export const DIFFICULTY_TAPASYA_AMMO_BONUS = -5; // -5 starting ammo (scarcity)
+export const DIFFICULTY_TAPASYA_STAMINA_REGEN = 0.8; // 20% slower stamina regen
 
-// ── Karma Scoring ──
-export const KARMA_MERCY_SPARE = 5;       // Points for not hitting retreating enemy
+// ── Karma Scoring (P3-2: Calibrated — all 3 axes earnable to ~80+ in full run) ──
+export const KARMA_MERCY_SPARE = 5;            // Spare retreating enemy
+export const KARMA_MERCY_INVESTIGATION = 3;    // Investigate a lore point (compassion for the story)
+export const KARMA_MERCY_COMPANION_HEAL = 2;   // When companion heals player (bond of mercy)
+export const KARMA_MERCY_DIALOGUE_CHOICE = 4;  // Merciful dialogue choices
 export const KARMA_VALOR_HEADSHOT = 3;
 export const KARMA_VALOR_PERFECT_DODGE = 5;
+export const KARMA_VALOR_CHAMPION_KILL = 8;    // Kill a champion enemy
+export const KARMA_VALOR_WAVE_CLEAR = 3;       // Clear a wave without taking damage
 export const KARMA_DEVOTION_MEDITATE = 2;
 export const KARMA_DEVOTION_DIALOGUE = 3;
+export const KARMA_DEVOTION_BRAHMASTRA = 5;    // Use Brahmastra (divine weapon = devotion)
+export const KARMA_DEVOTION_INVESTIGATION = 2; // Investigate sacred clues
 
 // ── Encounter Recipes ──
 export const SIEGE_DURATION_MS = 60000;

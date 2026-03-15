@@ -875,6 +875,22 @@
       <div id="karmaStats" style="font-family:'Rajdhani',monospace; font-size:14px; color:#aaa;"></div>
     </div>
 
+    <!-- P3-4: Achievement popup -->
+    <div id="achievementPopup" style="display:none; position:fixed; top:60px; right:20px; z-index:250; background:linear-gradient(135deg, rgba(20,15,10,0.95), rgba(40,30,15,0.95)); border:2px solid #c89b3c; border-radius:8px; padding:16px 24px; min-width:280px; font-family:'Rajdhani',monospace; box-shadow:0 0 20px rgba(200,155,60,0.4); transition:opacity 0.4s, transform 0.4s; transform:translateX(100%); opacity:0;">
+      <div style="font-size:11px; color:#c89b3c; letter-spacing:3px; margin-bottom:4px;">ACHIEVEMENT UNLOCKED</div>
+      <div id="achievementTitle" style="font-size:20px; color:#ffd700; font-weight:700;"></div>
+      <div id="achievementDesc" style="font-size:12px; color:#aaa; margin-top:4px;"></div>
+    </div>
+
+    <!-- P3-6: Brahmastra charge indicator -->
+    <div id="brahmaChargeBar" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:50; width:200px; pointer-events:none;">
+      <div style="font-family:'Rajdhani',monospace; font-size:10px; color:#c89b3c; text-align:center; letter-spacing:2px; margin-bottom:2px;">BRAHMASTRA</div>
+      <div style="width:100%; height:8px; background:rgba(0,0,0,0.7); border:1px solid rgba(200,155,60,0.4); border-radius:4px; overflow:hidden;">
+        <div id="brahmaChargeFill" style="width:0%; height:100%; background:linear-gradient(90deg, #c89b3c, #ffd700); transition:width 0.15s; border-radius:3px;"></div>
+      </div>
+      <div id="brahmaChargeLabel" style="font-family:'Rajdhani',monospace; font-size:10px; color:#888; text-align:center; margin-top:1px;">0 / 100</div>
+    </div>
+
     <!-- Companion ability cooldown indicator -->
     <div id="companionAbilityHUD" style="display:none; position:fixed; bottom:120px; left:50%; transform:translateX(-50%); z-index:50;">
       <div style="display:flex; gap:8px;" id="companionSlots"></div>

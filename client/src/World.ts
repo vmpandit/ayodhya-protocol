@@ -2411,18 +2411,119 @@ export class World {
       this.renderer.shadowGenerator.addShadowCaster(log);
     }
 
-    // Campfire: stone torus with orange light
-    const torus = MeshBuilder.CreateTorus(`ch1_campfireTorus`, { diameter: 1.6, thickness: 0.15, tessellation: 16 }, this.scene);
-    torus.position.set(centerX, 0.1, centerZ);
-    const torusMat = new StandardMaterial(`ch1_torusMat`, this.scene);
-    torusMat.diffuseColor = new Color3(0.4, 0.35, 0.3);
-    torus.material = torusMat;
-    this.renderer.shadowGenerator.addShadowCaster(torus);
+    // ─── DANDAKA ASHRAM (forest hermitage) ───
+    // Ashram is at ASHRAM_POSITIONS[1] = (centerX, centerZ - 2)
+    const ashX = centerX, ashZ = centerZ - 2;
+    const ch1Wood = new Color3(0.3, 0.22, 0.1);
+    const ch1Thatch = new Color3(0.35, 0.38, 0.15); // mossy green thatch
+    const ch1Stone = new Color3(0.35, 0.32, 0.28);
+    const ch1Warm = new Color3(0.8, 0.4, 0.1);
 
-    const campfireLight = new PointLight(`ch1_campfireLight`, new Vector3(centerX, 1, centerZ), this.scene);
-    campfireLight.diffuse = new Color3(1.0, 0.5, 0.1);
-    campfireLight.intensity = 1.5;
-    campfireLight.range = 8;
+    // Thatched-roof forest hut with 4 pillars
+    const ch1HutX = ashX + 7, ch1HutZ = ashZ - 4;
+    const ch1HutMat = new StandardMaterial('ch1_hutMat', this.scene);
+    ch1HutMat.diffuseColor = ch1Wood;
+
+    for (let i = 0; i < 4; i++) {
+      const [px, pz] = [[-2, -2], [2, -2], [-2, 2], [2, 2]][i];
+      const pillar = MeshBuilder.CreateCylinder(`ch1_hutPillar_${i}`, { height: 3.5, diameter: 0.25, tessellation: 8 }, this.scene);
+      pillar.position.set(ch1HutX + px, 1.75, ch1HutZ + pz);
+      pillar.material = ch1HutMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    const ch1Floor = MeshBuilder.CreateBox('ch1_hutFloor', { width: 5, height: 0.2, depth: 5 }, this.scene);
+    ch1Floor.position.set(ch1HutX, 0.3, ch1HutZ);
+    ch1Floor.material = ch1HutMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch1Floor);
+
+    const ch1Roof = MeshBuilder.CreateCylinder('ch1_hutRoof', {
+      height: 2, diameterTop: 0, diameterBottom: 7, tessellation: 4,
+    }, this.scene);
+    ch1Roof.position.set(ch1HutX, 4.5, ch1HutZ);
+    ch1Roof.rotation.y = Math.PI / 4;
+    const ch1RoofMat = new StandardMaterial('ch1_roofMat', this.scene);
+    ch1RoofMat.diffuseColor = ch1Thatch;
+    ch1Roof.material = ch1RoofMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch1Roof);
+
+    for (let i = 0; i < 2; i++) {
+      const beam = MeshBuilder.CreateBox(`ch1_hutBeam_${i}`, { width: i === 0 ? 5 : 0.12, height: 0.12, depth: i === 0 ? 0.12 : 5 }, this.scene);
+      beam.position.set(ch1HutX, 3.5, ch1HutZ);
+      beam.material = ch1HutMat;
+    }
+
+    const ch1HutLight = new PointLight('ch1_hutLight', new Vector3(ch1HutX, 2.5, ch1HutZ), this.scene);
+    ch1HutLight.diffuse = new Color3(1.0, 0.75, 0.4);
+    ch1HutLight.intensity = 1.5;
+    ch1HutLight.range = 8;
+
+    // Sacred fire pit (Havan Kund)
+    const ch1PitBase = MeshBuilder.CreateBox('ch1_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
+    ch1PitBase.position.set(ashX, 0.2, ashZ);
+    const ch1PitMat = new StandardMaterial('ch1_pitMat', this.scene);
+    ch1PitMat.diffuseColor = new Color3(0.6, 0.35, 0.2);
+    ch1PitBase.material = ch1PitMat;
+
+    const ch1FireCore = MeshBuilder.CreateBox('ch1_fireCore', { width: 0.8, height: 0.3, depth: 0.8 }, this.scene);
+    ch1FireCore.position.set(ashX, 0.5, ashZ);
+    const ch1FireMat = new StandardMaterial('ch1_fireMat', this.scene);
+    ch1FireMat.diffuseColor = ch1Warm;
+    ch1FireMat.emissiveColor = ch1Warm;
+    ch1FireCore.material = ch1FireMat;
+
+    const ch1FireLight = new PointLight('ch1_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
+    ch1FireLight.diffuse = new Color3(1.0, 0.6, 0.2);
+    ch1FireLight.intensity = 3;
+    ch1FireLight.range = 12;
+
+    // Meditation circle with stone boundary markers
+    const ch1DiscR = 3;
+    const ch1Disc = MeshBuilder.CreateDisc('ch1_meditationDisc', { radius: ch1DiscR, tessellation: 32 }, this.scene);
+    ch1Disc.rotation.x = Math.PI / 2;
+    ch1Disc.position.set(ashX, 0.05, ashZ + 6);
+    const ch1DiscMat = new StandardMaterial('ch1_discMat', this.scene);
+    ch1DiscMat.diffuseColor = new Color3(0.25, 0.3, 0.18);
+    ch1Disc.material = ch1DiscMat;
+
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 / 8) * i;
+      const sx = ashX + Math.cos(angle) * (ch1DiscR + 0.5);
+      const sz = (ashZ + 6) + Math.sin(angle) * (ch1DiscR + 0.5);
+      const stone = MeshBuilder.CreateCylinder(`ch1_stone_${i}`, { height: 0.6 + rng() * 0.4, diameter: 0.35, tessellation: 6 }, this.scene);
+      stone.position.set(sx, 0.35, sz);
+      const sMat = new StandardMaterial(`ch1_sMat_${i}`, this.scene);
+      sMat.diffuseColor = ch1Stone;
+      stone.material = sMat;
+      this.renderer.shadowGenerator.addShadowCaster(stone);
+    }
+
+    // Entrance torana gate (vine-covered forest gate)
+    const ch1GateX = ashX, ch1GateZ = ashZ - 12;
+    const ch1GateMat = new StandardMaterial('ch1_gateMat', this.scene);
+    ch1GateMat.diffuseColor = new Color3(0.35, 0.28, 0.15);
+
+    for (const side of [-1, 1]) {
+      const gP = MeshBuilder.CreateCylinder(`ch1_gate_${side}`, { height: 4, diameter: 0.35, tessellation: 8 }, this.scene);
+      gP.position.set(ch1GateX + side * 2.5, 2, ch1GateZ);
+      gP.material = ch1GateMat;
+      this.renderer.shadowGenerator.addShadowCaster(gP);
+    }
+
+    const ch1Cross = MeshBuilder.CreateBox('ch1_gateCross', { width: 5.5, height: 0.3, depth: 0.3 }, this.scene);
+    ch1Cross.position.set(ch1GateX, 4, ch1GateZ);
+    ch1Cross.material = ch1GateMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch1Cross);
+
+    const ch1GateTop = MeshBuilder.CreateCylinder('ch1_gateTop', {
+      height: 1, diameterTop: 0, diameterBottom: 1.5, tessellation: 4,
+    }, this.scene);
+    ch1GateTop.position.set(ch1GateX, 4.7, ch1GateZ);
+    ch1GateTop.rotation.y = Math.PI / 4;
+    const ch1GateTopMat = new StandardMaterial('ch1_gateTopMat', this.scene);
+    ch1GateTopMat.diffuseColor = ch1Warm;
+    ch1GateTopMat.emissiveColor = new Color3(0.3, 0.15, 0.05);
+    ch1GateTop.material = ch1GateTopMat;
   }
 
   private buildChapter2Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
@@ -2567,6 +2668,120 @@ export class World {
       flag.material = flagMat;
       this.renderer.shadowGenerator.addShadowCaster(flag);
     }
+
+    // ─── KISHKINDHA ASHRAM (highland camp) ───
+    // Ashram is at ASHRAM_POSITIONS[2] = (centerX, centerZ - 2)
+    const ashX = centerX, ashZ = centerZ - 2;
+    const ch3Wood = new Color3(0.45, 0.35, 0.2);
+    const ch3Thatch = new Color3(0.5, 0.42, 0.18); // dry highland thatch
+    const ch3Stone = new Color3(0.5, 0.45, 0.38);
+    const ch3Warm = new Color3(0.9, 0.45, 0.1);
+
+    // Highland ashram hut — sturdy stone-and-wood shelter
+    const ch3HutX = ashX + 8, ch3HutZ = ashZ - 3;
+    const ch3HutMat = new StandardMaterial('ch3_hutMat', this.scene);
+    ch3HutMat.diffuseColor = ch3Wood;
+
+    for (let i = 0; i < 4; i++) {
+      const [px, pz] = [[-2, -2], [2, -2], [-2, 2], [2, 2]][i];
+      const pillar = MeshBuilder.CreateCylinder(`ch3_hutPillar_${i}`, { height: 3.5, diameter: 0.3, tessellation: 8 }, this.scene);
+      pillar.position.set(ch3HutX + px, 1.75, ch3HutZ + pz);
+      pillar.material = ch3HutMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    const ch3Floor = MeshBuilder.CreateBox('ch3_hutFloor', { width: 5, height: 0.25, depth: 5 }, this.scene);
+    ch3Floor.position.set(ch3HutX, 0.35, ch3HutZ);
+    ch3Floor.material = ch3HutMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch3Floor);
+
+    const ch3Roof = MeshBuilder.CreateCylinder('ch3_hutRoof', {
+      height: 2.2, diameterTop: 0, diameterBottom: 7, tessellation: 4,
+    }, this.scene);
+    ch3Roof.position.set(ch3HutX, 4.6, ch3HutZ);
+    ch3Roof.rotation.y = Math.PI / 4;
+    const ch3RoofMat = new StandardMaterial('ch3_roofMat', this.scene);
+    ch3RoofMat.diffuseColor = ch3Thatch;
+    ch3Roof.material = ch3RoofMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch3Roof);
+
+    for (let i = 0; i < 2; i++) {
+      const beam = MeshBuilder.CreateBox(`ch3_hutBeam_${i}`, { width: i === 0 ? 5 : 0.12, height: 0.12, depth: i === 0 ? 0.12 : 5 }, this.scene);
+      beam.position.set(ch3HutX, 3.5, ch3HutZ);
+      beam.material = ch3HutMat;
+    }
+
+    const ch3HutLight = new PointLight('ch3_hutLight', new Vector3(ch3HutX, 2.5, ch3HutZ), this.scene);
+    ch3HutLight.diffuse = new Color3(1.0, 0.8, 0.45);
+    ch3HutLight.intensity = 1.5;
+    ch3HutLight.range = 8;
+
+    // Sacred fire pit (Havan Kund)
+    const ch3PitBase = MeshBuilder.CreateBox('ch3_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
+    ch3PitBase.position.set(ashX, 0.2, ashZ);
+    const ch3PitMat = new StandardMaterial('ch3_pitMat', this.scene);
+    ch3PitMat.diffuseColor = new Color3(0.55, 0.4, 0.25);
+    ch3PitBase.material = ch3PitMat;
+
+    const ch3FireCore = MeshBuilder.CreateBox('ch3_fireCore', { width: 0.8, height: 0.3, depth: 0.8 }, this.scene);
+    ch3FireCore.position.set(ashX, 0.5, ashZ);
+    const ch3FireMat = new StandardMaterial('ch3_fireMat', this.scene);
+    ch3FireMat.diffuseColor = ch3Warm;
+    ch3FireMat.emissiveColor = ch3Warm;
+    ch3FireCore.material = ch3FireMat;
+
+    const ch3FireLight = new PointLight('ch3_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
+    ch3FireLight.diffuse = new Color3(1.0, 0.6, 0.2);
+    ch3FireLight.intensity = 3;
+    ch3FireLight.range = 12;
+
+    // Meditation circle with stone boundary markers
+    const ch3DiscR = 3;
+    const ch3Disc = MeshBuilder.CreateDisc('ch3_meditationDisc', { radius: ch3DiscR, tessellation: 32 }, this.scene);
+    ch3Disc.rotation.x = Math.PI / 2;
+    ch3Disc.position.set(ashX, 0.05, ashZ + 7);
+    const ch3DiscMat = new StandardMaterial('ch3_discMat', this.scene);
+    ch3DiscMat.diffuseColor = new Color3(0.45, 0.38, 0.28);
+    ch3Disc.material = ch3DiscMat;
+
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 / 8) * i;
+      const sx = ashX + Math.cos(angle) * (ch3DiscR + 0.5);
+      const sz = (ashZ + 7) + Math.sin(angle) * (ch3DiscR + 0.5);
+      const stone = MeshBuilder.CreateCylinder(`ch3_ashStone_${i}`, { height: 0.7 + rng() * 0.5, diameter: 0.4, tessellation: 6 }, this.scene);
+      stone.position.set(sx, 0.4, sz);
+      const sMat = new StandardMaterial(`ch3_ashSMat_${i}`, this.scene);
+      sMat.diffuseColor = ch3Stone;
+      stone.material = sMat;
+      this.renderer.shadowGenerator.addShadowCaster(stone);
+    }
+
+    // Entrance torana gate (mountain stone gate)
+    const ch3GateX = ashX, ch3GateZ = ashZ - 12;
+    const ch3GateMat = new StandardMaterial('ch3_ashGateMat', this.scene);
+    ch3GateMat.diffuseColor = new Color3(0.48, 0.4, 0.28);
+
+    for (const side of [-1, 1]) {
+      const gP = MeshBuilder.CreateCylinder(`ch3_ashGate_${side}`, { height: 4.5, diameter: 0.4, tessellation: 8 }, this.scene);
+      gP.position.set(ch3GateX + side * 2.5, 2.25, ch3GateZ);
+      gP.material = ch3GateMat;
+      this.renderer.shadowGenerator.addShadowCaster(gP);
+    }
+
+    const ch3Cross = MeshBuilder.CreateBox('ch3_ashGateCross', { width: 5.5, height: 0.35, depth: 0.35 }, this.scene);
+    ch3Cross.position.set(ch3GateX, 4.5, ch3GateZ);
+    ch3Cross.material = ch3GateMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch3Cross);
+
+    const ch3GateTop = MeshBuilder.CreateCylinder('ch3_ashGateTop', {
+      height: 1.2, diameterTop: 0, diameterBottom: 1.8, tessellation: 4,
+    }, this.scene);
+    ch3GateTop.position.set(ch3GateX, 5.2, ch3GateZ);
+    ch3GateTop.rotation.y = Math.PI / 4;
+    const ch3GateTopMat = new StandardMaterial('ch3_ashGateTopMat', this.scene);
+    ch3GateTopMat.diffuseColor = ch3Warm;
+    ch3GateTopMat.emissiveColor = new Color3(0.35, 0.18, 0.05);
+    ch3GateTop.material = ch3GateTopMat;
   }
 
   private buildChapter4Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
@@ -2619,6 +2834,120 @@ export class World {
     markerFlagMat.diffuseColor = new Color3(1.0, 0.5, 0.1);
     markerFlag.material = markerFlagMat;
     this.renderer.shadowGenerator.addShadowCaster(markerFlag);
+
+    // ─── SOUTHERN SHORE ASHRAM (coastal shelter) ───
+    // Ashram is at ASHRAM_POSITIONS[3] = (centerX, centerZ - 2)
+    const ashX = centerX, ashZ = centerZ - 2;
+    const ch4Wood = new Color3(0.5, 0.4, 0.3); // sun-bleached driftwood
+    const ch4Thatch = new Color3(0.6, 0.55, 0.35); // pale sandy thatch
+    const ch4Stone = new Color3(0.45, 0.42, 0.38);
+    const ch4Warm = new Color3(0.85, 0.5, 0.15);
+
+    // Coastal shelter hut — lighter, open-air feel
+    const ch4HutX = ashX + 7, ch4HutZ = ashZ - 3;
+    const ch4HutMat = new StandardMaterial('ch4_hutMat', this.scene);
+    ch4HutMat.diffuseColor = ch4Wood;
+
+    for (let i = 0; i < 4; i++) {
+      const [px, pz] = [[-2, -2], [2, -2], [-2, 2], [2, 2]][i];
+      const pillar = MeshBuilder.CreateCylinder(`ch4_hutPillar_${i}`, { height: 3.2, diameter: 0.28, tessellation: 8 }, this.scene);
+      pillar.position.set(ch4HutX + px, 1.6, ch4HutZ + pz);
+      pillar.material = ch4HutMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    const ch4Floor = MeshBuilder.CreateBox('ch4_hutFloor', { width: 5, height: 0.15, depth: 5 }, this.scene);
+    ch4Floor.position.set(ch4HutX, 0.25, ch4HutZ);
+    ch4Floor.material = ch4HutMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch4Floor);
+
+    const ch4Roof = MeshBuilder.CreateCylinder('ch4_hutRoof', {
+      height: 1.8, diameterTop: 0, diameterBottom: 7, tessellation: 4,
+    }, this.scene);
+    ch4Roof.position.set(ch4HutX, 4.1, ch4HutZ);
+    ch4Roof.rotation.y = Math.PI / 4;
+    const ch4RoofMat = new StandardMaterial('ch4_roofMat', this.scene);
+    ch4RoofMat.diffuseColor = ch4Thatch;
+    ch4Roof.material = ch4RoofMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch4Roof);
+
+    for (let i = 0; i < 2; i++) {
+      const beam = MeshBuilder.CreateBox(`ch4_hutBeam_${i}`, { width: i === 0 ? 5 : 0.12, height: 0.12, depth: i === 0 ? 0.12 : 5 }, this.scene);
+      beam.position.set(ch4HutX, 3.2, ch4HutZ);
+      beam.material = ch4HutMat;
+    }
+
+    const ch4HutLight = new PointLight('ch4_hutLight', new Vector3(ch4HutX, 2.2, ch4HutZ), this.scene);
+    ch4HutLight.diffuse = new Color3(1.0, 0.85, 0.55);
+    ch4HutLight.intensity = 1.5;
+    ch4HutLight.range = 8;
+
+    // Sacred fire pit (Havan Kund) — shore campfire
+    const ch4PitBase = MeshBuilder.CreateBox('ch4_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
+    ch4PitBase.position.set(ashX, 0.2, ashZ);
+    const ch4PitMat = new StandardMaterial('ch4_pitMat', this.scene);
+    ch4PitMat.diffuseColor = new Color3(0.55, 0.45, 0.3);
+    ch4PitBase.material = ch4PitMat;
+
+    const ch4FireCore = MeshBuilder.CreateBox('ch4_fireCore', { width: 0.8, height: 0.3, depth: 0.8 }, this.scene);
+    ch4FireCore.position.set(ashX, 0.5, ashZ);
+    const ch4FireMat = new StandardMaterial('ch4_fireMat', this.scene);
+    ch4FireMat.diffuseColor = ch4Warm;
+    ch4FireMat.emissiveColor = ch4Warm;
+    ch4FireCore.material = ch4FireMat;
+
+    const ch4FireLight = new PointLight('ch4_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
+    ch4FireLight.diffuse = new Color3(1.0, 0.65, 0.25);
+    ch4FireLight.intensity = 3;
+    ch4FireLight.range = 12;
+
+    // Meditation circle with shell/stone markers
+    const ch4DiscR = 3;
+    const ch4Disc = MeshBuilder.CreateDisc('ch4_meditationDisc', { radius: ch4DiscR, tessellation: 32 }, this.scene);
+    ch4Disc.rotation.x = Math.PI / 2;
+    ch4Disc.position.set(ashX, 0.05, ashZ + 6);
+    const ch4DiscMat = new StandardMaterial('ch4_discMat', this.scene);
+    ch4DiscMat.diffuseColor = new Color3(0.55, 0.5, 0.4);
+    ch4Disc.material = ch4DiscMat;
+
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 / 8) * i;
+      const sx = ashX + Math.cos(angle) * (ch4DiscR + 0.5);
+      const sz = (ashZ + 6) + Math.sin(angle) * (ch4DiscR + 0.5);
+      const stone = MeshBuilder.CreateSphere(`ch4_ashStone_${i}`, { diameter: 0.4 + rng() * 0.3, segments: 6 }, this.scene);
+      stone.position.set(sx, 0.25, sz);
+      const sMat = new StandardMaterial(`ch4_ashSMat_${i}`, this.scene);
+      sMat.diffuseColor = ch4Stone;
+      stone.material = sMat;
+      this.renderer.shadowGenerator.addShadowCaster(stone);
+    }
+
+    // Entrance torana gate (driftwood coastal gate)
+    const ch4GateX = ashX, ch4GateZ = ashZ - 12;
+    const ch4GateMat = new StandardMaterial('ch4_ashGateMat', this.scene);
+    ch4GateMat.diffuseColor = new Color3(0.5, 0.42, 0.3);
+
+    for (const side of [-1, 1]) {
+      const gP = MeshBuilder.CreateCylinder(`ch4_ashGate_${side}`, { height: 3.8, diameter: 0.35, tessellation: 8 }, this.scene);
+      gP.position.set(ch4GateX + side * 2.5, 1.9, ch4GateZ);
+      gP.material = ch4GateMat;
+      this.renderer.shadowGenerator.addShadowCaster(gP);
+    }
+
+    const ch4Cross = MeshBuilder.CreateBox('ch4_ashGateCross', { width: 5.5, height: 0.3, depth: 0.3 }, this.scene);
+    ch4Cross.position.set(ch4GateX, 3.8, ch4GateZ);
+    ch4Cross.material = ch4GateMat;
+    this.renderer.shadowGenerator.addShadowCaster(ch4Cross);
+
+    const ch4GateTop = MeshBuilder.CreateCylinder('ch4_ashGateTop', {
+      height: 0.9, diameterTop: 0, diameterBottom: 1.4, tessellation: 4,
+    }, this.scene);
+    ch4GateTop.position.set(ch4GateX, 4.35, ch4GateZ);
+    ch4GateTop.rotation.y = Math.PI / 4;
+    const ch4GateTopMat = new StandardMaterial('ch4_ashGateTopMat', this.scene);
+    ch4GateTopMat.diffuseColor = ch4Warm;
+    ch4GateTopMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
+    ch4GateTop.material = ch4GateTopMat;
   }
 
   private buildChapter5Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {

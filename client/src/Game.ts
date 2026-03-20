@@ -330,6 +330,31 @@ export class Game {
       this.hud.showKarmaScore('KARMA', karma.mercy, karma.valor, karma.devotion);
     };
 
+    this.localSim.onKarmaEvent = (axis, amount) => {
+      this.hud.showKarmaFeed(axis, amount);
+    };
+
+    // T4-4: Ashram skill unlock
+    this.localSim.onSkillUnlocked = (name, desc) => {
+      this.hud.showAchievement(`skill_${name}`, `${name} Unlocked`, desc);
+      this.audio.play(SFX.UIStart);
+    };
+
+    // T4-5: Side quest callbacks
+    this.localSim.onQuestStarted = (quest) => {
+      this.hud.showQuestStarted(quest.name, quest.description);
+      this.audio.play(SFX.UIStart);
+    };
+    this.localSim.onQuestProgress = (questId, progress, target) => {
+      const quest = this.localSim!.sideQuests?.find(q => q.id === questId);
+      if (quest) this.hud.updateQuestProgress(quest.name, progress, target);
+    };
+    this.localSim.onQuestCompleted = (quest) => {
+      this.hud.showQuestCompleted(quest.name);
+      this.hud.showAchievement(`quest_${quest.id}`, 'Quest Complete', quest.name);
+      this.audio.play(SFX.UIStart);
+    };
+
     this.localSim.onChampionSpawned = (_enemyId) => {
       this.hud.addKillFeedEntry('CHAMPION APPROACHES', '#ff8800');
       this.audio.play(SFX.BossRoar);
@@ -368,6 +393,23 @@ export class Game {
     this.localSim.onCheckpointSaved = () => {
       this.saveGame();
       this.hud.showNotification('MID-CHAPTER CHECKPOINT');
+    };
+
+    // T4-3: Sacred pillar puzzle callbacks
+    this.localSim.onPillarActivated = (pillarId, correct) => {
+      if (correct) {
+        this.world.activatePillar(pillarId);
+        this.hud.showNotification('PILLAR ACTIVATED');
+        this.audio.play(SFX.Victory);
+      } else {
+        this.hud.showNotification('WRONG ORDER — RESET');
+        this.audio.play(SFX.BossRoar);  // Indicate wrong sequence
+      }
+    };
+
+    this.localSim.onPuzzleCompleted = (chapter) => {
+      this.hud.showNotification(`PUZZLE COMPLETE — CHAPTER ${chapter}`);
+      this.audio.play(SFX.Victory);
     };
 
     this.localSim.onPickupSpawned = (id, pos, arrows) => {
@@ -767,6 +809,9 @@ export class Game {
             this.localSim.startDialogue(treeId);
           }
           this.hud.hideTalkPrompt();
+        } else {
+          // T4-3: Trigger pillar interaction if no nearby NPC
+          this.localSim.triggerPillarInteract();
         }
       }
     }
@@ -959,6 +1004,8 @@ export class Game {
     this.world.updateProjectiles(dt);
     // Update water shimmer/flow animation
     this.world.updateWater(dt);
+    // T3-3: Update lava vent animations
+    this.world.updateLavaVents(performance.now());
     // Update NPC beacon animations (rotating diamonds, pulsing light pillars)
     this.world.updateNPCBeacons(dt);
 

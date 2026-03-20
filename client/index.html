@@ -79,6 +79,68 @@
       text-transform: uppercase; pointer-events: none;
     }
 
+    /* Karma feed — floating notifications for karma events */
+    #karmaFeed {
+      position: absolute; top: 50px; right: 20px;
+      display: flex; flex-direction: column; gap: 6px;
+      pointer-events: none; z-index: 45;
+    }
+    .karma-feed-entry {
+      font-family: 'Cinzel', serif; font-size: 14px; font-weight: bold;
+      letter-spacing: 2px; text-shadow: 0 0 10px rgba(0,0,0,0.8);
+      padding: 6px 12px; border-radius: 3px;
+      animation: karmaSlideIn 0.3s ease-out forwards;
+    }
+    @keyframes karmaSlideIn {
+      0% { opacity: 0; transform: translateX(50px); }
+      100% { opacity: 1; transform: translateX(0); }
+    }
+    .karma-fade-out {
+      animation: karmaFadeOut 0.5s ease-out forwards !important;
+    }
+    @keyframes karmaFadeOut {
+      0% { opacity: 1; transform: translateX(0); }
+      100% { opacity: 0; transform: translateX(50px); }
+    }
+    .karma-mercy { color: #2ecc71; background: rgba(46,204,113,0.2); border: 1px solid rgba(46,204,113,0.5); }
+    .karma-valor { color: #e74c3c; background: rgba(231,76,60,0.2); border: 1px solid rgba(231,76,60,0.5); }
+    .karma-devotion { color: #ffd700; background: rgba(255,215,0,0.2); border: 1px solid rgba(255,215,0,0.5); }
+
+    /* T4-5: Side quest tracker */
+    #questTracker {
+      position: absolute; top: 120px; left: 16px;
+      color: #e8d5a3; font-size: 13px;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+      pointer-events: none; z-index: 100;
+      max-width: 250px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .quest-entry {
+      background: rgba(0,0,0,0.7); border-left: 3px solid #9b8c5c;
+      border-radius: 0 4px 4px 0; padding: 8px 10px;
+      font-family: 'Rajdhani', monospace;
+      transition: all 0.3s ease;
+    }
+    .quest-entry.active {
+      border-left-color: #d4a017;
+      box-shadow: 0 0 8px rgba(212,160,23,0.3);
+    }
+    .quest-entry.completed {
+      border-left-color: #2ecc71;
+      opacity: 0.6;
+    }
+    .quest-title {
+      font-weight: bold; color: #ffd700; font-size: 12px;
+      letter-spacing: 1px; margin-bottom: 2px;
+    }
+    .quest-description {
+      color: #aaa; font-size: 11px; line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .quest-progress {
+      color: #888; font-size: 10px; text-align: right;
+    }
+
     /* Boss bar */
     #bossBar { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 4px; }
     #bossBar.visible { display: flex; }
@@ -762,6 +824,11 @@
     <div id="teamBars"></div>
 
     <div id="chapterIndicator"></div>
+
+    <div id="karmaFeed"></div>
+
+    <!-- T4-5: Side quest tracker -->
+    <div id="questTracker"></div>
 
     <div id="goalWidget">
       <div id="goalLabel">CHAPTER GOAL</div>

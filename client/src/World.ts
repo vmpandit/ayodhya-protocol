@@ -7,7 +7,7 @@ import {
   MeshBuilder, StandardMaterial, PBRMaterial, Color3, Vector3, Mesh,
   Scene, TransformNode, InstancedMesh,
   Texture, Color4, GlowLayer, ParticleSystem, PointLight, DynamicTexture,
-  Engine,
+  Engine, VertexBuffer,
 } from '@babylonjs/core';
 import { Renderer } from './Renderer';
 import { LoadedAssets } from './TextureLoader';
@@ -56,6 +56,8 @@ export class World {
   private championPlates = new Map<number, Mesh>();  // A-06: Champion nameplate meshes
   private foamMeshes: Mesh[] = [];  // A-07: Shoreline foam strip meshes
   private bossArenaMeshes: Mesh[] = [];  // A-09: All boss arena meshes for visibility toggling
+  private lavaVentLights: PointLight[] = [];  // T3-3: Lava geyser lights for animation
+  private lavaVentPositions: Vec3[] = [];  // T3-3: Lava vent positions for damage checking
   // P2-4: Enemy mesh pool — recycle disabled meshes instead of creating new ones
   private enemyMeshPool: TransformNode[] = [];
 
@@ -141,6 +143,8 @@ export class World {
     this.buildGlowLayer();
     this.buildAmbientParticles();
     this.buildWildlife();
+    // T4-3: Build sacred pillar puzzles
+    this.buildPuzzlePillars();
   }
 
   /** Spawn terrain obstacles (rocks/pillars) in the world */
@@ -321,7 +325,7 @@ export class World {
     ground.receiveShadows = true;
 
     // A-01: Apply heightmap displacement to ground vertices
-    const positions = ground.getVerticesData('position');
+    let positions = ground.getVerticesData('position');
     if (positions) {
       const newPositions = new Float32Array(positions);
       for (let i = 0; i < newPositions.length; i += 3) {
@@ -354,6 +358,46 @@ export class World {
 
     // A-02: Store ground mesh reference for biome color changes
     this.groundMesh = ground;
+
+    // T2-4: Apply biome vertex colors per chapter zone based on Z position
+    const colors = new Float32Array((positions?.length ?? 0) * 4 / 3);
+    positions = ground.getVerticesData('position');
+    if (positions) {
+      for (let i = 0; i < positions.length; i += 3) {
+      const z = positions[i + 2];
+      let r = 0.15, g = 0.28, b = 0.1; // Default Ch0 lush green
+
+      if (z > -50) {
+        // Ch0 (z > -50): Lush green (Panchavati forest)
+        r = 0.18; g = 0.32; b = 0.12;
+      } else if (z > -150) {
+        // Ch1 (z -50 to -150): Dark forest (Dandaka)
+        r = 0.12; g = 0.22; b = 0.08;
+      } else if (z > -250) {
+        // Ch2 (z -150 to -250): Scorched earth (Jatayu's Fall)
+        r = 0.25; g = 0.15; b = 0.08;
+      } else if (z > -380) {
+        // Ch3 (z -250 to -380): Rocky highland (Kishkindha)
+        r = 0.35; g = 0.3; b = 0.2;
+      } else if (z > -490) {
+        // Ch4 (z -380 to -490): Sandy shore (Southern Shore)
+        r = 0.55; g = 0.48; b = 0.35;
+      } else if (z > -580) {
+        // Ch5 (z -490 to -580): Wet stone (Ram Setu)
+        r = 0.3; g = 0.35; b = 0.38;
+      } else {
+        // Ch6+ (z < -580): Dark volcanic (Lanka)
+        r = 0.15; g = 0.1; b = 0.08;
+      }
+
+      const colorIdx = (i / 3) * 4;
+      colors[colorIdx] = r;
+      colors[colorIdx + 1] = g;
+      colors[colorIdx + 2] = b;
+      colors[colorIdx + 3] = 1.0; // Alpha
+      }
+      ground.setVerticesData(VertexBuffer.ColorKind, colors);
+    }
 
     // Add scattered ground cover: upright triangular grass blades
     const rng = mulberry32(9999);
@@ -948,6 +992,16 @@ export class World {
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
 
+      // T2-6: Add divine aura glow sphere around player
+      const auraSphere = MeshBuilder.CreateSphere(`${n}auraSphere`, { diameter: 2.5, segments: 16 }, this.scene);
+      auraSphere.parent = root;
+      auraSphere.position.y = 1.25; // Center on player
+      const auraMat = new StandardMaterial(`${n}auraMat`, this.scene);
+      auraMat.alpha = 0.08;
+      auraMat.emissiveColor = new Color3(1.0, 0.85, 0.4); // Gold
+      auraMat.diffuseColor = new Color3(0, 0, 0); // Transparent diffuse
+      auraSphere.material = auraMat;
+
       return root;
     }
 
@@ -1026,6 +1080,16 @@ export class World {
 
     // ── Quiver (cylindrical, on back right) ───────────────────────────
     this.mkCyl(`${n}quiver`, 0.42, 0.085, 0.085, 8, mDark, root, 0.22, 1.13, 0.21, 0, 0, 0.25);
+
+    // T2-6: Add divine aura glow sphere around player
+    const auraSphere = MeshBuilder.CreateSphere(`${n}auraSphere`, { diameter: 2.5, segments: 16 }, this.scene);
+    auraSphere.parent = root;
+    auraSphere.position.y = 1.0; // Center on player torso
+    const auraMat = new StandardMaterial(`${n}auraMat`, this.scene);
+    auraMat.alpha = 0.08;
+    auraMat.emissiveColor = new Color3(1.0, 0.85, 0.4); // Gold
+    auraMat.diffuseColor = new Color3(0, 0, 0); // Transparent diffuse
+    auraSphere.material = auraMat;
 
     return root;
   }
@@ -1133,6 +1197,21 @@ export class World {
       root.getChildMeshes().forEach(m => { m.visibility = shimmer; });
     } else {
       root.getChildMeshes().forEach(m => { m.visibility = 1.0; });
+    }
+
+    // T4-2: Golden Deer visual coloring
+    if ((state as any).isGoldenDeer) {
+      root.getChildMeshes().forEach(m => {
+        if (m.material) {
+          if (m.material instanceof PBRMaterial) {
+            (m.material as any).albedoColor = new Color3(0.9, 0.75, 0.2);  // Golden color
+            (m.material as any).emissiveColor = new Color3(0.4, 0.3, 0.1);  // Golden glow
+          } else if (m.material instanceof StandardMaterial) {
+            (m.material as any).diffuseColor = new Color3(0.9, 0.75, 0.2);
+            (m.material as any).emissiveColor = new Color3(0.4, 0.3, 0.1);
+          }
+        }
+      });
     }
 
     // A-06: Champion golden nameplate
@@ -2293,6 +2372,35 @@ export class World {
     fireLight.intensity = 3;
     fireLight.range = 12;
 
+    // T2-5: Add concentric rangoli circle rings at fire pit
+    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
+    const deepRed = new Color3(0.6, 0.1, 0.05);
+    const goldColor = new Color3(1.0, 0.85, 0.4);
+
+    // Ring 1: radius 2.0, thickness 0.08, saffron orange
+    const ring1 = MeshBuilder.CreateTorus('ch0_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
+    ring1.position.set(fireX, 0.02, fireZ);
+    const ring1Mat = new StandardMaterial('ch0_ring1Mat', this.scene);
+    ring1Mat.emissiveColor = saffrronOrange;
+    ring1Mat.diffuseColor = saffrronOrange;
+    ring1.material = ring1Mat;
+
+    // Ring 2: radius 3.0, thickness 0.06, deep red
+    const ring2 = MeshBuilder.CreateTorus('ch0_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
+    ring2.position.set(fireX, 0.02, fireZ);
+    const ring2Mat = new StandardMaterial('ch0_ring2Mat', this.scene);
+    ring2Mat.emissiveColor = deepRed;
+    ring2Mat.diffuseColor = deepRed;
+    ring2.material = ring2Mat;
+
+    // Ring 3: radius 4.0, thickness 0.05, gold
+    const ring3 = MeshBuilder.CreateTorus('ch0_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
+    ring3.position.set(fireX, 0.02, fireZ);
+    const ring3Mat = new StandardMaterial('ch0_ring3Mat', this.scene);
+    ring3Mat.emissiveColor = goldColor;
+    ring3Mat.diffuseColor = goldColor;
+    ring3.material = ring3Mat;
+
     // ─── MEDITATION CIRCLE (Tapasya spot) ───
     const discRadius = 3;
     const disc = MeshBuilder.CreateDisc('ch0_meditationDisc', { radius: discRadius, tessellation: 32 }, this.scene);
@@ -2476,6 +2584,32 @@ export class World {
     ch1FireLight.diffuse = new Color3(1.0, 0.6, 0.2);
     ch1FireLight.intensity = 3;
     ch1FireLight.range = 12;
+
+    // T2-5: Add concentric rangoli circle rings at fire pit
+    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
+    const deepRed = new Color3(0.6, 0.1, 0.05);
+    const goldColor = new Color3(1.0, 0.85, 0.4);
+
+    const ch1Ring1 = MeshBuilder.CreateTorus('ch1_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
+    ch1Ring1.position.set(ashX, 0.02, ashZ);
+    const ch1Ring1Mat = new StandardMaterial('ch1_ring1Mat', this.scene);
+    ch1Ring1Mat.emissiveColor = saffrronOrange;
+    ch1Ring1Mat.diffuseColor = saffrronOrange;
+    ch1Ring1.material = ch1Ring1Mat;
+
+    const ch1Ring2 = MeshBuilder.CreateTorus('ch1_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
+    ch1Ring2.position.set(ashX, 0.02, ashZ);
+    const ch1Ring2Mat = new StandardMaterial('ch1_ring2Mat', this.scene);
+    ch1Ring2Mat.emissiveColor = deepRed;
+    ch1Ring2Mat.diffuseColor = deepRed;
+    ch1Ring2.material = ch1Ring2Mat;
+
+    const ch1Ring3 = MeshBuilder.CreateTorus('ch1_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
+    ch1Ring3.position.set(ashX, 0.02, ashZ);
+    const ch1Ring3Mat = new StandardMaterial('ch1_ring3Mat', this.scene);
+    ch1Ring3Mat.emissiveColor = goldColor;
+    ch1Ring3Mat.diffuseColor = goldColor;
+    ch1Ring3.material = ch1Ring3Mat;
 
     // Meditation circle with stone boundary markers
     const ch1DiscR = 3;
@@ -2735,6 +2869,32 @@ export class World {
     ch3FireLight.intensity = 3;
     ch3FireLight.range = 12;
 
+    // T2-5: Add concentric rangoli circle rings at fire pit
+    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
+    const deepRed = new Color3(0.6, 0.1, 0.05);
+    const goldColor = new Color3(1.0, 0.85, 0.4);
+
+    const ch3Ring1 = MeshBuilder.CreateTorus('ch3_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
+    ch3Ring1.position.set(ashX, 0.02, ashZ);
+    const ch3Ring1Mat = new StandardMaterial('ch3_ring1Mat', this.scene);
+    ch3Ring1Mat.emissiveColor = saffrronOrange;
+    ch3Ring1Mat.diffuseColor = saffrronOrange;
+    ch3Ring1.material = ch3Ring1Mat;
+
+    const ch3Ring2 = MeshBuilder.CreateTorus('ch3_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
+    ch3Ring2.position.set(ashX, 0.02, ashZ);
+    const ch3Ring2Mat = new StandardMaterial('ch3_ring2Mat', this.scene);
+    ch3Ring2Mat.emissiveColor = deepRed;
+    ch3Ring2Mat.diffuseColor = deepRed;
+    ch3Ring2.material = ch3Ring2Mat;
+
+    const ch3Ring3 = MeshBuilder.CreateTorus('ch3_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
+    ch3Ring3.position.set(ashX, 0.02, ashZ);
+    const ch3Ring3Mat = new StandardMaterial('ch3_ring3Mat', this.scene);
+    ch3Ring3Mat.emissiveColor = goldColor;
+    ch3Ring3Mat.diffuseColor = goldColor;
+    ch3Ring3.material = ch3Ring3Mat;
+
     // Meditation circle with stone boundary markers
     const ch3DiscR = 3;
     const ch3Disc = MeshBuilder.CreateDisc('ch3_meditationDisc', { radius: ch3DiscR, tessellation: 32 }, this.scene);
@@ -2900,6 +3060,32 @@ export class World {
     ch4FireLight.diffuse = new Color3(1.0, 0.65, 0.25);
     ch4FireLight.intensity = 3;
     ch4FireLight.range = 12;
+
+    // T2-5: Add concentric rangoli circle rings at fire pit
+    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
+    const deepRed = new Color3(0.6, 0.1, 0.05);
+    const goldColor = new Color3(1.0, 0.85, 0.4);
+
+    const ch4Ring1 = MeshBuilder.CreateTorus('ch4_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
+    ch4Ring1.position.set(ashX, 0.02, ashZ);
+    const ch4Ring1Mat = new StandardMaterial('ch4_ring1Mat', this.scene);
+    ch4Ring1Mat.emissiveColor = saffrronOrange;
+    ch4Ring1Mat.diffuseColor = saffrronOrange;
+    ch4Ring1.material = ch4Ring1Mat;
+
+    const ch4Ring2 = MeshBuilder.CreateTorus('ch4_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
+    ch4Ring2.position.set(ashX, 0.02, ashZ);
+    const ch4Ring2Mat = new StandardMaterial('ch4_ring2Mat', this.scene);
+    ch4Ring2Mat.emissiveColor = deepRed;
+    ch4Ring2Mat.diffuseColor = deepRed;
+    ch4Ring2.material = ch4Ring2Mat;
+
+    const ch4Ring3 = MeshBuilder.CreateTorus('ch4_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
+    ch4Ring3.position.set(ashX, 0.02, ashZ);
+    const ch4Ring3Mat = new StandardMaterial('ch4_ring3Mat', this.scene);
+    ch4Ring3Mat.emissiveColor = goldColor;
+    ch4Ring3Mat.diffuseColor = goldColor;
+    ch4Ring3.material = ch4Ring3Mat;
 
     // Meditation circle with shell/stone markers
     const ch4DiscR = 3;
@@ -3084,6 +3270,71 @@ export class World {
       totemHead.material = totemHeadMat;
       this.renderer.shadowGenerator.addShadowCaster(totemHead);
     }
+
+    // ─────────────────────────────────────────────────────────────────
+    // T3-2: Lanka Outskirts Fortress Structures
+    // ─────────────────────────────────────────────────────────────────
+
+    // 2 massive fortress wall segments: dark stone boxes at flanking sides
+    const darkVolcanicMat = new StandardMaterial(`ch6_darkStoneMat`, this.scene);
+    darkVolcanicMat.diffuseColor = new Color3(0.2, 0.15, 0.12);
+
+    const wallFlankPositions = [
+      { x: centerX - 45, z: centerZ },
+      { x: centerX + 45, z: centerZ },
+    ];
+
+    for (let i = 0; i < wallFlankPositions.length; i++) {
+      const pos = wallFlankPositions[i];
+      const wall = MeshBuilder.CreateBox(`ch6_flankWall_${i}`, { width: 40, height: 12, depth: 2 }, this.scene);
+      wall.position.set(pos.x, 6, pos.z);
+      wall.material = darkVolcanicMat;
+      this.renderer.shadowGenerator.addShadowCaster(wall);
+    }
+
+    // Fortress gate: 2 tall pillars with heavy crossbar and iron-colored material
+    const redAccentMat = new StandardMaterial(`ch6_gateMat`, this.scene);
+    redAccentMat.diffuseColor = new Color3(0.35, 0.25, 0.22);
+    redAccentMat.emissiveColor = new Color3(0.15, 0.05, 0.03);
+
+    const gateX = [centerX - 6, centerX + 6];
+    for (let i = 0; i < gateX.length; i++) {
+      const pillar = MeshBuilder.CreateCylinder(`ch6_gatePillar_${i}`, { height: 15, diameter: 2, tessellation: 12 }, this.scene);
+      pillar.position.set(gateX[i], 7.5, centerZ + 8);
+      pillar.material = redAccentMat;
+      this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    // Heavy crossbar
+    const gateBar = MeshBuilder.CreateBox(`ch6_gateBar`, { width: 14, height: 1.5, depth: 1.5 }, this.scene);
+    gateBar.position.set(centerX, 14, centerZ + 8);
+    gateBar.material = redAccentMat;
+    this.renderer.shadowGenerator.addShadowCaster(gateBar);
+
+    // 4 wall-mounted torch braziers: small boxes with orange emissive + PointLights
+    const torchBrazierMat = new StandardMaterial(`ch6_torchMat`, this.scene);
+    torchBrazierMat.diffuseColor = new Color3(0.3, 0.1, 0.05);
+    torchBrazierMat.emissiveColor = new Color3(1.0, 0.5, 0.1);
+
+    const brazierPositions = [
+      { x: centerX - 20, z: centerZ, py: 10 },
+      { x: centerX + 20, z: centerZ, py: 10 },
+      { x: centerX - 6, z: centerZ + 8, py: 13 },
+      { x: centerX + 6, z: centerZ + 8, py: 13 },
+    ];
+
+    for (let i = 0; i < brazierPositions.length; i++) {
+      const pos = brazierPositions[i];
+      const brazier = MeshBuilder.CreateBox(`ch6_brazier_${i}`, { width: 0.6, height: 0.6, depth: 0.6 }, this.scene);
+      brazier.position.set(pos.x, pos.py, pos.z);
+      brazier.material = torchBrazierMat;
+      this.renderer.shadowGenerator.addShadowCaster(brazier);
+
+      const light = new PointLight(`ch6_brazierLight_${i}`, new Vector3(pos.x, pos.py + 0.5, pos.z), this.scene);
+      light.diffuse = new Color3(1.0, 0.6, 0.2);
+      light.intensity = 2;
+      light.range = 10;
+    }
   }
 
   private buildChapter7Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
@@ -3108,11 +3359,240 @@ export class World {
       pillar.material = pillarMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pillar);
     }
+
+    // ─────────────────────────────────────────────────────────────────
+    // T3-2: Lanka Fortress Wall Structures
+    // ─────────────────────────────────────────────────────────────────
+
+    // 2 massive fortress wall segments: dark stone boxes
+    const stoneMat = new StandardMaterial(`ch7_stoneMat`, this.scene);
+    stoneMat.diffuseColor = new Color3(0.2, 0.15, 0.12);
+
+    const wallSegmentPositions = [
+      { x: centerX - 50, z: centerZ - 20 },
+      { x: centerX + 50, z: centerZ - 20 },
+    ];
+
+    for (let i = 0; i < wallSegmentPositions.length; i++) {
+      const pos = wallSegmentPositions[i];
+      const wall = MeshBuilder.CreateBox(`ch7_fortressWall_${i}`, { width: 40, height: 12, depth: 2 }, this.scene);
+      wall.position.set(pos.x, 6, pos.z);
+      wall.material = stoneMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(wall);
+    }
+
+    // Fortress gate: 2 tall pillars with heavy crossbar and iron-colored material
+    const ironMat = new StandardMaterial(`ch7_ironMat`, this.scene);
+    ironMat.diffuseColor = new Color3(0.35, 0.25, 0.22);
+    ironMat.emissiveColor = new Color3(0.15, 0.05, 0.03);
+
+    const gatePillarX = [centerX - 8, centerX + 8];
+    for (let i = 0; i < gatePillarX.length; i++) {
+      const pillar = MeshBuilder.CreateCylinder(`ch7_gatePillar_${i}`, { height: 15, diameter: 2, tessellation: 12 }, this.scene);
+      pillar.position.set(gatePillarX[i], 7.5, centerZ + 5);
+      pillar.material = ironMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pillar);
+    }
+
+    // Heavy crossbar
+    const crossbar = MeshBuilder.CreateBox(`ch7_gateBar`, { width: 18, height: 1.5, depth: 1.5 }, this.scene);
+    crossbar.position.set(centerX, 14, centerZ + 5);
+    crossbar.material = ironMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(crossbar);
+
+    // 4 wall-mounted torch braziers: small boxes with orange emissive + PointLights
+    const torchMat = new StandardMaterial(`ch7_torchMat`, this.scene);
+    torchMat.diffuseColor = new Color3(0.3, 0.1, 0.05);
+    torchMat.emissiveColor = new Color3(1.0, 0.5, 0.1);
+
+    const torchPositions = [
+      { x: centerX - 25, z: centerZ - 20, py: 10 },
+      { x: centerX + 25, z: centerZ - 20, py: 10 },
+      { x: centerX - 8, z: centerZ + 5, py: 13 },
+      { x: centerX + 8, z: centerZ + 5, py: 13 },
+    ];
+
+    for (let i = 0; i < torchPositions.length; i++) {
+      const pos = torchPositions[i];
+      const torch = MeshBuilder.CreateBox(`ch7_torchBrazier_${i}`, { width: 0.6, height: 0.6, depth: 0.6 }, this.scene);
+      torch.position.set(pos.x, pos.py, pos.z);
+      torch.material = torchMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(torch);
+
+      const torchLight = new PointLight(`ch7_torchLight_${i}`, new Vector3(pos.x, pos.py + 0.5, pos.z), this.scene);
+      torchLight.diffuse = new Color3(1.0, 0.6, 0.2);
+      torchLight.intensity = 2;
+      torchLight.range = 10;
+    }
+
+    // Grand Lanka palace facade behind the boss arena: 3 tiered platforms (stepped pyramid)
+    const palaceMat = new StandardMaterial(`ch7_palaceMat`, this.scene);
+    palaceMat.diffuseColor = new Color3(0.7, 0.5, 0.15);
+    palaceMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
+
+    const palaceBaseZ = centerZ + 20;
+
+    // Base tier
+    const palaceBase = MeshBuilder.CreateBox(`ch7_palaceBase`, { width: 30, height: 3, depth: 15 }, this.scene);
+    palaceBase.position.set(centerX, 1.5, palaceBaseZ);
+    palaceBase.material = palaceMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceBase);
+
+    // Middle tier
+    const palaceMiddle = MeshBuilder.CreateBox(`ch7_palaceMiddle`, { width: 20, height: 3, depth: 10 }, this.scene);
+    palaceMiddle.position.set(centerX, 4.5, palaceBaseZ);
+    palaceMiddle.material = palaceMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceMiddle);
+
+    // Top tier
+    const palaceTop = MeshBuilder.CreateBox(`ch7_palaceTop`, { width: 12, height: 3, depth: 8 }, this.scene);
+    palaceTop.position.set(centerX, 7.5, palaceBaseZ);
+    palaceTop.material = palaceMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceTop);
+
+    // 4 golden demon head totems flanking the arena
+    const demonHeadMat = new StandardMaterial(`ch7_demonHeadMat`, this.scene);
+    demonHeadMat.diffuseColor = new Color3(0.7, 0.5, 0.15);
+    demonHeadMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
+
+    const demonPositions = [
+      { x: centerX - 20, z: centerZ },
+      { x: centerX + 20, z: centerZ },
+      { x: centerX, z: centerZ - 20 },
+      { x: centerX, z: centerZ + 20 },
+    ];
+
+    for (let i = 0; i < demonPositions.length; i++) {
+      const pos = demonPositions[i];
+
+      // Pole (cylinder)
+      const pole = MeshBuilder.CreateCylinder(`ch7_demonPole_${i}`, { height: 8, diameter: 0.8, tessellation: 12 }, this.scene);
+      pole.position.set(pos.x, 4, pos.z);
+      pole.material = demonHeadMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pole);
+
+      // Head (sphere)
+      const head = MeshBuilder.CreateSphere(`ch7_demonHead_${i}`, { diameter: 1.5, segments: 16 }, this.scene);
+      head.position.set(pos.x, 8.5, pos.z);
+      head.material = demonHeadMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(head);
+    }
+
+    // 2 Lanka war banners: tall poles with red flag boxes
+    const bannerPoleMatRed = new StandardMaterial(`ch7_bannerMat`, this.scene);
+    bannerPoleMatRed.diffuseColor = new Color3(0.3, 0.1, 0.05);
+
+    const bannerFlagMat = new StandardMaterial(`ch7_flagMat`, this.scene);
+    bannerFlagMat.diffuseColor = new Color3(0.9, 0.1, 0.05);
+    bannerFlagMat.emissiveColor = new Color3(0.4, 0.05, 0.02);
+
+    const bannerPositions = [
+      { x: centerX - 35, z: centerZ },
+      { x: centerX + 35, z: centerZ },
+    ];
+
+    for (let i = 0; i < bannerPositions.length; i++) {
+      const pos = bannerPositions[i];
+
+      // Pole
+      const pole = MeshBuilder.CreateCylinder(`ch7_bannerPole_${i}`, { height: 10, diameter: 0.4, tessellation: 8 }, this.scene);
+      pole.position.set(pos.x, 5, pos.z);
+      pole.material = bannerPoleMatRed;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pole);
+
+      // Flag
+      const flag = MeshBuilder.CreateBox(`ch7_bannerFlag_${i}`, { width: 4, height: 3, depth: 0.3 }, this.scene);
+      flag.position.set(pos.x + 2, 8, pos.z);
+      flag.material = bannerFlagMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(flag);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // T3-3: Lava Geyser Vents (Boss Arena)
+    // ─────────────────────────────────────────────────────────────────
+
+    const lavaVentMat = new StandardMaterial(`ch7_lavaVentMat`, this.scene);
+    lavaVentMat.diffuseColor = new Color3(0.3, 0.1, 0.05);
+    lavaVentMat.emissiveColor = new Color3(0.5, 0.15, 0.05);
+
+    const ventDistance = 12;
+    const ventPositions: Vec3[] = [
+      { x: C.BOSS_ARENA_CENTER.x + ventDistance, y: 0, z: C.BOSS_ARENA_CENTER.z },
+      { x: C.BOSS_ARENA_CENTER.x - ventDistance, y: 0, z: C.BOSS_ARENA_CENTER.z },
+      { x: C.BOSS_ARENA_CENTER.x, y: 0, z: C.BOSS_ARENA_CENTER.z + ventDistance },
+      { x: C.BOSS_ARENA_CENTER.x, y: 0, z: C.BOSS_ARENA_CENTER.z - ventDistance },
+    ];
+
+    for (let i = 0; i < ventPositions.length; i++) {
+      const vPos = ventPositions[i];
+
+      // Ground-level circular vent disc
+      const vent = MeshBuilder.CreateCylinder(`ch7_lavaVent_${i}`, { height: 0.2, diameter: 3, tessellation: 16 }, this.scene);
+      vent.position.set(vPos.x, 0.1, vPos.z);
+      vent.material = lavaVentMat;
+
+      // Point light for geyser eruption animation
+      const ventLight = new PointLight(`ch7_lavaVentLight_${i}`, new Vector3(vPos.x, 2, vPos.z), this.scene);
+      ventLight.diffuse = new Color3(1.0, 0.6, 0.2);
+      ventLight.intensity = 0;
+      ventLight.range = 6;
+
+      this.lavaVentLights.push(ventLight);
+      this.lavaVentPositions.push({ x: vPos.x, y: vPos.y, z: vPos.z });
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   //  WATER FEATURES
   // ══════════════════════════════════════════════════════════════════════════
+
+  // T4-3: Build sacred pillar puzzle meshes
+  private buildPuzzlePillars(): void {
+    const puzzleConfigs = [
+      { ch: 0, positions: [
+        { x: 5, z: 8 }, { x: -5, z: 8 }, { x: 0, z: 13 }
+      ]},
+      { ch: 1, positions: [
+        { x: -25, z: -90 }, { x: -35, z: -90 }, { x: -30, z: -85 }
+      ]},
+      { ch: 3, positions: [
+        { x: -145, z: -315 }, { x: -155, z: -315 }, { x: -150, z: -310 }
+      ]},
+      { ch: 4, positions: [
+        { x: -45, z: -445 }, { x: -55, z: -445 }, { x: -50, z: -440 }
+      ]},
+    ];
+
+    for (const config of puzzleConfigs) {
+      for (let i = 0; i < config.positions.length; i++) {
+        const pos = config.positions[i];
+        const pillarId = `puzzle_ch${config.ch}_${i}`;
+
+        // Create stone cylinder pillar
+        const pillar = MeshBuilder.CreateCylinder(pillarId, {
+          height: 2.5,
+          diameter: 0.5,
+          tessellation: 8,
+        }, this.scene);
+        pillar.position.set(pos.x, 1.25, pos.z);
+
+        // Stone material with blue emissive glow
+        const pillarMat = new StandardMaterial(`${pillarId}_mat`, this.scene);
+        pillarMat.diffuseColor = new Color3(0.4, 0.4, 0.45);   // Stone grey
+        pillarMat.emissiveColor = new Color3(0.1, 0.15, 0.25); // Faint blue glow
+        pillarMat.specularColor = new Color3(0.2, 0.2, 0.25);
+        pillar.material = pillarMat;
+      }
+    }
+  }
+
+  activatePillar(pillarId: string): void {
+    const pillar = this.scene.getMeshByName(pillarId);
+    if (pillar && pillar.material instanceof StandardMaterial) {
+      // Change to bright gold emissive
+      pillar.material.emissiveColor = new Color3(1.0, 0.85, 0.2);
+    }
+  }
 
   private buildWaterFeatures(): void {
     // ── Curved River: winding path from Panchavati (spawn) through to Southern Shore ──
@@ -3442,6 +3922,26 @@ export class World {
       const baseY = 0.07 + Math.sin(time * 0.4) * foamYBob;
       foam.position.y = baseY;
     }
+  }
+
+  /**
+   * T3-3: Update lava vent lights with pulsing animation
+   * Each vent cycles through bright (erupting) and dim (dormant) states
+   */
+  public updateLavaVents(time: number): void {
+    for (let i = 0; i < this.lavaVentLights.length; i++) {
+      // Stagger each vent by π/2 offset so they don't all erupt at once
+      const phase = (time * 0.001 + i * Math.PI / 2) % (Math.PI * 2);
+      const active = Math.sin(phase) > 0.7; // Active ~30% of the time
+      this.lavaVentLights[i].intensity = active ? 4 : 0.3;
+    }
+  }
+
+  /**
+   * T3-3: Get lava vent positions for damage checking in LocalSim
+   */
+  public getLavaVentPositions(): Vec3[] {
+    return this.lavaVentPositions;
   }
 
   // ══════════════════════════════════════════════════════════════════════════

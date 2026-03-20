@@ -193,6 +193,45 @@ const ch2_jatayu_tree: DialogueTree = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// T4-2: Maricha the Rakshasa — demon who became a golden deer to lure Rama
+// In the Ramayana, Maricha was coerced by Ravana to take the form of a golden
+// deer, luring Rama away from Sita. When wounded, Maricha reveals the truth with
+// his dying breath, deepening Rama's tragic burden.
+// ─────────────────────────────────────────────────────────────────────────────
+const maricha_reveal_tree: DialogueTree = {
+  startNodeId: 'mr1',
+  nodes: {
+    mr1: {
+      id: 'mr1',
+      speaker: 'Maricha',
+      text: "Hah! You fell for it, prince! The deer was an illusion—I am Maricha, demon of a thousand forms. While you chased shadows, Ravana has already reached your beloved.",
+      choices: [
+        {
+          label: 'Where has he taken Sita?!',
+          nextNodeId: 'mr2',
+        },
+        {
+          label: 'You will pay for this deception, demon.',
+          nextNodeId: 'mr3',
+        },
+      ],
+    },
+    mr2: {
+      id: 'mr2',
+      speaker: 'Maricha',
+      text: "To Lanka, across the southern ocean! Haha— *cough* You've struck deep, Rama. Ravana promised me freedom, but I see now he deals only in chains. Follow the trail south... it's all I can offer before I— *collapses*",
+      choices: [],
+    },
+    mr3: {
+      id: 'mr3',
+      speaker: 'Maricha',
+      text: "*gasps* I already have, prince... Ravana forced my hand. I begged him not to anger you, but pride consumed him. Follow the southern path... find your Sita... avenge us both... *collapses*",
+      choices: [],
+    },
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Chapter 3: Sugriv — The exiled Vanara king whose throne Rama restored
 // In the Ramayana, Sugriv was banished by his brother Vali. Rama killed Vali
 // (a morally complex act) and restored Sugriv's kingdom. In return, Sugriv
@@ -581,13 +620,159 @@ const ch1_sage_return_tree: DialogueTree = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Ravana Death Monologue — A dramatic dialogue when Ravana is defeated
+// The Ten-Headed Demon King's final words, confronting his own pride and fall
+// ─────────────────────────────────────────────────────────────────────────────
+const ravana_death_tree: DialogueTree = {
+  startNodeId: 'ravana_death_opening',
+  nodes: {
+    ravana_death_opening: {
+      id: 'ravana_death_opening',
+      speaker: 'Ravana',
+      text: "So... the exile prince has done what the gods could not. Tell me, Rama—was it dharma that guided your arrow, or merely vengeance?",
+      choices: [
+        {
+          label: 'It was dharma.',
+          nextNodeId: 'ravana_death_dharma',
+        },
+        {
+          label: 'It was love.',
+          nextNodeId: 'ravana_death_love',
+        },
+      ],
+    },
+    ravana_death_dharma: {
+      id: 'ravana_death_dharma',
+      speaker: 'Ravana',
+      text: "Dharma... yes. I was once its greatest student. Ten heads of knowledge, and yet I let one desire corrupt them all. Remember this, prince—even the mightiest can fall to their own pride. You have shown me something I forgot: that true power lies not in what we take, but in what we protect.",
+      choices: [
+        {
+          label: 'Rest now, Ravana. Your suffering is over.',
+          nextNodeId: 'ravana_death_final',
+        },
+      ],
+    },
+    ravana_death_love: {
+      id: 'ravana_death_love',
+      speaker: 'Ravana',
+      text: "Love... How fitting. It was love that drove me to steal Sita, and love that now destroys me. We are not so different, you and I—except you loved without possessing. You loved in Dharma. I loved in Kama. That is the chasm between us, and it is unbridgeable.",
+      choices: [
+        {
+          label: 'Your love became obsession. Let it go.',
+          nextNodeId: 'ravana_death_final',
+        },
+      ],
+    },
+    ravana_death_final: {
+      id: 'ravana_death_final',
+      speaker: 'Ravana',
+      text: "Strike the navel, Rama. Let the Amrita spill. May my next life... find me worthy of the dharma I abandoned. Tell Sita... tell her the demon who took her freely releases her. That is the only victory left to me.",
+    },
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chapter 7 (Post-Boss): Sita Reunion — The reunion after Ravana's defeat
+// Sita appears as an NPC for a heartfelt dialogue with Rama, then game victory
+// ─────────────────────────────────────────────────────────────────────────────
+const sita_reunion_tree: DialogueTree = {
+  startNodeId: 'sr1',
+  nodes: {
+    sr1: {
+      id: 'sr1',
+      speaker: 'Sita',
+      text: "Rama... I knew you would come. Through all those months in Lanka, I never lost faith. The sacred fire within me burned brighter than Ravana's thousand torches.",
+      choices: [
+        {
+          label: 'The separation tested my dharma, Sita.',
+          nextNodeId: 'sr2',
+        },
+        {
+          label: 'I would have torn apart all three worlds to find you.',
+          nextNodeId: 'sr3',
+        },
+      ],
+    },
+    sr2: {
+      id: 'sr2',
+      speaker: 'Sita',
+      text: "As it tested mine. But dharma is not the absence of suffering—it is the path we walk through it. We have both emerged stronger, purified like gold in the flame.",
+      choices: [
+        {
+          label: 'Let us return to Ayodhya.',
+          nextNodeId: 'sr4',
+        },
+      ],
+    },
+    sr3: {
+      id: 'sr3',
+      speaker: 'Sita',
+      text: "I know, my lord. And that love is what makes you Rama—not the Kodanda bow, not the divine Astras, but the heart that refused to rest until justice was done.",
+      choices: [
+        {
+          label: 'Let us return to Ayodhya.',
+          nextNodeId: 'sr4',
+        },
+      ],
+    },
+    sr4: {
+      id: 'sr4',
+      speaker: 'Sita',
+      text: "Yes... Ayodhya awaits. The exile ends today, and Ram Rajya begins. Our story will echo through the ages—not as a tale of war, but as a testament that dharma always prevails.",
+    },
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chapter 6: Kumbhakarna — Ravana's Giant Brother (T4-1)
+// In the Ramayana, Kumbhakarna is Ravana's brother, a powerful Rakshasa who
+// spent years in enchanted sleep. He awakens reluctantly to defend his brother.
+// ─────────────────────────────────────────────────────────────────────────────
+const kumbhakarna_wake_tree: DialogueTree = {
+  startNodeId: 'k1',
+  nodes: {
+    k1: {
+      id: 'k1',
+      speaker: 'Kumbhakarna',
+      text: "Who dares disturb the slumber of Kumbhakarna? *yawns enormously* My brother's wars are not my concern... but since you've woken me, you shall pay the price of interrupting a good dream.",
+      choices: [
+        {
+          label: "I don't wish to fight you, Kumbhakarna. Stand aside.",
+          nextNodeId: 'k2',
+        },
+        {
+          label: "Your brother holds Sita captive. Help me end this.",
+          nextNodeId: 'k3',
+        },
+      ],
+    },
+    k2: {
+      id: 'k2',
+      speaker: 'Kumbhakarna',
+      text: "Stand aside? STAND ASIDE?! I am the mountain that walks, exile prince! I warned Ravana his obsession would bring ruin, but family is family. Now... DEFEND YOURSELF!",
+      choices: [],
+    },
+    k3: {
+      id: 'k3',
+      speaker: 'Kumbhakarna',
+      text: "I told that fool the same thing when he dragged the princess here. But a Rakshasa does not betray his king, even a mad one. Forgive me, Rama—duty demands this.",
+      choices: [],
+    },
+  },
+};
+
 export const DIALOGUE_TREES: Record<string, DialogueTree> = {
   ch1_sage: ch1_sage_tree,
   ch1_sage_return: ch1_sage_return_tree,
   ch2_jatayu: ch2_jatayu_tree,
+  maricha_reveal: maricha_reveal_tree,
   ch3_sugriv: ch3_sugriv_tree,
   ch4_jambavan: ch4_jambavan_tree,
   ch4_sampati: ch4_sampati_tree,
   ch5_angad: ch5_angad_tree,
   ch6_vibhishana: ch6_vibhishana_tree,
+  kumbhakarna_wake: kumbhakarna_wake_tree,
+  ravana_death: ravana_death_tree,
+  sita_reunion: sita_reunion_tree,
 };

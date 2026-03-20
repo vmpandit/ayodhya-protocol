@@ -45,6 +45,7 @@ export const enum InputFlag {
   Meditate = 1 << 11,
   Talk = 1 << 12,
   CompanionAbility = 1 << 13,
+  Crouch = 1 << 14,
 }
 
 export interface PlayerInput {
@@ -138,6 +139,7 @@ export interface EnemyState {
   scale?: number;        // Enemy scale multiplier
   telegraphing?: boolean;  // A-05: True during melee/ranged telegraph
   isChampion?: boolean;  // A-06: Mini-boss champion variant
+  isGoldenDeer?: boolean; // T4-2: Maricha's golden deer form
 }
 
 // ── Boss state ──

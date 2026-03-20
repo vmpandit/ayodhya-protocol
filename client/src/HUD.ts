@@ -44,6 +44,7 @@ export class HUD {
   private renderCanvas: HTMLElement | null;
   private compassArrow: HTMLElement | null;
   private compassDist: HTMLElement | null;
+  private karmaFeed: HTMLElement | null;
 
   // ── Dialogue choice callback ──────────────────────────────
   public onChoiceSelected: (index: number) => void = () => {};
@@ -98,6 +99,7 @@ export class HUD {
     this.renderCanvas = document.getElementById('renderCanvas');
     this.compassArrow = document.getElementById('compassArrow');
     this.compassDist = document.getElementById('compassDist');
+    this.karmaFeed = document.getElementById('karmaFeed');
 
     // Cache arrow slot elements
     for (let i = 0; i < 5; i++) {
@@ -141,6 +143,30 @@ export class HUD {
         this.arrowAlert.classList.remove('visible');
       }
     }
+  }
+
+  /** Show a floating karma feed notification (e.g., "+5 Valor!") */
+  showKarmaFeed(axis: 'mercy' | 'valor' | 'devotion', amount: number): void {
+    if (!this.karmaFeed) return;
+
+    const entry = document.createElement('div');
+    entry.className = `karma-feed-entry karma-${axis}`;
+
+    const axisName = axis.charAt(0).toUpperCase() + axis.slice(1);
+    const emoji = axis === 'mercy' ? '🕊️' : axis === 'valor' ? '⚔️' : '✨';
+    entry.textContent = `${emoji} +${amount} ${axisName}!`;
+
+    this.karmaFeed.appendChild(entry);
+
+    // Auto-remove after 2.5 seconds with fade-out
+    setTimeout(() => {
+      entry.classList.add('karma-fade-out');
+      setTimeout(() => {
+        if (entry.parentNode) {
+          this.karmaFeed!.removeChild(entry);
+        }
+      }, 500); // Wait for fade-out animation
+    }, 2000);
   }
 
   showBlessingReceived(name: string, description: string): void {
@@ -862,6 +888,56 @@ export class HUD {
       }, 4000);
     } else {
       this.achievementShowing = false;
+    }
+  }
+
+  // T4-5: Side quest HUD updates
+  showQuestStarted(name: string, description: string): void {
+    const tracker = document.getElementById('questTracker');
+    if (!tracker) return;
+
+    const questEl = document.createElement('div');
+    questEl.className = 'quest-entry active';
+    questEl.innerHTML = `
+      <div class="quest-title">${name}</div>
+      <div class="quest-description">${description}</div>
+      <div class="quest-progress"><span>0</span> / <span data-target="0">0</span></div>
+    `;
+    questEl.dataset.questId = name;
+    tracker.appendChild(questEl);
+  }
+
+  updateQuestProgress(name: string, progress: number, target: number): void {
+    const tracker = document.getElementById('questTracker');
+    if (!tracker) return;
+
+    const quests = tracker.querySelectorAll('.quest-entry');
+    for (const q of quests) {
+      if (q.querySelector('.quest-title')?.textContent === name) {
+        const progressEl = q.querySelector('.quest-progress');
+        if (progressEl) {
+          progressEl.querySelector('span')!.textContent = `${progress}`;
+          progressEl.querySelector('[data-target]')!.textContent = `${target}`;
+        }
+        break;
+      }
+    }
+  }
+
+  showQuestCompleted(name: string): void {
+    const tracker = document.getElementById('questTracker');
+    if (!tracker) return;
+
+    const quests = tracker.querySelectorAll('.quest-entry');
+    for (const q of quests) {
+      if (q.querySelector('.quest-title')?.textContent === name) {
+        q.classList.remove('active');
+        q.classList.add('completed');
+        setTimeout(() => {
+          if (q.parentNode) tracker.removeChild(q);
+        }, 2000);
+        break;
+      }
     }
   }
 

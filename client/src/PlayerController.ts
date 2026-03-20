@@ -487,6 +487,7 @@ export class PlayerController {
         if (this.keys.has('Space')) flags |= InputFlag.Jump;
         if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) flags |= InputFlag.Sprint;
         if (this.keys.has('ControlLeft') || this.keys.has('KeyC')) flags |= InputFlag.Dodge;
+        if (this.keys.has('KeyZ')) flags |= InputFlag.Crouch;
       }
     }
 

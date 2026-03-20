@@ -144,7 +144,7 @@ export const TREE_CANOPY_RADIUS_MIN = 4;
 export const TREE_CANOPY_RADIUS_MAX = 8;
 
 // ── Snap Shot vs Charged Shot ──
-export const SNAP_SHOT_DAMAGE = 12;
+export const SNAP_SHOT_DAMAGE = 20;  // T2-1: Buffed from 12 to make quick-fire viable
 export const CHARGED_SHOT_MIN_MS = 800;
 export const CHARGED_SHOT_SPEED_PENALTY = 0.6;  // Movement speed multiplier while charging
 
@@ -266,6 +266,22 @@ export const ERRATIC_ENEMY_CHARGE_SPEED_MULTIPLIER = 3.0;
 export const ERRATIC_ENEMY_CHARGE_DURATION = 0.5;      // seconds
 export const ERRATIC_ENEMY_CHARGE_RECOVERY = 2.0;      // seconds
 
+// ── Stealth Archery System (T3-4) ──
+export const CROUCH_SPEED_MULTIPLIER = 0.4;
+export const STEALTH_DAMAGE_MULTIPLIER = 2.0;
+export const CROUCH_AGGRO_RANGE_REDUCTION = 0.5;
+
+// ── Kumbhakarna Mini-Boss (T4-1) ──
+export const KUMBHAKARNA_HP = 300;
+export const KUMBHAKARNA_MELEE_DAMAGE = 35;
+export const KUMBHAKARNA_MELEE_RANGE = 5;
+export const KUMBHAKARNA_MELEE_COOLDOWN_MS = 2500;
+export const KUMBHAKARNA_STOMP_DAMAGE = 20;
+export const KUMBHAKARNA_STOMP_RADIUS = 8;
+export const KUMBHAKARNA_STOMP_COOLDOWN_MS = 8000;
+export const KUMBHAKARNA_SCALE = 2.5;
+export const KUMBHAKARNA_SPEED = 2.0;
+
 // ── Checkpoint/Savepoint System ──
 export const CHECKPOINT_SAVE_KEY = 'ayodhya_checkpoint';
 
@@ -286,3 +302,27 @@ export const ASHRAM_POSITIONS = [
   { x: -150, z: -322 },        // Ch3: Kishkindha camp
   { x: -50, z: -452 },         // Ch4: Southern shore campfire
 ];
+
+// ── T4-2: Maricha Golden Deer Encounter ──
+export const GOLDEN_DEER_SPEED = 7;
+export const GOLDEN_DEER_HP = 80;
+export const GOLDEN_DEER_FLEE_RANGE = 20;
+export const GOLDEN_DEER_REVEAL_HP_PCT = 0.3;  // Transforms at 30% HP
+
+// ── T4-3: Sacred Pillar Puzzle System ──
+export const PUZZLE_INTERACT_DISTANCE = 2.5;
+export const PUZZLE_REWARD_HP = 25;
+export const PUZZLE_REWARD_ARROWS = 5;
+
+// ── T4-4: Ashram Passive Skill Unlocks ──
+export const ASHRAM_REST_UNLOCK_TIME = 10; // seconds of continuous rest to unlock skill
+export const ASHRAM_SKILLS = [
+  { chapter: 0, name: 'Agastya\'s Focus', desc: '+15% arrow speed', effect: 'arrowSpeed' },
+  { chapter: 1, name: 'Dandaka Endurance', desc: '+20% stamina regen', effect: 'staminaRegen' },
+  { chapter: 3, name: 'Kishkindha Agility', desc: '+10% movement speed', effect: 'moveSpeed' },
+  { chapter: 4, name: 'Ocean\'s Resolve', desc: '+15% max HP', effect: 'maxHp' },
+] as const;
+
+// ── T3-3: Lava Geyser Hazards ──
+export const LAVA_VENT_DAMAGE = 8;             // Damage per second while standing on vent
+export const LAVA_VENT_RADIUS = 2.0;           // Radius in which player takes damage

@@ -51,6 +51,19 @@ interface LocalEnemy {
   erraticChargeTarget?: Vec3; // Charge direction
   erraticRecoveryEnd?: number; // When recovery period ends
   erraticDirectionChangeTimer?: number; // Time until next direction change
+  deathTime?: number;       // T3-5: When enemy died (for pruning dead enemies)
+  isKumbhakarna?: boolean; // T4-1: Kumbhakarna mini-boss flag
+  stompCdEnd?: number; // T4-1: Stomp cooldown end time
+  isGoldenDeer?: boolean;   // T4-2: Maricha's golden deer form
+}
+
+interface SacredPillar {
+  id: string;
+  pos: Vec3;
+  chapter: number;
+  order: number;        // Which position in the sequence (1, 2, 3)
+  activated: boolean;
+  requiredOrder: number; // Must be activated in this order
 }
 
 interface LocalBoss {
@@ -71,6 +84,20 @@ interface RavanaHead {
   maxHp: number;
   cooldownEnd: number;
   alive: boolean;
+}
+
+// T4-5: Side quest system
+interface SideQuest {
+  id: string;
+  name: string;
+  description: string;
+  givenBy: string;       // NPC id who gave it
+  chapter: number;
+  type: 'kill' | 'investigate' | 'reach';
+  target: number;        // kill count target, or investigation point count
+  progress: number;
+  completed: boolean;
+  reward: { hp?: number; arrows?: number; karmaAxis?: 'mercy' | 'valor' | 'devotion'; karmaAmount?: number };
 }
 
 interface Pickup {
@@ -162,6 +189,9 @@ export class LocalSim {
   private playerVelY = 0;
   private grounded = true;
 
+  // Stealth Archery System (T3-4)
+  public isCrouching = false;
+
   // Arrow ammo system (Arrow Economy: reduced from 30/50)
   public arrowAmmo = C.STARTING_AMMO;
   public readonly maxArrowAmmo = 40;
@@ -174,10 +204,31 @@ export class LocalSim {
 
   // Karma scoring
   public karma: KarmaScore = { mercy: 0, valor: 0, devotion: 0 };
+  private lastMeditationKarmaNotificationTime = 0;
+
+  // Game over deferral for death dialogue
+  private pendingGameOver = false;
+
+  // T3-1: Sita reunion after Ravana death
+  private sitaSpawned = false;
+
+  // T3-5: Enemy pruning for memory management
+  private lastPruneTime = 0;
 
   // Ashram rest stop
   public ashramNearby = false;
   private ashramArrowTimer = 0;
+
+  // T4-4: Ashram skill unlock system
+  private ashramRestTimer = 0;
+  private unlockedAshramSkills: Set<string> = new Set();
+  public onSkillUnlocked: (name: string, desc: string) => void = () => {};
+
+  // T4-5: Side quest system
+  public sideQuests: SideQuest[] = [];
+  public onQuestStarted: (quest: SideQuest) => void = () => {};
+  public onQuestProgress: (questId: string, progress: number, target: number) => void = () => {};
+  public onQuestCompleted: (quest: SideQuest) => void = () => {};
 
   // Astra Synergy combo callback
   public onAstraCombo: (combo: AstraCombo, pos: Vec3, damage: number) => void = () => {};
@@ -187,6 +238,8 @@ export class LocalSim {
   public onCompanionAbility: (companionId: string, abilityName: string) => void = () => {};
   // Karma update callback
   public onKarmaUpdate: (karma: KarmaScore) => void = () => {};
+  // Karma event callback (individual karma gains/changes)
+  public onKarmaEvent: (axis: 'mercy' | 'valor' | 'devotion', amount: number) => void = () => {};
   // Champion spawn callback
   public onChampionSpawned: (enemyId: number) => void = () => {};
   // Ravana head spawn callback
@@ -271,6 +324,18 @@ export class LocalSim {
   // Investigation point system
   private investigationPoints: InvestigationPoint[] = [];
   private nextInvestigationId = 1;
+
+  // T4-2: Maricha Golden Deer encounter
+  private goldenDeerActive = false;
+  private goldenDeerEnemy: LocalEnemy | null = null;
+  private goldenDeerRevealed = false;
+
+  // T4-3: Sacred Pillar puzzle system
+  private sacredPillars: SacredPillar[] = [];
+  private puzzleSequence: number[] = [];  // Track activation order
+  private pendingInteract = false;
+  public onPillarActivated: (pillarId: string, correct: boolean) => void = () => {};
+  public onPuzzleCompleted: (chapter: number) => void = () => {};
 
   // Wave-based spawning system (Chapters 4+)
   private waveStates = new Map<number, WaveState>();
@@ -460,6 +525,9 @@ export class LocalSim {
 
     // Initialize obstacles in the world
     this.onObstaclesInit(this.obstacles);
+
+    // T4-3: Initialize sacred pillar puzzles
+    this.setupPuzzlePillars();
   }
 
   get playerId(): number { return 1; }
@@ -521,12 +589,18 @@ export class LocalSim {
     }
     // Karma: devotion for engaging in dialogue
     this.karma.devotion += C.KARMA_DEVOTION_DIALOGUE;
+    this.onKarmaEvent('devotion', C.KARMA_DEVOTION_DIALOGUE);
 
     const node = tree.nodes[tree.startNodeId];
     if (node) {
       const isEnd = !node.choices || node.choices.length === 0;
       this.onDialogueNode(node, isEnd);
     }
+  }
+
+  // T4-3: Trigger pillar interaction on Talk key
+  triggerPillarInteract(): void {
+    this.pendingInteract = true;
   }
 
   selectChoice(index: number): void {
@@ -575,6 +649,35 @@ export class LocalSim {
     this.currentDialogueTree = null;
     this.currentDialogueNodeId = null;
     this.nearbyNPCId = null;
+
+    // T3-1: Spawn Sita after Ravana's death dialogue ends
+    if (this.pendingGameOver && !this.sitaSpawned) {
+      this.sitaSpawned = true;
+      const base7 = C.CHAPTER_ZONES[7];
+      const sitaPos: Vec3 = { x: base7.x, y: 0, z: base7.z + 10 };
+      this.addStoryNPC({
+        id: 'sita',
+        name: 'Sita',
+        pos: sitaPos,
+        dialogueTreeId: 'sita_reunion',
+        spoken: false,
+      });
+      this.pendingGameOver = false; // Don't end game yet — let player talk to Sita
+      return; // Don't trigger onGameOver yet
+    }
+
+    // T3-1: After Sita reunion dialogue ends, trigger victory
+    const sita = this.storyNPCs.find(n => n.id === 'sita');
+    if (sita && sita.spoken && !this.pendingGameOver) {
+      this.onGameOver(true);
+      return;
+    }
+
+    // Check if this was a deferred game over from Ravana's death dialogue
+    if (this.pendingGameOver) {
+      this.pendingGameOver = false;
+      this.onGameOver(true);
+    }
   }
 
   getNearbyNPC(): StoryNPC | null {
@@ -680,6 +783,44 @@ export class LocalSim {
     }
   }
 
+  // ── T4-3: Sacred Pillar Puzzle System ────────────────────────────
+  private setupPuzzlePillars(): void {
+    const puzzleConfigs = [
+      { ch: 0, positions: [
+        { x: 5, z: 8 }, { x: -5, z: 8 }, { x: 0, z: 13 }
+      ]},
+      { ch: 1, positions: [
+        { x: -25, z: -90 }, { x: -35, z: -90 }, { x: -30, z: -85 }
+      ]},
+      { ch: 3, positions: [
+        { x: -145, z: -315 }, { x: -155, z: -315 }, { x: -150, z: -310 }
+      ]},
+      { ch: 4, positions: [
+        { x: -45, z: -445 }, { x: -55, z: -445 }, { x: -50, z: -440 }
+      ]},
+    ];
+
+    for (const config of puzzleConfigs) {
+      // Shuffle the required order for each chapter's puzzle
+      const order = [1, 2, 3];
+      for (let i = 2; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+
+      config.positions.forEach((pos, i) => {
+        this.sacredPillars.push({
+          id: `puzzle_ch${config.ch}_${i}`,
+          pos: { x: pos.x, y: 0, z: pos.z },
+          chapter: config.ch,
+          order: i,
+          activated: false,
+          requiredOrder: order[i],
+        });
+      });
+    }
+  }
+
   // ── Divine Blessings (Phase 4) ────────────────────────────
   private applyBlessing(npcId: string): void {
     const blessingMap: Record<string, { key: string; name: string; desc: string; apply: () => void }> = {
@@ -749,12 +890,84 @@ export class LocalSim {
           this.bossDamageMultiplier += 0.15;
         }
       },
+      'maricha': {
+        key: 'maricha_blessing',
+        name: "Demon's Truth",
+        desc: '+3 Devotion Karma',
+        apply: () => {
+          this.karma.devotion += 3;
+          this.onKarmaEvent('devotion', 3);
+        }
+      },
     };
     const b = blessingMap[npcId];
     if (b && !this.blessings.has(b.key)) {
       this.blessings.add(b.key);
       b.apply();
       this.onBlessingReceived(b.name, b.desc);
+      // T4-5: Start side quest from this NPC
+      this.startSideQuests(npcId);
+    }
+  }
+
+  // T4-5: Initialize and trigger side quest from NPC blessing
+  private startSideQuests(npcId: string): void {
+    const quests: Record<string, SideQuest> = {
+      'sage': {
+        id: 'sq_agastya', name: 'Trial of the Bow',
+        description: 'Defeat 3 enemies using charged shots',
+        givenBy: 'sage', chapter: 0, type: 'kill', target: 3, progress: 0, completed: false,
+        reward: { arrows: 10, karmaAxis: 'valor', karmaAmount: 10 },
+      },
+      'jatayu': {
+        id: 'sq_jatayu', name: 'Wings of Memory',
+        description: 'Find all 3 investigation points in Dandaka',
+        givenBy: 'jatayu', chapter: 1, type: 'investigate', target: 3, progress: 0, completed: false,
+        reward: { hp: 20, karmaAxis: 'mercy', karmaAmount: 8 },
+      },
+      'sugriv': {
+        id: 'sq_sugriv', name: 'Prove Your Worth',
+        description: 'Defeat 5 enemies in Kishkindha',
+        givenBy: 'sugriv', chapter: 3, type: 'kill', target: 5, progress: 0, completed: false,
+        reward: { arrows: 8, karmaAxis: 'valor', karmaAmount: 12 },
+      },
+      'jambavan': {
+        id: 'sq_jambavan', name: 'Wisdom of the Ancients',
+        description: 'Find all investigation points at the Southern Shore',
+        givenBy: 'jambavan', chapter: 4, type: 'investigate', target: 3, progress: 0, completed: false,
+        reward: { hp: 30, karmaAxis: 'devotion', karmaAmount: 10 },
+      },
+      'vibhishana': {
+        id: 'sq_vibhishana', name: 'Path of Defiance',
+        description: 'Defeat 8 Lanka demons',
+        givenBy: 'vibhishana', chapter: 6, type: 'kill', target: 8, progress: 0, completed: false,
+        reward: { arrows: 15, karmaAxis: 'mercy', karmaAmount: 15 },
+      },
+    };
+
+    const quest = quests[npcId];
+    if (quest && !this.sideQuests.find(q => q.id === quest.id)) {
+      this.sideQuests.push(quest);
+      this.onQuestStarted(quest);
+    }
+  }
+
+  // T4-4: Apply ashram passive skill bonuses
+  private applyAshramSkill(effect: string): void {
+    switch (effect) {
+      case 'arrowSpeed':
+        this.arrowSpeedMultiplier *= 1.15;
+        break;
+      case 'staminaRegen':
+        this.staminaRegenMult *= 1.2;
+        break;
+      case 'moveSpeed':
+        this.sprintBonusMultiplier *= 1.1;
+        break;
+      case 'maxHp':
+        this.player.maxHp = Math.floor(this.player.maxHp * 1.15);
+        this.player.hp = Math.min(this.player.hp + 15, this.player.maxHp);
+        break;
     }
   }
 
@@ -875,6 +1088,9 @@ export class LocalSim {
     const sinY = Math.sin(input.yaw);
     const cosY = Math.cos(input.yaw);
 
+    // T3-4: Stealth Archery — Crouch flag detection
+    this.isCrouching = !!(flags & InputFlag.Crouch);
+
     // ── Tutorial tracking (Chapter 0) ──────────────────────────────
     if (this.chapter === 0 && !this.tutorialComplete) {
       // Check movement
@@ -929,6 +1145,10 @@ export class LocalSim {
       speed *= C.SPRINT_MULTIPLIER;
       this.player.stamina -= C.SPRINT_STAMINA_COST * input.dt;
       if (this.player.stamina < 0) this.player.stamina = 0;
+    }
+    // T3-4: Apply crouch speed reduction
+    if (this.isCrouching) {
+      speed *= C.CROUCH_SPEED_MULTIPLIER;
     }
 
     // Dodge
@@ -1021,18 +1241,26 @@ export class LocalSim {
     }
 
     if (ability === AbilityType.FireArrow && now >= this.fireArrowCd) {
+      if (this.arrowAmmo < 1) return; // T1-2: Ammo check
+      this.arrowAmmo--;
       this.fireArrowCd = now + C.FIRE_ARROW_COOLDOWN_MS;
       this.spawnProjectile(1, ProjectileType.FireArrow, this.player.pos, dir, C.FIRE_ARROW_DAMAGE * mult);
     } else if (ability === AbilityType.Shockwave && now >= this.shockwaveCd) {
       this.shockwaveCd = now + C.SHOCKWAVE_COOLDOWN_MS;
       this.applyShockwave();
     } else if (ability === AbilityType.VayuAstra && now >= this.vayuAstraCd) {
+      if (this.arrowAmmo < 1) return; // T1-2: Ammo check
+      this.arrowAmmo--;
       this.vayuAstraCd = now + VAYU_ASTRA_COOLDOWN_MS;
       this.spawnProjectile(1, ProjectileType.VayuAstra, this.player.pos, dir, VAYU_ASTRA_DAMAGE * mult, VAYU_ASTRA_SPEED);
     } else if (ability === AbilityType.VarunaAstra && now >= this.varunaAstraCd) {
+      if (this.arrowAmmo < 1) return; // T1-2: Ammo check
+      this.arrowAmmo--;
       this.varunaAstraCd = now + VARUNA_ASTRA_COOLDOWN_MS;
       this.spawnProjectile(1, ProjectileType.VarunaAstra, this.player.pos, dir, VARUNA_ASTRA_DAMAGE * mult);
     } else if (ability === AbilityType.NagaAstra && now >= this.nagaAstraCd) {
+      if (this.arrowAmmo < 1) return; // T1-2: Ammo check
+      this.arrowAmmo--;
       this.nagaAstraCd = now + NAGA_ASTRA_COOLDOWN_MS;
       this.spawnProjectile(1, ProjectileType.NagaAstra, this.player.pos, dir, NAGA_ASTRA_DAMAGE * mult);
     } else if (ability === AbilityType.BrahmaAstra) {
@@ -1044,6 +1272,7 @@ export class LocalSim {
         this.arrowAmmo -= C.BRAHMA_ARROW_COST;
         this.spawnProjectile(1, ProjectileType.BrahmaAstra, this.player.pos, dir, BRAHMA_ASTRA_DAMAGE * mult);
         this.karma.devotion += C.KARMA_DEVOTION_BRAHMASTRA; // Divine weapon = devotion
+        this.onKarmaEvent('devotion', C.KARMA_DEVOTION_BRAHMASTRA);
       }
     }
     // ── Pashupatastra (Lone Warrior exclusive) ──
@@ -1051,6 +1280,7 @@ export class LocalSim {
       this.pashupataCd = now + C.PASHUPATASTRA_COOLDOWN_MS;
       this.spawnProjectile(1, ProjectileType.Pashupatastra, this.player.pos, dir, C.PASHUPATASTRA_DAMAGE * mult, C.PASHUPATASTRA_SPEED);
       this.karma.valor += 3;
+      this.onKarmaEvent('valor', 3);
     }
     // ── Companion Active Abilities ──
     else if (ability === AbilityType.HanumanLeap && now >= this.hanumanLeapCd) {
@@ -1138,6 +1368,7 @@ export class LocalSim {
       }
       this.onAstraCombo(AstraCombo.SteamBurst, pos, dmg);
       this.karma.valor += 2;
+      this.onKarmaEvent('valor', 2);
       return;
     }
     // Poison + Wind → Toxic Cloud
@@ -1194,6 +1425,7 @@ export class LocalSim {
       this.player.hp = Math.min(this.player.maxHp, this.player.hp + C.COMBO_PURIFY_HEAL);
       this.onAstraCombo(AstraCombo.Purify, pos, C.COMBO_PURIFY_HEAL);
       this.karma.devotion += 2;
+      this.onKarmaEvent('devotion', 2);
       return;
     }
   }
@@ -1339,9 +1571,13 @@ export class LocalSim {
   private killEnemy(enemy: LocalEnemy): void {
     enemy.state.hp = 0;
     enemy.state.aiState = EnemyAIState.Dead;
+    enemy.deathTime = performance.now();  // T3-5: Track death time for pruning
     // Don't count illusion kills for chapter progress
     if (!enemy.isIllusion) this.chapterEnemiesKilled++;
-    if (enemy.isChampion) this.karma.valor += C.KARMA_VALOR_CHAMPION_KILL;
+    if (enemy.isChampion) {
+      this.karma.valor += C.KARMA_VALOR_CHAMPION_KILL;
+      this.onKarmaEvent('valor', C.KARMA_VALOR_CHAMPION_KILL);
+    }
     // P2-2: Brahmastra charge on kill
     if (!enemy.isIllusion) {
       this.brahmaCharge = Math.min(C.BRAHMA_MAX_CHARGE, this.brahmaCharge + C.BRAHMA_CHARGE_PER_KILL);
@@ -1352,6 +1588,23 @@ export class LocalSim {
     } else {
       this.spawnPickup(enemy.state.pos);
       if (Math.random() < 0.3 * this.diffDropMult) this.spawnHealthPickup(enemy.state.pos);
+    }
+    // T4-5: Update kill quests
+    for (const quest of this.sideQuests) {
+      if (!quest.completed && quest.type === 'kill' && quest.chapter === this.chapter) {
+        quest.progress++;
+        this.onQuestProgress(quest.id, quest.progress, quest.target);
+        if (quest.progress >= quest.target) {
+          quest.completed = true;
+          if (quest.reward.hp) this.player.hp = Math.min(this.player.maxHp, this.player.hp + quest.reward.hp);
+          if (quest.reward.arrows) this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + quest.reward.arrows);
+          if (quest.reward.karmaAxis && quest.reward.karmaAmount) {
+            this.karma[quest.reward.karmaAxis] += quest.reward.karmaAmount;
+            this.onKarmaEvent(quest.reward.karmaAxis, quest.reward.karmaAmount);
+          }
+          this.onQuestCompleted(quest);
+        }
+      }
     }
     this.checkChapterProgress();
   }
@@ -1430,7 +1683,14 @@ export class LocalSim {
       // Arrow restore capped at MEDITATION_ARROW_RESTORE per session
       const arrowCap = Math.min(this.maxArrowAmmo, this.arrowAmmo + C.MEDITATION_ARROW_RESTORE);
       this.arrowAmmo = Math.min(arrowCap, this.arrowAmmo + Math.floor(2 * dt));
-      this.karma.devotion += C.KARMA_DEVOTION_MEDITATE * dt * 0.1;
+      const karmaGain = C.KARMA_DEVOTION_MEDITATE * dt * 0.1;
+      this.karma.devotion += karmaGain;
+      // Trigger karma event every 0.5 seconds of meditation
+      const now = performance.now();
+      if (now - this.lastMeditationKarmaNotificationTime >= 500) {
+        this.onKarmaEvent('devotion', Math.round(karmaGain * 5)); // Batch the notifications
+        this.lastMeditationKarmaNotificationTime = now;
+      }
       if (this.meditationTimer >= this.maxMeditationTime) {
         this.stopMeditation();
       }
@@ -1449,6 +1709,7 @@ export class LocalSim {
         // P3-2: Mercy karma from companion healing (every 10 HP healed = 1 mercy tick)
         if (Math.floor(this.player.hp / 10) > Math.floor(prevHp / 10)) {
           this.karma.mercy += C.KARMA_MERCY_COMPANION_HEAL;
+          this.onKarmaEvent('mercy', C.KARMA_MERCY_COMPANION_HEAL);
         }
       }
     }
@@ -1471,20 +1732,45 @@ export class LocalSim {
       const ashramDist = Math.sqrt(adx * adx + adz * adz);
       if (ashramDist < C.ASHRAM_HEAL_RADIUS) {
         this.ashramNearby = true;
-        // Heal HP and stamina
-        this.player.hp = Math.min(this.player.maxHp, this.player.hp + C.ASHRAM_HEAL_RATE * dt);
-        this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + C.ASHRAM_STAMINA_RATE * dt);
+        // T1-5: Don't stack with meditation healing
+        if (!this.isMeditating) {
+          this.player.hp = Math.min(this.player.maxHp, this.player.hp + C.ASHRAM_HEAL_RATE * dt);
+          this.player.stamina = Math.min(C.PLAYER_MAX_STAMINA, this.player.stamina + C.ASHRAM_STAMINA_RATE * dt);
+        }
         // Restore arrows periodically
         this.ashramArrowTimer += dt;
         if (this.ashramArrowTimer >= C.ASHRAM_ARROW_INTERVAL) {
           this.ashramArrowTimer = 0;
           this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + C.ASHRAM_ARROW_AMOUNT);
         }
+        // T4-4: Ashram skill unlock after resting
+        this.ashramRestTimer += dt;
+        if (this.ashramRestTimer >= C.ASHRAM_REST_UNLOCK_TIME) {
+          // Find which ashram we're at and unlock its skill
+          for (let i = 0; i < C.ASHRAM_POSITIONS.length; i++) {
+            const ap = C.ASHRAM_POSITIONS[i];
+            const skill = C.ASHRAM_SKILLS[i];
+            if (!skill) continue;
+            const adx2 = this.player.pos.x - ap.x;
+            const adz2 = this.player.pos.z - ap.z;
+            if (Math.sqrt(adx2 * adx2 + adz2 * adz2) < C.ASHRAM_HEAL_RADIUS) {
+              if (!this.unlockedAshramSkills.has(skill.effect)) {
+                this.unlockedAshramSkills.add(skill.effect);
+                this.applyAshramSkill(skill.effect);
+                this.onSkillUnlocked(skill.name, skill.desc);
+                this.karma.devotion += 5;
+                this.onKarmaEvent('devotion', 5);
+              }
+              break;
+            }
+          }
+        }
         break; // Only one ashram at a time
       }
     }
     if (!this.ashramNearby) {
       this.ashramArrowTimer = 0;
+      this.ashramRestTimer = 0;
     }
 
     // ── Check story NPC proximity (allow re-talking to spoken NPCs) ──
@@ -1512,8 +1798,10 @@ export class LocalSim {
       proj.state.pos.x += proj.state.vel.x * dt;
       proj.state.pos.y += proj.state.vel.y * dt;
       proj.state.pos.z += proj.state.vel.z * dt;
-      proj.state.vel.y -= 20 * 0.15 * dt;
-      if (proj.state.pos.y < 0) { projToRemove.push(id); continue; }
+      proj.state.vel.y += C.GRAVITY * dt;  // T1-1: Use proper gravity constant
+      // T1-6: Terrain collision for projectiles
+      const projGroundY = getTerrainHeight(proj.state.pos.x, proj.state.pos.z);
+      if (proj.state.pos.y < projGroundY) { projToRemove.push(id); continue; }
 
       // Check obstacle collision
       for (const obs of this.obstacles) {
@@ -1538,11 +1826,18 @@ export class LocalSim {
           if (dist3(proj.state.pos, enemy.state.pos) < 1.2) {
             let dmg = proj.state.damage;
 
+            // T3-4: Stealth damage bonus when crouching and enemy is unaware
+            if (this.isCrouching && enemy.state.aiState === EnemyAIState.Patrol) {
+              dmg *= C.STEALTH_DAMAGE_MULTIPLIER;
+              if (this.onCriticalHit) this.onCriticalHit(DamageTargetType.Enemy, enemy.state.id, dmg);
+            }
+
             // Headshot bonus
             if (proj.state.pos.y > enemy.state.pos.y + 1.8) {
               dmg *= 1.5;
               if (this.onHeadshot) this.onHeadshot(enemy.state.id);
               this.karma.valor += C.KARMA_VALOR_HEADSHOT;
+              this.onKarmaEvent('valor', C.KARMA_VALOR_HEADSHOT);
             }
 
             // Critical hit: 10% chance for 2x
@@ -1616,9 +1911,12 @@ export class LocalSim {
             if (this.player.isDodging) {
               // Perfect Dodge → Dharma Counter
               // Check if any enemy telegraph is ending within the window
+              // T1-7: Check if any telegraph ends during the dodge window (not just at dodge start)
               let perfectDodge = false;
+              const dodgeWindowStart = now - C.PERFECT_DODGE_WINDOW_MS;
+              const dodgeWindowEnd = now + C.PERFECT_DODGE_WINDOW_MS;
               for (const enemy of this.enemies) {
-                if (enemy.telegraphEnd > 0 && Math.abs(now - enemy.telegraphEnd) <= C.PERFECT_DODGE_WINDOW_MS) {
+                if (enemy.telegraphEnd > 0 && enemy.telegraphEnd >= dodgeWindowStart && enemy.telegraphEnd <= dodgeWindowEnd) {
                   perfectDodge = true;
                   break;
                 }
@@ -1627,6 +1925,7 @@ export class LocalSim {
                 // Perfect dodge: slow-mo trigger + auto-aim + karma
                 this.dharmaGraceEnd = now + C.DHARMA_COUNTER_DURATION_MS;
                 this.karma.valor += C.KARMA_VALOR_PERFECT_DODGE;
+                this.onKarmaEvent('valor', C.KARMA_VALOR_PERFECT_DODGE);
               } else {
                 // Normal dodge-through
                 this.dharmaGraceEnd = now + 2000;
@@ -1721,6 +2020,73 @@ export class LocalSim {
         // P3-2: Karma for investigating lore points
         this.karma.mercy += C.KARMA_MERCY_INVESTIGATION;
         this.karma.devotion += C.KARMA_DEVOTION_INVESTIGATION;
+        this.onKarmaEvent('mercy', C.KARMA_MERCY_INVESTIGATION);
+        this.onKarmaEvent('devotion', C.KARMA_DEVOTION_INVESTIGATION);
+        // T4-5: Update investigation quests
+        for (const quest of this.sideQuests) {
+          if (!quest.completed && quest.type === 'investigate' && quest.chapter === this.chapter) {
+            quest.progress++;
+            this.onQuestProgress(quest.id, quest.progress, quest.target);
+            if (quest.progress >= quest.target) {
+              quest.completed = true;
+              if (quest.reward.hp) this.player.hp = Math.min(this.player.maxHp, this.player.hp + quest.reward.hp);
+              if (quest.reward.arrows) this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + quest.reward.arrows);
+              if (quest.reward.karmaAxis && quest.reward.karmaAmount) {
+                this.karma[quest.reward.karmaAxis] += quest.reward.karmaAmount;
+                this.onKarmaEvent(quest.reward.karmaAxis, quest.reward.karmaAmount);
+              }
+              this.onQuestCompleted(quest);
+            }
+          }
+        }
+      }
+    }
+
+    // T4-3: Sacred pillar puzzle interaction
+    for (const pillar of this.sacredPillars) {
+      if (pillar.activated) continue;
+      if (pillar.chapter !== this.chapter) continue;
+      const pdx = this.player.pos.x - pillar.pos.x;
+      const pdz = this.player.pos.z - pillar.pos.z;
+      if (Math.sqrt(pdx * pdx + pdz * pdz) < C.PUZZLE_INTERACT_DISTANCE) {
+        // Check if player presses interact (Talk key, F)
+        if (this.pendingInteract) {
+          this.pendingInteract = false;
+          const chapterPillars = this.sacredPillars.filter(p => p.chapter === pillar.chapter);
+          const activatedCount = chapterPillars.filter(p => p.activated).length;
+          const correct = pillar.requiredOrder === activatedCount + 1;
+
+          if (correct) {
+            pillar.activated = true;
+            this.onPillarActivated(pillar.id, true);
+            this.karma.devotion += 3;
+            this.onKarmaEvent('devotion', 3);
+
+            // Check if puzzle complete
+            if (chapterPillars.every(p => p.activated)) {
+              this.onPuzzleCompleted(pillar.chapter);
+              this.player.hp = Math.min(this.player.maxHp, this.player.hp + C.PUZZLE_REWARD_HP);
+              this.arrowAmmo = Math.min(this.maxArrowAmmo, this.arrowAmmo + C.PUZZLE_REWARD_ARROWS);
+            }
+          } else {
+            // Wrong order — reset all pillars in this chapter
+            for (const p of chapterPillars) p.activated = false;
+            this.onPillarActivated(pillar.id, false);
+          }
+        }
+      }
+    }
+
+    // T3-5: Prune dead enemies every 30s to prevent memory growth
+    if (now - this.lastPruneTime > 30000) {
+      this.lastPruneTime = now;
+      const prevCount = this.enemies.length;
+      this.enemies = this.enemies.filter(e =>
+        e.state.aiState !== EnemyAIState.Dead ||
+        (now - (e.deathTime || 0)) < 5000 // Keep recently dead for death animation
+      );
+      if (this.enemies.length < prevCount) {
+        // Dead enemies already have meshes disposed by World.ts
       }
     }
 
@@ -1993,6 +2359,31 @@ export class LocalSim {
   private updateEnemies(dt: number, now: number): void {
     for (const enemy of this.enemies) {
       if (enemy.state.aiState === EnemyAIState.Dead) continue;
+
+      // T4-2: Golden Deer special behavior — always fleeing unless revealed
+      if (enemy.isGoldenDeer && !this.goldenDeerRevealed) {
+        // Flee behavior: always run away from player
+        const deerDx = enemy.state.pos.x - this.player.pos.x;
+        const deerDz = enemy.state.pos.z - this.player.pos.z;
+        const deerDist = Math.sqrt(deerDx * deerDx + deerDz * deerDz) || 1;
+        enemy.state.pos.x += (deerDx / deerDist) * C.GOLDEN_DEER_SPEED * dt;
+        enemy.state.pos.z += (deerDz / deerDist) * C.GOLDEN_DEER_SPEED * dt;
+        enemy.state.pos.y = getTerrainHeight(enemy.state.pos.x, enemy.state.pos.z);
+        enemy.state.yaw = Math.atan2(-deerDx, -deerDz);
+
+        // When HP drops below threshold, Maricha reveals himself
+        if (enemy.state.hp <= C.GOLDEN_DEER_HP * C.GOLDEN_DEER_REVEAL_HP_PCT && !this.goldenDeerRevealed) {
+          this.goldenDeerRevealed = true;
+          enemy.state.aiState = EnemyAIState.Dead;  // "Kill" the deer form
+          // Spawn Maricha NPC for dialogue
+          this.addStoryNPC({
+            id: 'maricha', name: 'Maricha', pos: { ...enemy.state.pos },
+            dialogueTreeId: 'maricha_reveal', spoken: false,
+          });
+        }
+        continue;  // Skip normal AI for golden deer
+      }
+
       // Tick status effects (expire old elements, expire slow)
       this.tickStatusEffects(enemy, now);
       const nearestDist = dist3(enemy.state.pos, this.player.pos);
@@ -2020,7 +2411,9 @@ export class LocalSim {
         enemy.state.yaw = Math.atan2(dx, dz);
         this.pushOutOfObstacles(enemy.state.pos);
         // Tutorial dummies don't chase — stay in patrol forever
-        if (this.chapter !== 0 && this.player.status === PlayerStatus.Alive && nearestDist < C.ENEMY_AGGRO_RANGE) {
+        // T3-4: Reduce aggro range when player is crouching
+        const aggroRange = this.isCrouching ? C.ENEMY_AGGRO_RANGE * C.CROUCH_AGGRO_RANGE_REDUCTION : C.ENEMY_AGGRO_RANGE;
+        if (this.chapter !== 0 && this.player.status === PlayerStatus.Alive && nearestDist < aggroRange) {
           enemy.state.aiState = EnemyAIState.Chase;
           enemy.state.targetId = 1;
           enemy.behaviorTimer = 0;
@@ -2306,6 +2699,14 @@ export class LocalSim {
           }
         }
       }
+      // T4-1: Kumbhakarna stomp attack
+      if (enemy.isKumbhakarna && now >= (enemy.stompCdEnd || 0) && nearestDist < C.KUMBHAKARNA_STOMP_RADIUS) {
+        enemy.stompCdEnd = now + C.KUMBHAKARNA_STOMP_COOLDOWN_MS;
+        if (!this.player.isDodging) {
+          this.damagePlayer(C.KUMBHAKARNA_STOMP_DAMAGE * this.diffDmgMult, 200 + enemy.state.id);
+          this.onDamageDirection(enemy.state.pos);
+        }
+      }
     }
   }
 
@@ -2371,6 +2772,36 @@ export class LocalSim {
       b.pos.z += (dz / l) * speed * dt;
     }
 
+    // T1-3: Clamp boss to arena boundary
+    const baDx = b.pos.x - C.BOSS_ARENA_CENTER.x;
+    const baDz = b.pos.z - C.BOSS_ARENA_CENTER.z;
+    const baDist = Math.sqrt(baDx * baDx + baDz * baDz);
+    if (baDist > C.BOSS_ARENA_RADIUS) {
+      const baScale = C.BOSS_ARENA_RADIUS / baDist;
+      b.pos.x = C.BOSS_ARENA_CENTER.x + baDx * baScale;
+      b.pos.z = C.BOSS_ARENA_CENTER.z + baDz * baScale;
+    }
+
+    // T3-3: Lava geyser damage
+    const LAVA_VENT_POSITIONS = [
+      { x: C.BOSS_ARENA_CENTER.x + 12, z: C.BOSS_ARENA_CENTER.z },
+      { x: C.BOSS_ARENA_CENTER.x - 12, z: C.BOSS_ARENA_CENTER.z },
+      { x: C.BOSS_ARENA_CENTER.x, z: C.BOSS_ARENA_CENTER.z + 12 },
+      { x: C.BOSS_ARENA_CENTER.x, z: C.BOSS_ARENA_CENTER.z - 12 },
+    ];
+    const lavaPhaseTime = now * 0.001;
+    for (let i = 0; i < LAVA_VENT_POSITIONS.length; i++) {
+      const phase = (lavaPhaseTime + i * Math.PI / 2) % (Math.PI * 2);
+      const active = Math.sin(phase) > 0.7;
+      if (active) {
+        const vdx = this.player.pos.x - LAVA_VENT_POSITIONS[i].x;
+        const vdz = this.player.pos.z - LAVA_VENT_POSITIONS[i].z;
+        if (Math.sqrt(vdx * vdx + vdz * vdz) < C.LAVA_VENT_RADIUS) {
+          this.damagePlayer(C.LAVA_VENT_DAMAGE * dt, 255); // 8 damage per second while standing on vent
+        }
+      }
+    }
+
     // ── Ravana Head Turrets (Phase 2+) ──
     for (const head of this.boss.heads) {
       if (!head.alive) continue;
@@ -2392,19 +2823,23 @@ export class LocalSim {
       b.hp = 0;
       b.phase = BossPhase.Dead;
       this.completeGoal(7);
-      this.onGameOver(true);
       // Karma: valor for boss kill
       this.karma.valor += 20;
+      this.onKarmaEvent('valor', 20);
       this.onKarmaUpdate(this.karma);
+      // Start death dialogue instead of immediately ending game
+      this.pendingGameOver = true;
+      this.startDialogue('ravana_death');
       return;
     }
+    // T1-4: Check Phase2 BEFORE Phase3 to prevent skipping Phase2
     const pct = b.hp / b.maxHp;
-    if (pct <= C.BOSS_PHASE3_HP_PCT && b.phase !== BossPhase.Phase3Enrage) {
-      b.phase = BossPhase.Phase3Enrage;
-    } else if (pct <= C.BOSS_PHASE2_HP_PCT && b.phase === BossPhase.Phase1) {
+    if (pct <= C.BOSS_PHASE2_HP_PCT && b.phase === BossPhase.Phase1) {
       b.phase = BossPhase.Phase2;
       // Spawn head turrets on Phase 2 transition
       this.spawnRavanaHeads();
+    } else if (pct <= C.BOSS_PHASE3_HP_PCT && b.phase === BossPhase.Phase2) {
+      b.phase = BossPhase.Phase3Enrage;
     }
   }
 
@@ -2524,6 +2959,16 @@ export class LocalSim {
           });
         }
       }
+
+      // T4-2: Spawn Maricha as Golden Deer (fleeing enemy variant)
+      const deerPos: Vec3 = { x: base2.x + 10, y: 0, z: base2.z + 15 };
+      const deer = this.createEnemy(deerPos, C.GOLDEN_DEER_HP, 'soldier', false);
+      deer.isGoldenDeer = true;
+      deer.state.aiState = EnemyAIState.Retreat;  // Always fleeing
+      this.goldenDeerEnemy = deer;
+      this.goldenDeerActive = true;
+      this.enemies.push(deer);
+
       // Mid-chapter checkpoint
       this.midChapterCheckpointSaved = false;
     }
@@ -2652,6 +3097,21 @@ export class LocalSim {
       this.addStoryNPC({
         id: 'vibhishana', name: 'Vibhishana', pos: vibhishanaPos,
         dialogueTreeId: 'ch6_vibhishana', spoken: false,
+      });
+
+      // T4-1: Spawn Kumbhakarna mini-boss in Lanka Outskirts
+      const base6 = this.CHAPTER_POSITIONS[6];
+      const kbPos: Vec3 = { x: base6.x, y: 0, z: base6.z - 15 };
+      const kumbha = this.createEnemy(kbPos, C.KUMBHAKARNA_HP, 'brute', true);
+      kumbha.state.scale = C.KUMBHAKARNA_SCALE;
+      kumbha.isKumbhakarna = true;
+      kumbha.stompCdEnd = 0;
+      this.enemies.push(kumbha);
+      this.onChampionSpawned(kumbha.state.id);
+      // Add Kumbhakarna as story NPC for dialogue before fight
+      this.addStoryNPC({
+        id: 'kumbhakarna', name: 'Kumbhakarna',
+        pos: kbPos, dialogueTreeId: 'kumbhakarna_wake', spoken: false,
       });
 
       // Trigger Lakshman choice after Angad's dialogue

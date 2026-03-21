@@ -313,6 +313,9 @@ export class LocalSim {
   public bossDamageMultiplier = 1.0;
   public dharmaGraceEnd = 0;
 
+  // Rākshasa maya slow effect
+  public mayaSlowEnd = 0;  // Timestamp when maya slow effect expires
+
   // Torch system
   public torchLit = false;
   public torchUnlocked = false;
@@ -1149,6 +1152,10 @@ export class LocalSim {
     // T3-4: Apply crouch speed reduction
     if (this.isCrouching) {
       speed *= C.CROUCH_SPEED_MULTIPLIER;
+    }
+    // Rākshasa maya slow effect
+    if (now < this.mayaSlowEnd) {
+      speed *= C.MAYA_TRAP_SLOW_FACTOR;
     }
 
     // Dodge
@@ -2782,22 +2789,26 @@ export class LocalSim {
       b.pos.z = C.BOSS_ARENA_CENTER.z + baDz * baScale;
     }
 
-    // T3-3: Lava geyser damage
-    const LAVA_VENT_POSITIONS = [
+    // T3-3 REPLACED: Rākshasa Maya Trap Hazards (Indrajit's Nagapasha)
+    const MAYA_TRAP_POSITIONS = [
       { x: C.BOSS_ARENA_CENTER.x + 12, z: C.BOSS_ARENA_CENTER.z },
       { x: C.BOSS_ARENA_CENTER.x - 12, z: C.BOSS_ARENA_CENTER.z },
       { x: C.BOSS_ARENA_CENTER.x, z: C.BOSS_ARENA_CENTER.z + 12 },
       { x: C.BOSS_ARENA_CENTER.x, z: C.BOSS_ARENA_CENTER.z - 12 },
     ];
-    const lavaPhaseTime = now * 0.001;
-    for (let i = 0; i < LAVA_VENT_POSITIONS.length; i++) {
-      const phase = (lavaPhaseTime + i * Math.PI / 2) % (Math.PI * 2);
+    const mayaPhaseTime = now * 0.001;
+    for (let i = 0; i < MAYA_TRAP_POSITIONS.length; i++) {
+      const phase = (mayaPhaseTime + i * Math.PI / 2) % (Math.PI * 2);
       const active = Math.sin(phase) > 0.7;
       if (active) {
-        const vdx = this.player.pos.x - LAVA_VENT_POSITIONS[i].x;
-        const vdz = this.player.pos.z - LAVA_VENT_POSITIONS[i].z;
-        if (Math.sqrt(vdx * vdx + vdz * vdz) < C.LAVA_VENT_RADIUS) {
-          this.damagePlayer(C.LAVA_VENT_DAMAGE * dt, 255); // 8 damage per second while standing on vent
+        const mdx = this.player.pos.x - MAYA_TRAP_POSITIONS[i].x;
+        const mdz = this.player.pos.z - MAYA_TRAP_POSITIONS[i].z;
+        const mayaDist = Math.sqrt(mdx * mdx + mdz * mdz);
+        if (mayaDist < C.MAYA_TRAP_RADIUS) {
+          // Nagapasha binding — damage + movement slow
+          this.damagePlayer(C.MAYA_TRAP_DAMAGE * dt, 255);
+          // Apply movement slow effect
+          this.mayaSlowEnd = now + C.MAYA_TRAP_SLOW_DURATION_MS;
         }
       }
     }

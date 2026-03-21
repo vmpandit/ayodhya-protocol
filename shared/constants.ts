@@ -323,6 +323,10 @@ export const ASHRAM_SKILLS = [
   { chapter: 4, name: 'Ocean\'s Resolve', desc: '+15% max HP', effect: 'maxHp' },
 ] as const;
 
-// ── T3-3: Lava Geyser Hazards ──
-export const LAVA_VENT_DAMAGE = 8;             // Damage per second while standing on vent
-export const LAVA_VENT_RADIUS = 2.0;           // Radius in which player takes damage
+// ── T3-3: Rākshasa Maya Trap Hazards (Indrajit's Nagapasha) ──
+export const MAYA_TRAP_DAMAGE = 8;             // Damage per second while caught in maya trap
+export const MAYA_TRAP_RADIUS = 2.0;           // Radius in which player takes damage
+export const MAYA_TRAP_SLOW_FACTOR = 0.4;      // Movement speed multiplier when caught in maya
+export const MAYA_TRAP_SLOW_DURATION_MS = 2000; // How long the slow lasts after leaving trap
+export const NAGAPASHA_BIND_DURATION_MS = 1500; // Root/stun duration from Nagapasha bind
+export const MAYA_DARKNESS_RADIUS = 8;          // Radius of darkness zone effect

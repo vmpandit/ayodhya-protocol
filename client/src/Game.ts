@@ -1004,8 +1004,8 @@ export class Game {
     this.world.updateProjectiles(dt);
     // Update water shimmer/flow animation
     this.world.updateWater(dt);
-    // T3-3: Update lava vent animations
-    this.world.updateLavaVents(performance.now());
+    // T3-3: Update Rākshasa maya trap animations
+    this.world.updateMayaTraps(performance.now());
     // Update NPC beacon animations (rotating diamonds, pulsing light pillars)
     this.world.updateNPCBeacons(dt);
 

@@ -56,8 +56,8 @@ export class World {
   private championPlates = new Map<number, Mesh>();  // A-06: Champion nameplate meshes
   private foamMeshes: Mesh[] = [];  // A-07: Shoreline foam strip meshes
   private bossArenaMeshes: Mesh[] = [];  // A-09: All boss arena meshes for visibility toggling
-  private lavaVentLights: PointLight[] = [];  // T3-3: Lava geyser lights for animation
-  private lavaVentPositions: Vec3[] = [];  // T3-3: Lava vent positions for damage checking
+  private mayaTrapLights: PointLight[] = [];  // T3-3: Maya trap lights (Indrajit's Nagapasha binding circles) for animation
+  private mayaTrapPositions: Vec3[] = [];  // T3-3: Maya trap positions for damage checking
   // P2-4: Enemy mesh pool — recycle disabled meshes instead of creating new ones
   private enemyMeshPool: TransformNode[] = [];
 
@@ -386,8 +386,8 @@ export class World {
         // Ch5 (z -490 to -580): Wet stone (Ram Setu)
         r = 0.3; g = 0.35; b = 0.38;
       } else {
-        // Ch6+ (z < -580): Dark volcanic (Lanka)
-        r = 0.15; g = 0.1; b = 0.08;
+        // Ch6+ (z < -580): Golden Lanka (Sone ki Lanka)
+        r = 0.35; g = 0.28; b = 0.12;
       }
 
       const colorIdx = (i / 3) * 4;
@@ -618,40 +618,41 @@ export class World {
       this.bossArenaMeshes.push(orb);
     }
 
-    // A-08: Golden light veins (replace lava veins)
+    // A-08: Carved golden mandala patterns (sacred floor engravings)
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2;
-      const vein = MeshBuilder.CreatePlane(`lavaVein_${i}`, { width: 0.3, height: r * 0.8 }, this.scene);
-      vein.rotation.x = Math.PI / 2;
-      vein.rotation.y = angle;
-      vein.position.set(c.x + Math.cos(angle) * r * 0.4, 0.07, c.z + Math.sin(angle) * r * 0.4);
-      const veinMat = new StandardMaterial(`lavaVeinMat_${i}`, this.scene);
-      veinMat.emissiveColor = new Color3(1.0, 0.8, 0.2);  // golden light
-      veinMat.disableLighting = true;
-      veinMat.alpha = 0.6;
-      veinMat.backFaceCulling = false;
-      vein.material = veinMat;
-      this.bossArenaMeshes.push(vein);
+      const mandala = MeshBuilder.CreatePlane(`mandalaVein_${i}`, { width: 0.3, height: r * 0.8 }, this.scene);
+      mandala.rotation.x = Math.PI / 2;
+      mandala.rotation.y = angle;
+      mandala.position.set(c.x + Math.cos(angle) * r * 0.4, 0.07, c.z + Math.sin(angle) * r * 0.4);
+      const mandalaMat = new StandardMaterial(`mandalaVeinMat_${i}`, this.scene);
+      mandalaMat.emissiveColor = new Color3(1.0, 0.95, 0.6);  // golden white mandala glow
+      mandalaMat.disableLighting = true;
+      mandalaMat.alpha = 0.6;
+      mandalaMat.backFaceCulling = false;
+      mandala.material = mandalaMat;
+      this.bossArenaMeshes.push(mandala);
     }
 
-    // A-08: Four tall crystal spire towers around the arena
+    // A-08: Four golden shikhara towers (temple-like pointed spires) around the arena
     const spireRadius = r + 5;
     for (let i = 0; i < 4; i++) {
       const angle = (i / 4) * Math.PI * 2;
       const px = c.x + Math.cos(angle) * spireRadius;
       const pz = c.z + Math.sin(angle) * spireRadius;
 
-      const spire = MeshBuilder.CreateCylinder(`arenaSpire_${i}`, {
-        diameterBottom: 1.2,
-        diameterTop: 0.2,
-        height: 12,
-        tessellation: 8
+      // Shikhara: taller, more temple-like tapered spire (using tapered cylinder)
+      const spire = MeshBuilder.CreateCylinder(`arenaSikharaTower_${i}`, {
+        height: 14,
+        diameterBottom: 2.5,
+        diameterTop: 0.3,
+        tessellation: 10
       }, this.scene);
-      spire.position.set(px, 6, pz);
-      const spireMat = new StandardMaterial(`arenaSpireMat_${i}`, this.scene);
-      spireMat.diffuseColor = new Color3(0.95, 0.85, 0.4);  // translucent gold
+      spire.position.set(px, 7, pz);
+      const spireMat = new StandardMaterial(`arenaShikaraSpireMat_${i}`, this.scene);
+      spireMat.diffuseColor = new Color3(0.95, 0.85, 0.3);  // golden
       spireMat.emissiveColor = new Color3(0.9, 0.75, 0.3);  // golden glow
-      spireMat.alpha = 0.7;
+      spireMat.specularColor = new Color3(0.6, 0.5, 0.15);
       spire.material = spireMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(spire);
       this.bossArenaMeshes.push(spire);
@@ -691,6 +692,74 @@ export class World {
     gateBeam.material = gateMat;
     if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gateBeam);
     this.bossArenaMeshes.push(gateBeam);
+
+    // A-08: Ravana's golden throne platform (behind arena center)
+    const throneMat = new StandardMaterial('throneMat', this.scene);
+    throneMat.diffuseColor = new Color3(0.95, 0.85, 0.3);  // Golden bright
+    throneMat.emissiveColor = new Color3(0.5, 0.4, 0.1);   // Golden glow
+    throneMat.specularColor = new Color3(0.7, 0.6, 0.2);
+
+    // Throne dais (raised golden platform with steps)
+    const daisBase = MeshBuilder.CreateBox('throneDaisBase', {
+      width: 10,
+      height: 0.4,
+      depth: 8
+    }, this.scene);
+    daisBase.position.set(c.x, 2.5, c.z + (r - 3));
+    daisBase.material = throneMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(daisBase);
+    this.bossArenaMeshes.push(daisBase);
+
+    // Throne steps (3 tiered steps)
+    for (let step = 0; step < 3; step++) {
+      const stepBox = MeshBuilder.CreateBox(`throneStep_${step}`, {
+        width: 8 - step * 1.5,
+        height: 0.3,
+        depth: 6 - step * 1
+      }, this.scene);
+      stepBox.position.set(c.x, 2.2 + (step + 1) * 0.35, c.z + (r - 3));
+      stepBox.material = throneMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(stepBox);
+      this.bossArenaMeshes.push(stepBox);
+    }
+
+    // Throne seat (golden cushion)
+    const throneSeat = MeshBuilder.CreateBox('throneSeat', {
+      width: 3,
+      height: 0.6,
+      depth: 3
+    }, this.scene);
+    throneSeat.position.set(c.x, 3.5, c.z + (r - 3));
+    throneSeat.material = throneMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(throneSeat);
+    this.bossArenaMeshes.push(throneSeat);
+
+    // Throne back (tall golden panel with jewels)
+    const throneBack = MeshBuilder.CreateBox('throneBack', {
+      width: 3,
+      height: 4,
+      depth: 0.4
+    }, this.scene);
+    throneBack.position.set(c.x, 4.2, c.z + (r - 1));
+    throneBack.material = throneMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(throneBack);
+    this.bossArenaMeshes.push(throneBack);
+
+    // Decorative jewels on throne back
+    const rubyMat = new StandardMaterial('throneRubyMat', this.scene);
+    rubyMat.emissiveColor = new Color3(0.8, 0.1, 0.15);
+    rubyMat.disableLighting = true;
+
+    const sapphireMat = new StandardMaterial('throneSapphireMat', this.scene);
+    sapphireMat.emissiveColor = new Color3(0.1, 0.2, 0.85);
+    sapphireMat.disableLighting = true;
+
+    for (let j = 0; j < 5; j++) {
+      const jewel = MeshBuilder.CreateSphere(`throneJewel_${j}`, { diameter: 0.4, segments: 8 }, this.scene);
+      jewel.position.set(c.x + (j - 2) * 0.6, 5.5 - j * 0.3, c.z + (r - 1));
+      jewel.material = (j % 2 === 0) ? rubyMat : sapphireMat;
+      this.bossArenaMeshes.push(jewel);
+    }
   }
 
   private buildRamSetuBridge(): void {
@@ -3195,89 +3264,15 @@ export class World {
   private buildChapter6Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
     const centerX = zone.x, centerZ = zone.z;
 
-    // 2 watch towers: dark cylinders with red lights
-    const towerMat = new StandardMaterial(`ch6_towerMat`, this.scene);
-    towerMat.diffuseColor = new Color3(0.12, 0.08, 0.08);
+    // ═══════════════════════════════════════════════════════════════════════════
+    // GOLDEN OUTER RAMPART WALLS - Approaching Sone ki Lanka
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    for (let i = 0; i < 2; i++) {
-      const offsetX = (i === 0 ? -8 : 8) + (rng() - 0.5) * 2;
-      const towerX = centerX + offsetX;
-
-      const tower = MeshBuilder.CreateCylinder(`ch6_tower_${i}`, { height: 10, diameter: 2, tessellation: 12 }, this.scene);
-      tower.position.set(towerX, 5, centerZ);
-      tower.material = towerMat;
-      this.renderer.shadowGenerator.addShadowCaster(tower);
-
-      const towerLight = new PointLight(`ch6_towerLight_${i}`, new Vector3(towerX, 9.5, centerZ), this.scene);
-      towerLight.diffuse = new Color3(1.0, 0.2, 0.1);
-      towerLight.intensity = 1.5;
-      towerLight.range = 8;
-    }
-
-    // 3 fortress walls: dark boxes with some lower ones for "damaged" effect
-    const wallMat = new StandardMaterial(`ch6_wallMat`, this.scene);
-    wallMat.diffuseColor = new Color3(0.2, 0.15, 0.1);
-
-    for (let i = 0; i < 3; i++) {
-      const offsetX = (i - 1) * 10 + (rng() - 0.5) * 2;
-      const wallX = centerX + offsetX;
-      const wallHeight = (i === 1 ? 3 : 4);
-
-      const wall = MeshBuilder.CreateBox(`ch6_wall_${i}`, { width: 6, height: wallHeight, depth: 1 }, this.scene);
-      wall.position.set(wallX, wallHeight / 2, centerZ - 8);
-      wall.material = wallMat;
-      this.renderer.shadowGenerator.addShadowCaster(wall);
-    }
-
-    // 2 lava channels: long planes with emissive
-    const lavaMatBase = new StandardMaterial(`ch6_lavaMat_0`, this.scene);
-    lavaMatBase.diffuseColor = new Color3(1.0, 0.4, 0.1);
-    lavaMatBase.emissiveColor = new Color3(1.0, 0.3, 0.05);
-    lavaMatBase.alpha = 0.7;
-
-    for (let i = 0; i < 2; i++) {
-      const offsetZ = (i === 0 ? -4 : 4) + (rng() - 0.5) * 1;
-      const lavaChannelZ = centerZ + offsetZ;
-
-      const lavaChannel = MeshBuilder.CreatePlane(`ch6_lavaChannel_${i}`, { width: 1.5, height: 8 }, this.scene);
-      lavaChannel.rotation.x = Math.PI / 2;
-      lavaChannel.position.set(centerX, 0.01, lavaChannelZ);
-      const lavaMat = new StandardMaterial(`ch6_lavaMat_${i}`, this.scene);
-      lavaMat.diffuseColor = new Color3(1.0, 0.4, 0.1);
-      lavaMat.emissiveColor = new Color3(1.0, 0.3, 0.05);
-      lavaMat.alpha = 0.7;
-      lavaChannel.material = lavaMat;
-    }
-
-    // 2 totems: cylinders with octahedron tops
-    const totemPoleMat = new StandardMaterial(`ch6_totemPoleMat`, this.scene);
-    totemPoleMat.diffuseColor = new Color3(0.25, 0.15, 0.1);
-
-    for (let i = 0; i < 2; i++) {
-      const offsetX = (i === 0 ? -6 : 6) + (rng() - 0.5) * 2;
-      const totemX = centerX + offsetX;
-      const totemZ = centerZ + 6;
-
-      const totemPole = MeshBuilder.CreateCylinder(`ch6_totemPole_${i}`, { height: 3, diameter: 0.2, tessellation: 8 }, this.scene);
-      totemPole.position.set(totemX, 1.5, totemZ);
-      totemPole.material = totemPoleMat;
-      this.renderer.shadowGenerator.addShadowCaster(totemPole);
-
-      const totemHead = MeshBuilder.CreatePolyhedron(`ch6_totemHead_${i}`, { type: 1, size: 0.5 }, this.scene);
-      totemHead.position.set(totemX, 3.2, totemZ);
-      const totemHeadMat = new StandardMaterial(`ch6_totemHeadMat_${i}`, this.scene);
-      totemHeadMat.diffuseColor = new Color3(0.6, 0.1, 0.08);
-      totemHead.material = totemHeadMat;
-      this.renderer.shadowGenerator.addShadowCaster(totemHead);
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // T3-2: Lanka Outskirts Fortress Structures
-    // ─────────────────────────────────────────────────────────────────
-
-    // 2 massive fortress wall segments: dark stone boxes at flanking sides
-    const darkVolcanicMat = new StandardMaterial(`ch6_darkStoneMat`, this.scene);
-    darkVolcanicMat.diffuseColor = new Color3(0.2, 0.15, 0.12);
+    // Golden outer rampart walls (gleaming gold-ivory)
+    const goldenWallMat = new StandardMaterial(`ch6_goldenWallMat`, this.scene);
+    goldenWallMat.diffuseColor = new Color3(0.85, 0.72, 0.25);  // Golden primary
+    goldenWallMat.emissiveColor = new Color3(0.3, 0.22, 0.05);  // Golden glow
+    goldenWallMat.specularColor = new Color3(0.5, 0.4, 0.1);
 
     const wallFlankPositions = [
       { x: centerX - 45, z: centerZ },
@@ -3286,74 +3281,198 @@ export class World {
 
     for (let i = 0; i < wallFlankPositions.length; i++) {
       const pos = wallFlankPositions[i];
-      const wall = MeshBuilder.CreateBox(`ch6_flankWall_${i}`, { width: 40, height: 12, depth: 2 }, this.scene);
+      const wall = MeshBuilder.CreateBox(`ch6_goldenWall_${i}`, { width: 40, height: 12, depth: 2 }, this.scene);
       wall.position.set(pos.x, 6, pos.z);
-      wall.material = darkVolcanicMat;
+      wall.material = goldenWallMat;
       this.renderer.shadowGenerator.addShadowCaster(wall);
     }
 
-    // Fortress gate: 2 tall pillars with heavy crossbar and iron-colored material
-    const redAccentMat = new StandardMaterial(`ch6_gateMat`, this.scene);
-    redAccentMat.diffuseColor = new Color3(0.35, 0.25, 0.22);
-    redAccentMat.emissiveColor = new Color3(0.15, 0.05, 0.03);
+    // ─────────────────────────────────────────────────────────────────
+    // ORNATE GATEHOUSE - Golden pillars with lotus capitals
+    // ─────────────────────────────────────────────────────────────────
 
+    // Golden pillar material for gatehouse
+    const gatePillarMat = new StandardMaterial(`ch6_gatePillarMat`, this.scene);
+    gatePillarMat.diffuseColor = new Color3(0.9, 0.75, 0.2);  // Golden bright
+    gatePillarMat.emissiveColor = new Color3(0.4, 0.3, 0.08);
+    gatePillarMat.specularColor = new Color3(0.6, 0.5, 0.15);
+
+    // 2 tall golden pillars
     const gateX = [centerX - 6, centerX + 6];
     for (let i = 0; i < gateX.length; i++) {
-      const pillar = MeshBuilder.CreateCylinder(`ch6_gatePillar_${i}`, { height: 15, diameter: 2, tessellation: 12 }, this.scene);
+      // Pillar shaft (cylinder)
+      const pillar = MeshBuilder.CreateCylinder(`ch6_gatePillar_${i}`, { height: 15, diameter: 1.8, tessellation: 12 }, this.scene);
       pillar.position.set(gateX[i], 7.5, centerZ + 8);
-      pillar.material = redAccentMat;
+      pillar.material = gatePillarMat;
       this.renderer.shadowGenerator.addShadowCaster(pillar);
+
+      // Lotus capital on top (inverted tapered cylinder for lotus shape)
+      const lotusCone = MeshBuilder.CreateCylinder(`ch6_lotusCapital_${i}`, { height: 1.2, diameterBottom: 0.3, diameterTop: 2, tessellation: 12 }, this.scene);
+      lotusCone.position.set(gateX[i], 15.5, centerZ + 8);
+      lotusCone.material = gatePillarMat;
+      this.renderer.shadowGenerator.addShadowCaster(lotusCone);
     }
 
-    // Heavy crossbar
+    // Golden crossbar
     const gateBar = MeshBuilder.CreateBox(`ch6_gateBar`, { width: 14, height: 1.5, depth: 1.5 }, this.scene);
-    gateBar.position.set(centerX, 14, centerZ + 8);
-    gateBar.material = redAccentMat;
+    gateBar.position.set(centerX, 16, centerZ + 8);
+    gateBar.material = gatePillarMat;
     this.renderer.shadowGenerator.addShadowCaster(gateBar);
 
-    // 4 wall-mounted torch braziers: small boxes with orange emissive + PointLights
-    const torchBrazierMat = new StandardMaterial(`ch6_torchMat`, this.scene);
-    torchBrazierMat.diffuseColor = new Color3(0.3, 0.1, 0.05);
-    torchBrazierMat.emissiveColor = new Color3(1.0, 0.5, 0.1);
+    // ─────────────────────────────────────────────────────────────────
+    // GEM-STUDDED ARCHWAY - Jeweled crossbar
+    // ─────────────────────────────────────────────────────────────────
+
+    // Gem colors
+    const rubyMat = new StandardMaterial(`ch6_rubyMat`, this.scene);
+    rubyMat.emissiveColor = new Color3(0.8, 0.1, 0.15);
+    rubyMat.disableLighting = true;
+
+    const sapphireMat = new StandardMaterial(`ch6_sapphireMat`, this.scene);
+    sapphireMat.emissiveColor = new Color3(0.1, 0.2, 0.85);
+    sapphireMat.disableLighting = true;
+
+    const emeraldMat = new StandardMaterial(`ch6_emeraldMat`, this.scene);
+    emeraldMat.emissiveColor = new Color3(0.1, 0.7, 0.2);
+    emeraldMat.disableLighting = true;
+
+    const gems = [
+      { x: -2.5, mat: rubyMat },
+      { x: -1.2, mat: sapphireMat },
+      { x: 0, mat: emeraldMat },
+      { x: 1.2, mat: sapphireMat },
+      { x: 2.5, mat: rubyMat },
+    ];
+
+    for (let g = 0; g < gems.length; g++) {
+      const gem = MeshBuilder.CreateSphere(`ch6_gemstone_${g}`, { diameter: 0.5, segments: 8 }, this.scene);
+      gem.position.set(centerX + gems[g].x, 16.3, centerZ + 8);
+      gem.material = gems[g].mat;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // GUARDIAN RAKSHASA STATUES - Flanking the gate
+    // ─────────────────────────────────────────────────────────────────
+
+    const rakshasaMat = new StandardMaterial(`ch6_rakshasaMat`, this.scene);
+    rakshasaMat.diffuseColor = new Color3(0.85, 0.72, 0.25);  // Golden
+    rakshasaMat.emissiveColor = new Color3(0.2, 0.15, 0.03);
+
+    const rakshPositions = [
+      { x: centerX - 10, z: centerZ + 8 },
+      { x: centerX + 10, z: centerZ + 8 },
+    ];
+
+    for (let r = 0; r < rakshPositions.length; r++) {
+      const rPos = rakshPositions[r];
+
+      // Rakshasa body (cylinder)
+      const body = MeshBuilder.CreateCylinder(`ch6_rakshBody_${r}`, { height: 4, diameter: 1.5, tessellation: 8 }, this.scene);
+      body.position.set(rPos.x, 2, rPos.z);
+      body.material = rakshasaMat;
+      this.renderer.shadowGenerator.addShadowCaster(body);
+
+      // Rakshasa head (sphere)
+      const head = MeshBuilder.CreateSphere(`ch6_rakshHead_${r}`, { diameter: 1.2, segments: 12 }, this.scene);
+      head.position.set(rPos.x, 4.5, rPos.z);
+      head.material = rakshasaMat;
+      this.renderer.shadowGenerator.addShadowCaster(head);
+
+      // Shoulder plates (box pair)
+      for (let s = 0; s < 2; s++) {
+        const shoulder = MeshBuilder.CreateBox(`ch6_rakshShoulder_${r}_${s}`, { width: 1, height: 0.8, depth: 0.5 }, this.scene);
+        shoulder.position.set(rPos.x + (s === 0 ? -0.8 : 0.8), 2.8, rPos.z);
+        shoulder.material = rakshasaMat;
+        this.renderer.shadowGenerator.addShadowCaster(shoulder);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // GOLDEN BANNER POLES - Saffron flags (not lava totems)
+    // ─────────────────────────────────────────────────────────────────
+
+    const bannerPoleMat = new StandardMaterial(`ch6_bannerPoleMat`, this.scene);
+    bannerPoleMat.diffuseColor = new Color3(0.5, 0.35, 0.15);
+
+    const saffronMat = new StandardMaterial(`ch6_saffronMat`, this.scene);
+    saffronMat.diffuseColor = new Color3(0.95, 0.55, 0.1);  // Saffron flag
+    saffronMat.emissiveColor = new Color3(0.3, 0.15, 0.02);
+
+    const bannerPositions = [
+      { x: centerX - 25, z: centerZ },
+      { x: centerX + 25, z: centerZ },
+      { x: centerX - 12, z: centerZ + 8 },
+      { x: centerX + 12, z: centerZ + 8 },
+    ];
+
+    for (let b = 0; b < bannerPositions.length; b++) {
+      const bPos = bannerPositions[b];
+
+      // Banner pole (cylinder)
+      const pole = MeshBuilder.CreateCylinder(`ch6_bannerPole_${b}`, { height: 10, diameter: 0.4, tessellation: 8 }, this.scene);
+      pole.position.set(bPos.x, 5, bPos.z);
+      pole.material = bannerPoleMat;
+      this.renderer.shadowGenerator.addShadowCaster(pole);
+
+      // Saffron flag (box)
+      const flag = MeshBuilder.CreateBox(`ch6_saffronFlag_${b}`, { width: 3, height: 2, depth: 0.2 }, this.scene);
+      flag.position.set(bPos.x + 1.5, 7, bPos.z);
+      flag.material = saffronMat;
+      this.renderer.shadowGenerator.addShadowCaster(flag);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // APPROACH TORCHES - Warm golden light (not red/volcanic)
+    // ─────────────────────────────────────────────────────────────────
+
+    const torchBrazierMat = new StandardMaterial(`ch6_torchBrazierMat`, this.scene);
+    torchBrazierMat.diffuseColor = new Color3(0.6, 0.4, 0.15);
+    torchBrazierMat.emissiveColor = new Color3(0.8, 0.6, 0.2);
 
     const brazierPositions = [
-      { x: centerX - 20, z: centerZ, py: 10 },
-      { x: centerX + 20, z: centerZ, py: 10 },
-      { x: centerX - 6, z: centerZ + 8, py: 13 },
-      { x: centerX + 6, z: centerZ + 8, py: 13 },
+      { x: centerX - 20, z: centerZ - 10, py: 10 },
+      { x: centerX + 20, z: centerZ - 10, py: 10 },
+      { x: centerX - 20, z: centerZ + 20, py: 10 },
+      { x: centerX + 20, z: centerZ + 20, py: 10 },
     ];
 
     for (let i = 0; i < brazierPositions.length; i++) {
       const pos = brazierPositions[i];
-      const brazier = MeshBuilder.CreateBox(`ch6_brazier_${i}`, { width: 0.6, height: 0.6, depth: 0.6 }, this.scene);
+      const brazier = MeshBuilder.CreateBox(`ch6_torchBrazier_${i}`, { width: 0.8, height: 0.8, depth: 0.8 }, this.scene);
       brazier.position.set(pos.x, pos.py, pos.z);
       brazier.material = torchBrazierMat;
       this.renderer.shadowGenerator.addShadowCaster(brazier);
 
-      const light = new PointLight(`ch6_brazierLight_${i}`, new Vector3(pos.x, pos.py + 0.5, pos.z), this.scene);
-      light.diffuse = new Color3(1.0, 0.6, 0.2);
+      // Warm golden point light (not red)
+      const light = new PointLight(`ch6_torchLight_${i}`, new Vector3(pos.x, pos.py + 0.5, pos.z), this.scene);
+      light.diffuse = new Color3(1.0, 0.8, 0.4);  // Warm golden
       light.intensity = 2;
-      light.range = 10;
+      light.range = 12;
     }
   }
 
   private buildChapter7Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
-    // Ch7: Ravana's Lanka - 4 ceremonial pillars flanking approach to boss arena
+    // Ch7: Ravana's Lanka - The Golden Palace approach
     const centerX = zone.x, centerZ = zone.z;
-    const positions = [
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 4 CEREMONIAL GOLDEN PILLARS - Flanking approach to palace
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    const pillarMat = new StandardMaterial(`ch7_pillarMat`, this.scene);
+    pillarMat.diffuseColor = new Color3(0.9, 0.75, 0.2);  // Golden bright
+    pillarMat.specularColor = new Color3(0.5, 0.5, 0.5);
+    pillarMat.emissiveColor = new Color3(0.4, 0.3, 0.08);
+
+    const pillarPositions = [
       { x: centerX - 15, z: centerZ - 40 },
       { x: centerX + 15, z: centerZ - 40 },
       { x: centerX - 15, z: centerZ - 30 },
       { x: centerX + 15, z: centerZ - 30 },
     ];
 
-    const pillarMat = new StandardMaterial(`ch7_pillarMat`, this.scene);
-    pillarMat.diffuseColor = new Color3(0.75, 0.6, 0.15);
-    pillarMat.specularColor = new Color3(0.5, 0.5, 0.5);
-    pillarMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
-
-    for (let i = 0; i < positions.length; i++) {
-      const pos = positions[i];
+    for (let i = 0; i < pillarPositions.length; i++) {
+      const pos = pillarPositions[i];
       const pillar = MeshBuilder.CreateCylinder(`ch7_ceremonialPillar_${i}`, { height: 8, diameter: 1.2, tessellation: 12 }, this.scene);
       pillar.position.set(pos.x, 4, pos.z);
       pillar.material = pillarMat;
@@ -3361,12 +3480,12 @@ export class World {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // T3-2: Lanka Fortress Wall Structures
+    // GOLDEN FORTRESS WALLS - Rampart structures
     // ─────────────────────────────────────────────────────────────────
 
-    // 2 massive fortress wall segments: dark stone boxes
-    const stoneMat = new StandardMaterial(`ch7_stoneMat`, this.scene);
-    stoneMat.diffuseColor = new Color3(0.2, 0.15, 0.12);
+    const goldenWallMat = new StandardMaterial(`ch7_goldenWallMat`, this.scene);
+    goldenWallMat.diffuseColor = new Color3(0.85, 0.72, 0.25);  // Golden primary
+    goldenWallMat.emissiveColor = new Color3(0.3, 0.22, 0.05);
 
     const wallSegmentPositions = [
       { x: centerX - 50, z: centerZ - 20 },
@@ -3377,33 +3496,275 @@ export class World {
       const pos = wallSegmentPositions[i];
       const wall = MeshBuilder.CreateBox(`ch7_fortressWall_${i}`, { width: 40, height: 12, depth: 2 }, this.scene);
       wall.position.set(pos.x, 6, pos.z);
-      wall.material = stoneMat;
+      wall.material = goldenWallMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(wall);
     }
 
-    // Fortress gate: 2 tall pillars with heavy crossbar and iron-colored material
-    const ironMat = new StandardMaterial(`ch7_ironMat`, this.scene);
-    ironMat.diffuseColor = new Color3(0.35, 0.25, 0.22);
-    ironMat.emissiveColor = new Color3(0.15, 0.05, 0.03);
+    // ─────────────────────────────────────────────────────────────────
+    // PEARL ARCHWAY TO BOSS ARENA - Pearl-strung gateway
+    // ─────────────────────────────────────────────────────────────────
+
+    const pearlMat = new StandardMaterial(`ch7_pearlMat`, this.scene);
+    pearlMat.emissiveColor = new Color3(0.95, 0.9, 0.8);
+    pearlMat.diffuseColor = new Color3(0.9, 0.85, 0.75);
+    pearlMat.disableLighting = false;
 
     const gatePillarX = [centerX - 8, centerX + 8];
     for (let i = 0; i < gatePillarX.length; i++) {
-      const pillar = MeshBuilder.CreateCylinder(`ch7_gatePillar_${i}`, { height: 15, diameter: 2, tessellation: 12 }, this.scene);
+      const pillar = MeshBuilder.CreateCylinder(`ch7_gatePillar_${i}`, { height: 15, diameter: 1.8, tessellation: 12 }, this.scene);
       pillar.position.set(gatePillarX[i], 7.5, centerZ + 5);
-      pillar.material = ironMat;
+      pillar.material = pillarMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pillar);
     }
 
-    // Heavy crossbar
-    const crossbar = MeshBuilder.CreateBox(`ch7_gateBar`, { width: 18, height: 1.5, depth: 1.5 }, this.scene);
-    crossbar.position.set(centerX, 14, centerZ + 5);
-    crossbar.material = ironMat;
+    // Pearl-studded crossbar
+    const crossbar = MeshBuilder.CreateBox(`ch7_pearlCrossbar`, { width: 18, height: 1.5, depth: 1.5 }, this.scene);
+    crossbar.position.set(centerX, 15, centerZ + 5);
+    crossbar.material = pearlMat;
     if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(crossbar);
 
-    // 4 wall-mounted torch braziers: small boxes with orange emissive + PointLights
-    const torchMat = new StandardMaterial(`ch7_torchMat`, this.scene);
-    torchMat.diffuseColor = new Color3(0.3, 0.1, 0.05);
-    torchMat.emissiveColor = new Color3(1.0, 0.5, 0.1);
+    // String of pearl spheres along the archway
+    for (let p = 0; p < 7; p++) {
+      const pxOffset = (p - 3) * 2.5;
+      const pearl = MeshBuilder.CreateSphere(`ch7_pearlSphere_${p}`, { diameter: 0.6, segments: 12 }, this.scene);
+      pearl.position.set(centerX + pxOffset, 15.5, centerZ + 5);
+      pearl.material = pearlMat;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // GRAND PALACE FACADE - 3-tiered golden structure with spires
+    // ─────────────────────────────────────────────────────────────────
+
+    const palaceMat = new StandardMaterial(`ch7_palaceMat`, this.scene);
+    palaceMat.diffuseColor = new Color3(0.9, 0.75, 0.2);  // Golden primary
+    palaceMat.emissiveColor = new Color3(0.4, 0.3, 0.08);
+    palaceMat.specularColor = new Color3(0.6, 0.5, 0.15);
+
+    const ivoryMat = new StandardMaterial(`ch7_ivoryMat`, this.scene);
+    ivoryMat.diffuseColor = new Color3(0.95, 0.9, 0.8);  // Ivory
+    ivoryMat.emissiveColor = new Color3(0.1, 0.08, 0.05);
+
+    const palaceBaseZ = centerZ + 25;
+
+    // Base tier (largest)
+    const palaceBase = MeshBuilder.CreateBox(`ch7_palaceBase`, { width: 35, height: 4, depth: 18 }, this.scene);
+    palaceBase.position.set(centerX, 2, palaceBaseZ);
+    palaceBase.material = palaceMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceBase);
+
+    // Ivory panels on base tier
+    for (let p = 0; p < 3; p++) {
+      const panel = MeshBuilder.CreateBox(`ch7_ivoryPanel_base_${p}`, { width: 5, height: 3.5, depth: 0.5 }, this.scene);
+      const panelX = centerX + (p - 1) * 10;
+      panel.position.set(panelX, 2, palaceBaseZ - 8.5);
+      panel.material = ivoryMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(panel);
+    }
+
+    // Middle tier
+    const palaceMiddle = MeshBuilder.CreateBox(`ch7_palaceMiddle`, { width: 25, height: 4, depth: 13 }, this.scene);
+    palaceMiddle.position.set(centerX, 6, palaceBaseZ);
+    palaceMiddle.material = palaceMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceMiddle);
+
+    // Ivory panels on middle tier
+    for (let p = 0; p < 2; p++) {
+      const panel = MeshBuilder.CreateBox(`ch7_ivoryPanel_mid_${p}`, { width: 4, height: 3.5, depth: 0.5 }, this.scene);
+      const panelX = centerX + (p - 0.5) * 8;
+      panel.position.set(panelX, 6, palaceBaseZ - 6);
+      panel.material = ivoryMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(panel);
+    }
+
+    // Top tier
+    const palaceTop = MeshBuilder.CreateBox(`ch7_palaceTop`, { width: 15, height: 4, depth: 10 }, this.scene);
+    palaceTop.position.set(centerX, 10, palaceBaseZ);
+    palaceTop.material = palaceMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceTop);
+
+    // Crystal window panels on palace (translucent blue/white)
+    const crystalMat = new StandardMaterial(`ch7_crystalMat`, this.scene);
+    crystalMat.diffuseColor = new Color3(0.7, 0.8, 1.0);
+    crystalMat.alpha = 0.5;
+    crystalMat.emissiveColor = new Color3(0.3, 0.4, 0.6);
+
+    for (let w = 0; w < 4; w++) {
+      const window = MeshBuilder.CreateBox(`ch7_crystalWindow_${w}`, { width: 3, height: 2, depth: 0.3 }, this.scene);
+      const wxOffset = (w - 1.5) * 6;
+      window.position.set(centerX + wxOffset, 8, palaceBaseZ - 8.5);
+      window.material = crystalMat;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 10 GOLDEN SPIRES - Representing Ravana's 10 heads of knowledge
+    // ─────────────────────────────────────────────────────────────────
+
+    const spireMat = new StandardMaterial(`ch7_spireMat`, this.scene);
+    spireMat.diffuseColor = new Color3(0.95, 0.85, 0.3);  // Golden bright
+    spireMat.emissiveColor = new Color3(0.5, 0.4, 0.1);   // Golden glow
+
+    const spireRadius = 10;
+    for (let s = 0; s < 10; s++) {
+      const angle = (s / 10) * Math.PI * 2;
+      const sx = centerX + Math.cos(angle) * spireRadius;
+      const sz = palaceBaseZ + Math.sin(angle) * spireRadius;
+
+      // Spire: tapered cylinder (cone-like)
+      const spire = MeshBuilder.CreateCylinder(`ch7_spire_${s}`, { height: 10, diameterBottom: 1.5, diameterTop: 0.2, tessellation: 10 }, this.scene);
+      spire.position.set(sx, 12, sz);
+      spire.material = spireMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(spire);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // ASHOKA VATIKA - Sacred garden where Sita was held
+    // ─────────────────────────────────────────────────────────────────
+
+    const gardenCenterX = centerX - 25;
+    const gardenCenterZ = palaceBaseZ - 12;
+
+    // Garden enclosure wall (low)
+    const gardenWallMat = new StandardMaterial(`ch7_gardenWallMat`, this.scene);
+    gardenWallMat.diffuseColor = new Color3(0.6, 0.5, 0.3);
+
+    const gardenWall = MeshBuilder.CreateBox(`ch7_gardenWall`, { width: 12, height: 1.5, depth: 12 }, this.scene);
+    gardenWall.position.set(gardenCenterX, 0.75, gardenCenterZ);
+    gardenWall.material = gardenWallMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gardenWall);
+
+    // Garden floor (green ground disc)
+    const gardenFloorMat = new StandardMaterial(`ch7_gardenFloorMat`, this.scene);
+    gardenFloorMat.diffuseColor = new Color3(0.15, 0.45, 0.12);  // Ashoka garden green
+    gardenFloorMat.emissiveColor = new Color3(0.05, 0.15, 0.03);
+
+    const gardenFloor = MeshBuilder.CreateDisc(`ch7_gardenFloor`, { radius: 5.5, tessellation: 24 }, this.scene);
+    gardenFloor.rotation.x = Math.PI / 2;
+    gardenFloor.position.set(gardenCenterX, 0.02, gardenCenterZ);
+    gardenFloor.material = gardenFloorMat;
+
+    // 6 Ashoka trees
+    const trunkMat = new StandardMaterial(`ch7_trunkMat`, this.scene);
+    trunkMat.diffuseColor = new Color3(0.4, 0.3, 0.15);
+
+    const foliageMat = new StandardMaterial(`ch7_foliageMat`, this.scene);
+    foliageMat.diffuseColor = new Color3(0.15, 0.45, 0.12);
+    foliageMat.emissiveColor = new Color3(0.05, 0.15, 0.03);
+
+    const flowerMat = new StandardMaterial(`ch7_flowerMat`, this.scene);
+    flowerMat.diffuseColor = new Color3(0.85, 0.3, 0.4);  // Ashoka flower pink
+    flowerMat.emissiveColor = new Color3(0.4, 0.1, 0.15);
+
+    for (let t = 0; t < 6; t++) {
+      const treeAngle = (t / 6) * Math.PI * 2;
+      const tx = gardenCenterX + Math.cos(treeAngle) * 3.5;
+      const tz = gardenCenterZ + Math.sin(treeAngle) * 3.5;
+
+      // Trunk (cylinder)
+      const trunk = MeshBuilder.CreateCylinder(`ch7_ashokaTree_trunk_${t}`, { height: 4, diameter: 0.6, tessellation: 8 }, this.scene);
+      trunk.position.set(tx, 2, tz);
+      trunk.material = trunkMat;
+
+      // Foliage canopy (sphere)
+      const foliage = MeshBuilder.CreateSphere(`ch7_ashokaTree_foliage_${t}`, { diameter: 3.5, segments: 12 }, this.scene);
+      foliage.position.set(tx, 4, tz);
+      foliage.material = foliageMat;
+
+      // Flower clusters (small pink spheres)
+      for (let f = 0; f < 3; f++) {
+        const fAngle = (f / 3) * Math.PI * 2;
+        const fx = tx + Math.cos(fAngle) * 1.2;
+        const fz = tz + Math.sin(fAngle) * 1.2;
+        const flower = MeshBuilder.CreateSphere(`ch7_ashokaTree_flower_${t}_${f}`, { diameter: 0.5, segments: 6 }, this.scene);
+        flower.position.set(fx, 4.5, fz);
+        flower.material = flowerMat;
+      }
+    }
+
+    // Central stone bench (where Sita waited)
+    const benchMat = new StandardMaterial(`ch7_benchMat`, this.scene);
+    benchMat.diffuseColor = new Color3(0.5, 0.45, 0.4);
+    benchMat.emissiveColor = new Color3(0.1, 0.08, 0.05);
+
+    const bench = MeshBuilder.CreateBox(`ch7_ashokaBench`, { width: 3, height: 1.2, depth: 1.2 }, this.scene);
+    bench.position.set(gardenCenterX, 0.6, gardenCenterZ);
+    bench.material = benchMat;
+
+    // ─────────────────────────────────────────────────────────────────
+    // GOLDEN LION GUARDIAN SCULPTURES - Replace demon head totems
+    // ─────────────────────────────────────────────────────────────────
+
+    const lionMat = new StandardMaterial(`ch7_lionMat`, this.scene);
+    lionMat.diffuseColor = new Color3(0.9, 0.75, 0.2);  // Golden
+    lionMat.emissiveColor = new Color3(0.3, 0.22, 0.05);
+
+    const lionPositions = [
+      { x: centerX - 20, z: centerZ },
+      { x: centerX + 20, z: centerZ },
+      { x: centerX, z: centerZ - 20 },
+      { x: centerX, z: centerZ + 20 },
+    ];
+
+    for (let i = 0; i < lionPositions.length; i++) {
+      const pos = lionPositions[i];
+
+      // Lion base/body (cylinder)
+      const body = MeshBuilder.CreateCylinder(`ch7_lionBody_${i}`, { height: 2.5, diameter: 1.5, tessellation: 12 }, this.scene);
+      body.position.set(pos.x, 1.25, pos.z);
+      body.material = lionMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(body);
+
+      // Lion head (sphere)
+      const head = MeshBuilder.CreateSphere(`ch7_lionHead_${i}`, { diameter: 1.2, segments: 16 }, this.scene);
+      head.position.set(pos.x, 2.8, pos.z);
+      head.material = lionMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(head);
+
+      // Mane crown (small tapered cylinder on top)
+      const mane = MeshBuilder.CreateCylinder(`ch7_lionMane_${i}`, { height: 0.8, diameterBottom: 1.5, diameterTop: 0.3, tessellation: 12 }, this.scene);
+      mane.position.set(pos.x, 3.5, pos.z);
+      mane.material = lionMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(mane);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // SAFFRON BANNERS - Representing Hindu sacred colors
+    // ─────────────────────────────────────────────────────────────────
+
+    const bannerPoleMat = new StandardMaterial(`ch7_bannerPoleMat`, this.scene);
+    bannerPoleMat.diffuseColor = new Color3(0.5, 0.35, 0.15);
+
+    const saffronMat = new StandardMaterial(`ch7_saffronMat`, this.scene);
+    saffronMat.diffuseColor = new Color3(0.95, 0.55, 0.1);  // Saffron flag
+    saffronMat.emissiveColor = new Color3(0.3, 0.15, 0.02);
+
+    const bannerPositions = [
+      { x: centerX - 35, z: centerZ },
+      { x: centerX + 35, z: centerZ },
+    ];
+
+    for (let i = 0; i < bannerPositions.length; i++) {
+      const pos = bannerPositions[i];
+
+      // Pole (cylinder)
+      const pole = MeshBuilder.CreateCylinder(`ch7_bannerPole_${i}`, { height: 10, diameter: 0.4, tessellation: 8 }, this.scene);
+      pole.position.set(pos.x, 5, pos.z);
+      pole.material = bannerPoleMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pole);
+
+      // Saffron flag (box)
+      const flag = MeshBuilder.CreateBox(`ch7_saffronFlag_${i}`, { width: 4, height: 3, depth: 0.3 }, this.scene);
+      flag.position.set(pos.x + 2, 8, pos.z);
+      flag.material = saffronMat;
+      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(flag);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // WARM GOLDEN TORCH BRAZIERS - Approach lighting
+    // ─────────────────────────────────────────────────────────────────
+
+    const torchBrazierMat = new StandardMaterial(`ch7_torchBrazierMat`, this.scene);
+    torchBrazierMat.diffuseColor = new Color3(0.6, 0.4, 0.15);
+    torchBrazierMat.emissiveColor = new Color3(0.8, 0.6, 0.2);
 
     const torchPositions = [
       { x: centerX - 25, z: centerZ - 20, py: 10 },
@@ -3414,131 +3775,50 @@ export class World {
 
     for (let i = 0; i < torchPositions.length; i++) {
       const pos = torchPositions[i];
-      const torch = MeshBuilder.CreateBox(`ch7_torchBrazier_${i}`, { width: 0.6, height: 0.6, depth: 0.6 }, this.scene);
+      const torch = MeshBuilder.CreateBox(`ch7_torchBrazier_${i}`, { width: 0.8, height: 0.8, depth: 0.8 }, this.scene);
       torch.position.set(pos.x, pos.py, pos.z);
-      torch.material = torchMat;
+      torch.material = torchBrazierMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(torch);
 
+      // Warm golden point light (not orange/red)
       const torchLight = new PointLight(`ch7_torchLight_${i}`, new Vector3(pos.x, pos.py + 0.5, pos.z), this.scene);
-      torchLight.diffuse = new Color3(1.0, 0.6, 0.2);
+      torchLight.diffuse = new Color3(1.0, 0.8, 0.4);  // Warm golden
       torchLight.intensity = 2;
-      torchLight.range = 10;
-    }
-
-    // Grand Lanka palace facade behind the boss arena: 3 tiered platforms (stepped pyramid)
-    const palaceMat = new StandardMaterial(`ch7_palaceMat`, this.scene);
-    palaceMat.diffuseColor = new Color3(0.7, 0.5, 0.15);
-    palaceMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
-
-    const palaceBaseZ = centerZ + 20;
-
-    // Base tier
-    const palaceBase = MeshBuilder.CreateBox(`ch7_palaceBase`, { width: 30, height: 3, depth: 15 }, this.scene);
-    palaceBase.position.set(centerX, 1.5, palaceBaseZ);
-    palaceBase.material = palaceMat;
-    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceBase);
-
-    // Middle tier
-    const palaceMiddle = MeshBuilder.CreateBox(`ch7_palaceMiddle`, { width: 20, height: 3, depth: 10 }, this.scene);
-    palaceMiddle.position.set(centerX, 4.5, palaceBaseZ);
-    palaceMiddle.material = palaceMat;
-    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceMiddle);
-
-    // Top tier
-    const palaceTop = MeshBuilder.CreateBox(`ch7_palaceTop`, { width: 12, height: 3, depth: 8 }, this.scene);
-    palaceTop.position.set(centerX, 7.5, palaceBaseZ);
-    palaceTop.material = palaceMat;
-    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(palaceTop);
-
-    // 4 golden demon head totems flanking the arena
-    const demonHeadMat = new StandardMaterial(`ch7_demonHeadMat`, this.scene);
-    demonHeadMat.diffuseColor = new Color3(0.7, 0.5, 0.15);
-    demonHeadMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
-
-    const demonPositions = [
-      { x: centerX - 20, z: centerZ },
-      { x: centerX + 20, z: centerZ },
-      { x: centerX, z: centerZ - 20 },
-      { x: centerX, z: centerZ + 20 },
-    ];
-
-    for (let i = 0; i < demonPositions.length; i++) {
-      const pos = demonPositions[i];
-
-      // Pole (cylinder)
-      const pole = MeshBuilder.CreateCylinder(`ch7_demonPole_${i}`, { height: 8, diameter: 0.8, tessellation: 12 }, this.scene);
-      pole.position.set(pos.x, 4, pos.z);
-      pole.material = demonHeadMat;
-      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pole);
-
-      // Head (sphere)
-      const head = MeshBuilder.CreateSphere(`ch7_demonHead_${i}`, { diameter: 1.5, segments: 16 }, this.scene);
-      head.position.set(pos.x, 8.5, pos.z);
-      head.material = demonHeadMat;
-      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(head);
-    }
-
-    // 2 Lanka war banners: tall poles with red flag boxes
-    const bannerPoleMatRed = new StandardMaterial(`ch7_bannerMat`, this.scene);
-    bannerPoleMatRed.diffuseColor = new Color3(0.3, 0.1, 0.05);
-
-    const bannerFlagMat = new StandardMaterial(`ch7_flagMat`, this.scene);
-    bannerFlagMat.diffuseColor = new Color3(0.9, 0.1, 0.05);
-    bannerFlagMat.emissiveColor = new Color3(0.4, 0.05, 0.02);
-
-    const bannerPositions = [
-      { x: centerX - 35, z: centerZ },
-      { x: centerX + 35, z: centerZ },
-    ];
-
-    for (let i = 0; i < bannerPositions.length; i++) {
-      const pos = bannerPositions[i];
-
-      // Pole
-      const pole = MeshBuilder.CreateCylinder(`ch7_bannerPole_${i}`, { height: 10, diameter: 0.4, tessellation: 8 }, this.scene);
-      pole.position.set(pos.x, 5, pos.z);
-      pole.material = bannerPoleMatRed;
-      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(pole);
-
-      // Flag
-      const flag = MeshBuilder.CreateBox(`ch7_bannerFlag_${i}`, { width: 4, height: 3, depth: 0.3 }, this.scene);
-      flag.position.set(pos.x + 2, 8, pos.z);
-      flag.material = bannerFlagMat;
-      if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(flag);
+      torchLight.range = 12;
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // T3-3: Lava Geyser Vents (Boss Arena)
+    // MAYA TRAP CIRCLES - Indrajit's Nagapasha binding circles
     // ─────────────────────────────────────────────────────────────────
 
-    const lavaVentMat = new StandardMaterial(`ch7_lavaVentMat`, this.scene);
-    lavaVentMat.diffuseColor = new Color3(0.3, 0.1, 0.05);
-    lavaVentMat.emissiveColor = new Color3(0.5, 0.15, 0.05);
+    const mayaTrapMat = new StandardMaterial(`ch7_mayaTrapMat`, this.scene);
+    mayaTrapMat.diffuseColor = new Color3(0.2, 0.1, 0.4);     // Maya purple
+    mayaTrapMat.emissiveColor = new Color3(0.4, 0.15, 0.6);   // Purple glow
 
-    const ventDistance = 12;
-    const ventPositions: Vec3[] = [
-      { x: C.BOSS_ARENA_CENTER.x + ventDistance, y: 0, z: C.BOSS_ARENA_CENTER.z },
-      { x: C.BOSS_ARENA_CENTER.x - ventDistance, y: 0, z: C.BOSS_ARENA_CENTER.z },
-      { x: C.BOSS_ARENA_CENTER.x, y: 0, z: C.BOSS_ARENA_CENTER.z + ventDistance },
-      { x: C.BOSS_ARENA_CENTER.x, y: 0, z: C.BOSS_ARENA_CENTER.z - ventDistance },
+    const trapDistance = 12;
+    const trapPositions: Vec3[] = [
+      { x: C.BOSS_ARENA_CENTER.x + trapDistance, y: 0, z: C.BOSS_ARENA_CENTER.z },
+      { x: C.BOSS_ARENA_CENTER.x - trapDistance, y: 0, z: C.BOSS_ARENA_CENTER.z },
+      { x: C.BOSS_ARENA_CENTER.x, y: 0, z: C.BOSS_ARENA_CENTER.z + trapDistance },
+      { x: C.BOSS_ARENA_CENTER.x, y: 0, z: C.BOSS_ARENA_CENTER.z - trapDistance },
     ];
 
-    for (let i = 0; i < ventPositions.length; i++) {
-      const vPos = ventPositions[i];
+    for (let i = 0; i < trapPositions.length; i++) {
+      const tPos = trapPositions[i];
 
-      // Ground-level circular vent disc
-      const vent = MeshBuilder.CreateCylinder(`ch7_lavaVent_${i}`, { height: 0.2, diameter: 3, tessellation: 16 }, this.scene);
-      vent.position.set(vPos.x, 0.1, vPos.z);
-      vent.material = lavaVentMat;
+      // Ground-level circular maya trap disc
+      const trap = MeshBuilder.CreateCylinder(`ch7_mayaTrap_${i}`, { height: 0.2, diameter: 3, tessellation: 16 }, this.scene);
+      trap.position.set(tPos.x, 0.1, tPos.z);
+      trap.material = mayaTrapMat;
 
-      // Point light for geyser eruption animation
-      const ventLight = new PointLight(`ch7_lavaVentLight_${i}`, new Vector3(vPos.x, 2, vPos.z), this.scene);
-      ventLight.diffuse = new Color3(1.0, 0.6, 0.2);
-      ventLight.intensity = 0;
-      ventLight.range = 6;
+      // Point light for maya illusion energy (purple)
+      const trapLight = new PointLight(`ch7_mayaTrapLight_${i}`, new Vector3(tPos.x, 2, tPos.z), this.scene);
+      trapLight.diffuse = new Color3(0.6, 0.2, 0.8);  // Purple
+      trapLight.intensity = 0;
+      trapLight.range = 6;
 
-      this.lavaVentLights.push(ventLight);
-      this.lavaVentPositions.push({ x: vPos.x, y: vPos.y, z: vPos.z });
+      this.mayaTrapLights.push(trapLight);
+      this.mayaTrapPositions.push({ x: tPos.x, y: tPos.y, z: tPos.z });
     }
   }
 
@@ -3925,23 +4205,24 @@ export class World {
   }
 
   /**
-   * T3-3: Update lava vent lights with pulsing animation
-   * Each vent cycles through bright (erupting) and dim (dormant) states
+   * T3-3: Update Rākshasa maya trap lights with pulsing animation
+   * Each Nagapasha circle cycles through bright (active) and dim (dormant) states
    */
-  public updateLavaVents(time: number): void {
-    for (let i = 0; i < this.lavaVentLights.length; i++) {
-      // Stagger each vent by π/2 offset so they don't all erupt at once
+  public updateMayaTraps(time: number): void {
+    for (let i = 0; i < this.mayaTrapLights.length; i++) {
+      // Stagger each maya trap by π/2 offset so they don't all pulse at once
       const phase = (time * 0.001 + i * Math.PI / 2) % (Math.PI * 2);
       const active = Math.sin(phase) > 0.7; // Active ~30% of the time
-      this.lavaVentLights[i].intensity = active ? 4 : 0.3;
+      // Purple/indigo pulsing for Indrajit's Nagapasha binding circles
+      this.mayaTrapLights[i].intensity = active ? 4 : 0.3;
     }
   }
 
   /**
-   * T3-3: Get lava vent positions for damage checking in LocalSim
+   * T3-3: Get maya trap positions for damage checking in LocalSim
    */
-  public getLavaVentPositions(): Vec3[] {
-    return this.lavaVentPositions;
+  public getMayaTrapPositions(): Vec3[] {
+    return this.mayaTrapPositions;
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -4119,9 +4400,9 @@ export class World {
       2: { groundColor: [0.2, 0.1, 0.06], fogColor: [0.25, 0.1, 0.05], fogDensity: 0.012, sunColor: [1.0, 0.4, 0.2], sunIntensity: 1.0 }, // Scorched
       3: { groundColor: [0.18, 0.15, 0.1], fogColor: [0.2, 0.15, 0.08], fogDensity: 0.006, sunColor: [0.9, 0.7, 0.4], sunIntensity: 1.5 }, // Kishkindha rocky
       4: { groundColor: [0.22, 0.2, 0.14], fogColor: [0.15, 0.18, 0.22], fogDensity: 0.005, sunColor: [0.8, 0.85, 1.0], sunIntensity: 1.3 }, // Shore
-      5: { groundColor: [0.12, 0.08, 0.06], fogColor: [0.2, 0.08, 0.04], fogDensity: 0.015, sunColor: [0.9, 0.3, 0.15], sunIntensity: 0.8 }, // Volcanic
-      6: { groundColor: [0.12, 0.08, 0.06], fogColor: [0.2, 0.08, 0.04], fogDensity: 0.015, sunColor: [0.9, 0.3, 0.15], sunIntensity: 0.8 },
-      7: { groundColor: [0.06, 0.02, 0.08], fogColor: [0.12, 0.04, 0.1], fogDensity: 0.018, sunColor: [0.6, 0.15, 0.4], sunIntensity: 0.6 }, // Lanka dark
+      5: { groundColor: [0.2, 0.18, 0.12], fogColor: [0.25, 0.2, 0.12], fogDensity: 0.008, sunColor: [1.0, 0.85, 0.5], sunIntensity: 1.2 }, // Ocean approach — warm haze
+      6: { groundColor: [0.3, 0.22, 0.1], fogColor: [0.35, 0.28, 0.12], fogDensity: 0.008, sunColor: [1.0, 0.82, 0.4], sunIntensity: 1.6 }, // Lanka Outskirts — golden glow
+      7: { groundColor: [0.35, 0.28, 0.12], fogColor: [0.4, 0.3, 0.12], fogDensity: 0.006, sunColor: [1.0, 0.88, 0.45], sunIntensity: 1.8 }, // Sone ki Lanka — radiant gold
     };
 
     const b = biomes[chapter] ?? biomes[0];
@@ -4219,7 +4500,7 @@ function biomeAmplitude(z: number): number {
   if (z > -380) return 4.5;       // Ch3: highland rocky
   if (z > -490) return 0.8;       // Ch4: flat sandy shore
   if (z > -580) return 0.2;       // Ch5: bridge zone flat
-  return 3.5;                      // Ch6-7: volcanic ridges
+  return 3.5;                      // Ch6-7: Lanka island terrain
 }
 
 function mulberry32(a: number): () => number {

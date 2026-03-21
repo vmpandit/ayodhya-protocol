@@ -469,11 +469,8 @@ export class World {
       }
     }
 
-    // Rocks scattered around (small boulders) — PBR with brighter color
-    const rockMat = new PBRMaterial('rockMat', this.scene);
-    rockMat.albedoColor = new Color3(0.5, 0.48, 0.42);
-    rockMat.metallic = 0.05;
-    rockMat.roughness = 0.9;
+    // Rocks scattered around (small boulders) — PBR with stone texture
+    const rockMat = this.getMat('pillar_stone', 'rockMat', 0.5, 0.48, 0.42, 0.05, 0.9);
 
     for (let i = 0; i < 180; i++) {
       const x = (rng() - 0.5) * C.WORLD_SIZE;
@@ -580,39 +577,30 @@ export class World {
     const c = C.BOSS_ARENA_CENTER;
     const r = C.BOSS_ARENA_RADIUS;
 
-    // A-08: Arena floor — golden Lanka disc
+    // A-08: Arena floor — golden Lanka disc with textured PBR
     const floor = MeshBuilder.CreateDisc('bossArenaFloor', { radius: r, tessellation: 32 }, this.scene);
     floor.rotation.x = Math.PI / 2;
     floor.position.set(c.x, 0.05, c.z);
-    const floorMat = new StandardMaterial('arenaFloorMat', this.scene);
-    floorMat.diffuseColor = new Color3(0.8, 0.65, 0.2);  // golden
-    floorMat.emissiveColor = new Color3(0.15, 0.1, 0.02);  // warm amber glow
-    floorMat.specularColor = new Color3(0.1, 0.05, 0.05);
+    const floorMat = this.getMat('ground_arena', 'arenaFloorMat', 0.8, 0.65, 0.2, 0.0, 0.75);
     floor.material = floorMat;
     this.bossArenaMeshes.push(floor);
 
     // A-08: Raised edge ring (torus) — golden
     const ring = MeshBuilder.CreateTorus('bossArenaRing', { diameter: r * 2, thickness: 0.8, tessellation: 32 }, this.scene);
     ring.position.set(c.x, 0.3, c.z);
-    const ringMat = new StandardMaterial('arenaRingMat', this.scene);
-    ringMat.diffuseColor = new Color3(0.75, 0.6, 0.15);  // golden
-    ringMat.emissiveColor = new Color3(0.2, 0.15, 0.03);  // amber glow
+    const ringMat = this.getMat('ground_arena', 'arenaRingMat', 0.75, 0.6, 0.15, 0.0, 0.75);
     ring.material = ringMat;
     this.bossArenaMeshes.push(ring);
 
     // A-08: Center platform (raised disc) — golden
     const centerPlat = MeshBuilder.CreateCylinder('bossCenterPlat', { height: 0.4, diameter: 5, tessellation: 16 }, this.scene);
     centerPlat.position.set(c.x, 0.2, c.z);
-    const centerMat = new StandardMaterial('centerPlatMat', this.scene);
-    centerMat.diffuseColor = new Color3(0.8, 0.65, 0.2);
-    centerMat.emissiveColor = new Color3(0.1, 0.03, 0.02);
+    const centerMat = this.getMat('ground_arena', 'centerPlatMat', 0.8, 0.65, 0.2, 0.0, 0.75);
     centerPlat.material = centerMat;
     this.bossArenaMeshes.push(centerPlat);
 
-    // A-08: Arena pillars around the edge (8 pillars) — golden/amber
-    const pillarMat = new StandardMaterial('arenaPillarMat', this.scene);
-    pillarMat.diffuseColor = new Color3(0.85, 0.7, 0.15);  // gold
-    pillarMat.emissiveColor = new Color3(0.2, 0.15, 0.02);  // amber glow
+    // A-08: Arena pillars around the edge (8 pillars) — stone with PBR texture
+    const pillarMat = this.getMat('pillar_stone', 'arenaPillarMat', 0.5, 0.45, 0.4, 0.05, 0.88);
 
     for (let i = 0; i < 8; i++) {
       const angle = (i / 8) * Math.PI * 2;
@@ -653,6 +641,7 @@ export class World {
 
     // A-08: Four golden shikhara towers (temple-like pointed spires) around the arena
     const spireRadius = r + 5;
+    const spireMat = this.getMat('pillar_stone', 'arenaShikaraMat', 0.5, 0.45, 0.4, 0.05, 0.88);
     for (let i = 0; i < 4; i++) {
       const angle = (i / 4) * Math.PI * 2;
       const px = c.x + Math.cos(angle) * spireRadius;
@@ -666,10 +655,6 @@ export class World {
         tessellation: 10
       }, this.scene);
       spire.position.set(px, 7, pz);
-      const spireMat = new StandardMaterial(`arenaShikaraSpireMat_${i}`, this.scene);
-      spireMat.diffuseColor = new Color3(0.95, 0.85, 0.3);  // golden
-      spireMat.emissiveColor = new Color3(0.9, 0.75, 0.3);  // golden glow
-      spireMat.specularColor = new Color3(0.6, 0.5, 0.15);
       spire.material = spireMat;
       if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(spire);
       this.bossArenaMeshes.push(spire);
@@ -677,18 +662,16 @@ export class World {
 
     // A-08: Gate archway at the south side (approach from Ch6)
     // Two tall pillars with a connecting beam on top
-    const gateLeft = MeshBuilder.CreateCylinder('gateLeftPillar', {
+    const gateLeftPillar = MeshBuilder.CreateCylinder('gateLeftPillar', {
       height: 8,
       diameter: 0.6,
       tessellation: 8
     }, this.scene);
-    gateLeft.position.set(c.x - 4, 4, c.z - (r + 3));
-    const gateMat = new StandardMaterial('gateMat', this.scene);
-    gateMat.diffuseColor = new Color3(0.8, 0.65, 0.2);
-    gateMat.emissiveColor = new Color3(0.15, 0.1, 0.02);
-    gateLeft.material = gateMat;
-    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gateLeft);
-    this.bossArenaMeshes.push(gateLeft);
+    gateLeftPillar.position.set(c.x - 4, 4, c.z - (r + 3));
+    const gateMat = this.getMat('pillar_stone', 'gateMat', 0.5, 0.45, 0.4, 0.05, 0.88);
+    gateLeftPillar.material = gateMat;
+    if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gateLeftPillar);
+    this.bossArenaMeshes.push(gateLeftPillar);
 
     const gateRight = MeshBuilder.CreateCylinder('gateRightPillar', {
       height: 8,
@@ -710,11 +693,8 @@ export class World {
     if (this.renderer.shadowGenerator) this.renderer.shadowGenerator.addShadowCaster(gateBeam);
     this.bossArenaMeshes.push(gateBeam);
 
-    // A-08: Ravana's golden throne platform (behind arena center)
-    const throneMat = new StandardMaterial('throneMat', this.scene);
-    throneMat.diffuseColor = new Color3(0.95, 0.85, 0.3);  // Golden bright
-    throneMat.emissiveColor = new Color3(0.5, 0.4, 0.1);   // Golden glow
-    throneMat.specularColor = new Color3(0.7, 0.6, 0.2);
+    // A-08: Ravana's golden throne platform (behind arena center) — metallic gold PBR
+    const throneMat = this.mkMat('throneMat', 0.95, 0.85, 0.3, 0.75, 0.25, 0.5, 0.4, 0.1);
 
     // Throne dais (raised golden platform with steps)
     const daisBase = MeshBuilder.CreateBox('throneDaisBase', {
@@ -790,12 +770,10 @@ export class World {
     const bridgeLength = Math.sqrt(dx * dx + dz * dz);
     const angle = Math.atan2(dx, dz);
 
-    // Build bridge from 20-30 stone segments
+    // Build bridge from 20-30 stone segments with PBR texture
     const segmentCount = 25;
     const segmentLength = bridgeLength / segmentCount;
-    const stoneMat = new StandardMaterial('stoneMat', this.scene);
-    stoneMat.diffuseColor = new Color3(0.5, 0.45, 0.4);
-    stoneMat.specularColor = new Color3(0.15, 0.15, 0.15);
+    const stoneMat = this.getMat('pillar_stone', 'stoneMat', 0.5, 0.45, 0.4, 0.05, 0.88);
 
     const rng = mulberry32(555);
 
@@ -825,9 +803,7 @@ export class World {
 
     // Low wall edges on both sides (0.5m high boxes)
     const wallHeight = 0.5;
-    const wallMat = new StandardMaterial('wallMat', this.scene);
-    wallMat.diffuseColor = new Color3(0.45, 0.4, 0.35);
-    wallMat.specularColor = new Color3(0.1, 0.1, 0.1);
+    const wallMat = this.getMat('pillar_stone', 'wallMat', 0.45, 0.4, 0.35, 0.05, 0.88);
 
     for (let i = 0; i < segmentCount; i++) {
       const t = i / (segmentCount - 1);
@@ -2511,9 +2487,7 @@ export class World {
     // Inner fire glow
     const fireCore = MeshBuilder.CreateBox('ch0_fireCore', { width: 0.8, height: 0.3, depth: 0.8 }, this.scene);
     fireCore.position.set(fireX, 0.5, fireZ);
-    const fireMat = new StandardMaterial('ch0_fireMat', this.scene);
-    fireMat.diffuseColor = warmOrange;
-    fireMat.emissiveColor = warmOrange;
+    const fireMat = this.mkMat('ch0_fireMat', warmOrange.r, warmOrange.g, warmOrange.b, 0.0, 0.3, warmOrange.r, warmOrange.g, warmOrange.b);
     fireCore.material = fireMat;
 
     const fireLight = new PointLight('ch0_fireLight', new Vector3(fireX, 1.5, fireZ), this.scene);
@@ -2529,11 +2503,11 @@ export class World {
     const disc = MeshBuilder.CreateDisc('ch0_meditationDisc', { radius: discRadius, tessellation: 32 }, this.scene);
     disc.rotation.x = Math.PI / 2;
     disc.position.set(centerX, 0.05, centerZ + 6);
-    const discMat = new StandardMaterial('ch0_discMat', this.scene);
-    discMat.diffuseColor = new Color3(0.4, 0.35, 0.28);
+    const discMat = this.getMat('ground_transition', 'ch0_discMat', 0.4, 0.35, 0.28, 0.0, 0.75);
     disc.material = discMat;
 
-    // 8 stone boundary markers around meditation circle
+    // 8 stone boundary markers around meditation circle (stone PBR)
+    const ch0StoneMat = this.getMat('pillar_stone', 'ch0_stoneMat', 0.6, 0.55, 0.48, 0.05, 0.88);
     for (let i = 0; i < 8; i++) {
       const angle = (Math.PI * 2 / 8) * i;
       const stoneX = centerX + Math.cos(angle) * (discRadius + 0.5);
@@ -2541,9 +2515,7 @@ export class World {
 
       const stone = MeshBuilder.CreateCylinder(`ch0_stone_${i}`, { height: 0.6 + rng() * 0.4, diameter: 0.35, tessellation: 6 }, this.scene);
       stone.position.set(stoneX, 0.35, stoneZ);
-      const sMat = new StandardMaterial(`ch0_sMat_${i}`, this.scene);
-      sMat.diffuseColor = new Color3(0.6, 0.55, 0.48); // warm stone
-      stone.material = sMat;
+      stone.material = ch0StoneMat;
       this.renderer.shadowGenerator.addShadowCaster(stone);
     }
 
@@ -2566,16 +2538,13 @@ export class World {
       // Target disc on post
       const target = MeshBuilder.CreateDisc(`ch0_target_${i}`, { radius: 0.4, tessellation: 16 }, this.scene);
       target.position.set(postX, 1.8, postZ - 0.16);
-      const tMat = new StandardMaterial(`ch0_tMat_${i}`, this.scene);
-      tMat.diffuseColor = new Color3(0.7, 0.15, 0.1);
-      tMat.emissiveColor = new Color3(0.3, 0.05, 0.0);
+      const tMat = this.mkMat(`ch0_tMat_${i}`, 0.7, 0.15, 0.1, 0.0, 0.3, 0.3, 0.05, 0.0);
       target.material = tMat;
     }
 
     // ─── ASHRAM ENTRANCE GATE (Torana) ───
     const gateX = centerX, gateZ = centerZ - 12;
-    const gateMat = new StandardMaterial('ch0_gateMat', this.scene);
-    gateMat.diffuseColor = new Color3(0.5, 0.38, 0.22);
+    const gateMat = this.getMat('tree_bark', 'ch0_gateMat', 0.5, 0.38, 0.22, 0.0, 0.85);
 
     // Two gate pillars
     for (const side of [-1, 1]) {
@@ -2597,16 +2566,15 @@ export class World {
     }, this.scene);
     gateTop.position.set(gateX, 4.7, gateZ);
     gateTop.rotation.y = Math.PI / 4;
-    const gateTopMat = new StandardMaterial('ch0_gateTopMat', this.scene);
-    gateTopMat.diffuseColor = warmOrange;
-    gateTopMat.emissiveColor = new Color3(0.3, 0.15, 0.05);
+    const gateTopMat = this.mkMat('ch0_gateTopMat', warmOrange.r, warmOrange.g, warmOrange.b, 0.0, 0.3, 0.3, 0.15, 0.05);
     gateTop.material = gateTopMat;
   }
 
   private buildChapter1Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
     const centerX = zone.x, centerZ = zone.z;
 
-    // 4 ruin pillars: cylinders with moss-green tint
+    // 4 ruin pillars: cylinders with moss-green tint (stone PBR)
+    const ch1PillarMat = this.getMat('pillar_stone', 'ch1_pillarMat', 0.25, 0.4, 0.18, 0.05, 0.88);
     for (let i = 0; i < 4; i++) {
       const offsetX = (i % 2 === 0 ? -1 : 1) * 6 + (rng() - 0.5) * 2;
       const offsetZ = (Math.floor(i / 2) - 0.5) * 8 + (rng() - 0.5) * 2;
@@ -2618,13 +2586,12 @@ export class World {
       const pillar = MeshBuilder.CreateCylinder(`ch1_pillar_${i}`, { height, diameter, tessellation: 8 }, this.scene);
       pillar.position.set(pillarX, height / 2, pillarZ);
 
-      const pillarMat = new StandardMaterial(`ch1_pillarMat_${i}`, this.scene);
-      pillarMat.diffuseColor = new Color3(0.25, 0.4, 0.18);
-      pillar.material = pillarMat;
+      pillar.material = ch1PillarMat;
       this.renderer.shadowGenerator.addShadowCaster(pillar);
     }
 
-    // 2 fallen logs: boxes, dark brown
+    // 2 fallen logs: boxes, dark brown (wood bark PBR)
+    const ch1LogMat = this.getMat('tree_bark', 'ch1_logMat', 0.4, 0.25, 0.15, 0.0, 0.85);
     for (let i = 0; i < 2; i++) {
       const offsetX = (i === 0 ? -8 : 8) + (rng() - 0.5) * 2;
       const offsetZ = (rng() - 0.5) * 4;
@@ -2636,9 +2603,7 @@ export class World {
       log.position.set(logX, 0.4, logZ);
       log.rotation.z = (rng() - 0.5) * 0.3;
 
-      const logMat = new StandardMaterial(`ch1_logMat_${i}`, this.scene);
-      logMat.diffuseColor = new Color3(0.4, 0.25, 0.15);
-      log.material = logMat;
+      log.material = ch1LogMat;
       this.renderer.shadowGenerator.addShadowCaster(log);
     }
 
@@ -2650,10 +2615,9 @@ export class World {
     const ch1Stone = new Color3(0.55, 0.5, 0.44);
     const ch1Warm = new Color3(0.9, 0.55, 0.25);
 
-    // Thatched-roof forest hut with 4 pillars
+    // Thatched-roof forest hut with 4 pillars (wood PBR)
     const ch1HutX = ashX + 7, ch1HutZ = ashZ - 4;
-    const ch1HutMat = new StandardMaterial('ch1_hutMat', this.scene);
-    ch1HutMat.diffuseColor = ch1Wood;
+    const ch1HutMat = this.getMat('tree_bark', 'ch1_hutMat', 0.48, 0.35, 0.18, 0.0, 0.85);
 
     for (let i = 0; i < 4; i++) {
       const [px, pz] = [[-2, -2], [2, -2], [-2, 2], [2, 2]][i];
@@ -2673,8 +2637,7 @@ export class World {
     }, this.scene);
     ch1Roof.position.set(ch1HutX, 4.5, ch1HutZ);
     ch1Roof.rotation.y = Math.PI / 4;
-    const ch1RoofMat = new StandardMaterial('ch1_roofMat', this.scene);
-    ch1RoofMat.diffuseColor = ch1Thatch;
+    const ch1RoofMat = this.getMat('tree_bark', 'ch1_roofMat', 0.55, 0.56, 0.28, 0.0, 0.85);
     ch1Roof.material = ch1RoofMat;
     this.renderer.shadowGenerator.addShadowCaster(ch1Roof);
 
@@ -2689,18 +2652,15 @@ export class World {
     ch1HutLight.intensity = 2.5;
     ch1HutLight.range = 12;
 
-    // Sacred fire pit (Havan Kund)
+    // Sacred fire pit (Havan Kund) — stone PBR
     const ch1PitBase = MeshBuilder.CreateBox('ch1_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
     ch1PitBase.position.set(ashX, 0.2, ashZ);
-    const ch1PitMat = new StandardMaterial('ch1_pitMat', this.scene);
-    ch1PitMat.diffuseColor = new Color3(0.6, 0.35, 0.2);
+    const ch1PitMat = this.getMat('pillar_stone', 'ch1_pitMat', 0.6, 0.35, 0.2, 0.05, 0.88);
     ch1PitBase.material = ch1PitMat;
 
     const ch1FireCore = MeshBuilder.CreateBox('ch1_fireCore', { width: 0.8, height: 0.3, depth: 0.8 }, this.scene);
     ch1FireCore.position.set(ashX, 0.5, ashZ);
-    const ch1FireMat = new StandardMaterial('ch1_fireMat', this.scene);
-    ch1FireMat.diffuseColor = ch1Warm;
-    ch1FireMat.emissiveColor = ch1Warm;
+    const ch1FireMat = this.mkMat('ch1_fireMat', ch1Warm.r, ch1Warm.g, ch1Warm.b, 0.0, 0.3, ch1Warm.r, ch1Warm.g, ch1Warm.b);
     ch1FireCore.material = ch1FireMat;
 
     const ch1FireLight = new PointLight('ch1_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
@@ -2711,31 +2671,28 @@ export class World {
     // Authentic geometric rangoli around fire pit
     this.buildRangoli('ch1_rangoli', ashX, ashZ);
 
-    // Meditation circle with stone boundary markers
+    // Meditation circle with stone boundary markers (ground PBR)
     const ch1DiscR = 3;
     const ch1Disc = MeshBuilder.CreateDisc('ch1_meditationDisc', { radius: ch1DiscR, tessellation: 32 }, this.scene);
     ch1Disc.rotation.x = Math.PI / 2;
     ch1Disc.position.set(ashX, 0.05, ashZ + 6);
-    const ch1DiscMat = new StandardMaterial('ch1_discMat', this.scene);
-    ch1DiscMat.diffuseColor = new Color3(0.4, 0.48, 0.3);
+    const ch1DiscMat = this.getMat('ground_transition', 'ch1_discMat', 0.4, 0.48, 0.3, 0.0, 0.75);
     ch1Disc.material = ch1DiscMat;
 
+    const ch1StoneMat = this.getMat('pillar_stone', 'ch1_stoneMat', ch1Stone.r, ch1Stone.g, ch1Stone.b, 0.05, 0.88);
     for (let i = 0; i < 8; i++) {
       const angle = (Math.PI * 2 / 8) * i;
       const sx = ashX + Math.cos(angle) * (ch1DiscR + 0.5);
       const sz = (ashZ + 6) + Math.sin(angle) * (ch1DiscR + 0.5);
       const stone = MeshBuilder.CreateCylinder(`ch1_stone_${i}`, { height: 0.6 + rng() * 0.4, diameter: 0.35, tessellation: 6 }, this.scene);
       stone.position.set(sx, 0.35, sz);
-      const sMat = new StandardMaterial(`ch1_sMat_${i}`, this.scene);
-      sMat.diffuseColor = ch1Stone;
-      stone.material = sMat;
+      stone.material = ch1StoneMat;
       this.renderer.shadowGenerator.addShadowCaster(stone);
     }
 
-    // Entrance torana gate (vine-covered forest gate)
+    // Entrance torana gate (vine-covered forest gate) — wood PBR
     const ch1GateX = ashX, ch1GateZ = ashZ - 12;
-    const ch1GateMat = new StandardMaterial('ch1_gateMat', this.scene);
-    ch1GateMat.diffuseColor = new Color3(0.55, 0.45, 0.28);
+    const ch1GateMat = this.getMat('tree_bark', 'ch1_gateMat', 0.55, 0.45, 0.28, 0.0, 0.85);
 
     for (const side of [-1, 1]) {
       const gP = MeshBuilder.CreateCylinder(`ch1_gate_${side}`, { height: 4, diameter: 0.35, tessellation: 8 }, this.scene);
@@ -2754,16 +2711,15 @@ export class World {
     }, this.scene);
     ch1GateTop.position.set(ch1GateX, 4.7, ch1GateZ);
     ch1GateTop.rotation.y = Math.PI / 4;
-    const ch1GateTopMat = new StandardMaterial('ch1_gateTopMat', this.scene);
-    ch1GateTopMat.diffuseColor = ch1Warm;
-    ch1GateTopMat.emissiveColor = new Color3(0.3, 0.15, 0.05);
+    const ch1GateTopMat = this.mkMat('ch1_gateTopMat', ch1Warm.r, ch1Warm.g, ch1Warm.b, 0.0, 0.3, 0.3, 0.15, 0.05);
     ch1GateTop.material = ch1GateTopMat;
   }
 
   private buildChapter2Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
     const centerX = zone.x, centerZ = zone.z;
 
-    // 4 charred stumps: black cylinders with emissive
+    // 4 charred stumps: black cylinders with PBR (dark wood)
+    const ch2StumpMat = this.getMat('tree_bark', 'ch2_stumpMat', 0.08, 0.06, 0.05, 0.0, 0.85, 0.02, 0.01, 0.0);
     for (let i = 0; i < 4; i++) {
       const offsetX = (i % 2 === 0 ? -1 : 1) * 5 + (rng() - 0.5) * 2;
       const offsetZ = (Math.floor(i / 2) - 0.5) * 6 + (rng() - 0.5) * 2;
@@ -2775,18 +2731,14 @@ export class World {
       const stump = MeshBuilder.CreateCylinder(`ch2_stump_${i}`, { height, diameter, tessellation: 8 }, this.scene);
       stump.position.set(stumpX, height / 2, stumpZ);
 
-      const stumpMat = new StandardMaterial(`ch2_stumpMat_${i}`, this.scene);
-      stumpMat.diffuseColor = new Color3(0.08, 0.06, 0.05);
-      stumpMat.emissiveColor = new Color3(0.02, 0.01, 0.0);
-      stump.material = stumpMat;
+      stump.material = ch2StumpMat;
       this.renderer.shadowGenerator.addShadowCaster(stump);
     }
 
-    // Jatayu's perch: 3 stacked boxes
+    // Jatayu's perch: 3 stacked boxes (stone PBR)
+    const perchMat = this.getMat('pillar_stone', 'ch2_perchMat', 0.5, 0.4, 0.3, 0.05, 0.88);
     const basePerch = MeshBuilder.CreateBox(`ch2_perchBase`, { width: 4, height: 1, depth: 4 }, this.scene);
     basePerch.position.set(centerX, 0.5, centerZ);
-    const perchMat = new StandardMaterial(`ch2_perchMat`, this.scene);
-    perchMat.diffuseColor = new Color3(0.5, 0.4, 0.3);
     basePerch.material = perchMat;
     this.renderer.shadowGenerator.addShadowCaster(basePerch);
 
@@ -2808,13 +2760,13 @@ export class World {
       const marker = MeshBuilder.CreateBox(`ch2_marker_${i}`, { width: 0.25, height: 2, depth: 0.25 }, this.scene);
       marker.position.set(markerX, 1, centerZ + 4);
 
-      const markerMat = new StandardMaterial(`ch2_markerMat_${i}`, this.scene);
-      markerMat.diffuseColor = new Color3(0.5, 0.1, 0.08);
+      const markerMat = this.mkMat(`ch2_markerMat_${i}`, 0.5, 0.1, 0.08, 0.0, 0.3, 0.3, 0.05, 0.0);
       marker.material = markerMat;
       this.renderer.shadowGenerator.addShadowCaster(marker);
     }
 
-    // 5 debris: small boxes scattered
+    // 5 debris: small boxes scattered (stone PBR)
+    const ch2DebrisMat = this.getMat('pillar_stone', 'ch2_debrisMat', 0.3, 0.2, 0.15, 0.05, 0.88);
     for (let i = 0; i < 5; i++) {
       const debrisX = centerX + (rng() - 0.5) * 10;
       const debrisZ = centerZ + (rng() - 0.5) * 10;
@@ -2823,9 +2775,7 @@ export class World {
       const debris = MeshBuilder.CreateBox(`ch2_debris_${i}`, { width: debrisSize, height: debrisSize, depth: debrisSize }, this.scene);
       debris.position.set(debrisX, debrisSize / 2, debrisZ);
 
-      const debrisMat = new StandardMaterial(`ch2_debrisMat_${i}`, this.scene);
-      debrisMat.diffuseColor = new Color3(0.3, 0.2, 0.15);
-      debris.material = debrisMat;
+      debris.material = ch2DebrisMat;
       this.renderer.shadowGenerator.addShadowCaster(debris);
     }
   }
@@ -2833,11 +2783,10 @@ export class World {
   private buildChapter3Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
     const centerX = zone.x, centerZ = zone.z;
 
-    // Cave entrance: 2 tall pillars + horizontal beam
+    // Cave entrance: 2 tall pillars + horizontal beam — stone PBR
     const pillar1 = MeshBuilder.CreateBox(`ch3_pillar1`, { width: 1.5, height: 8, depth: 1.5 }, this.scene);
     pillar1.position.set(centerX - 2.5, 4, centerZ);
-    const pillarMat = new StandardMaterial(`ch3_pillarMat`, this.scene);
-    pillarMat.diffuseColor = new Color3(0.4, 0.35, 0.3);
+    const pillarMat = this.getMat('pillar_stone', 'ch3_pillarMat', 0.4, 0.35, 0.3, 0.05, 0.88);
     pillar1.material = pillarMat;
     this.renderer.shadowGenerator.addShadowCaster(pillar1);
 
@@ -2851,11 +2800,10 @@ export class World {
     lintel.material = pillarMat;
     this.renderer.shadowGenerator.addShadowCaster(lintel);
 
-    // Rock throne: 3 stacked boxes with golden tint
+    // Rock throne: 3 stacked boxes with golden metallic PBR
+    const throneMat = this.mkMat('ch3_throneMat', 0.7, 0.55, 0.2, 0.6, 0.3, 0.3, 0.2, 0.05);
     const throneBase = MeshBuilder.CreateBox(`ch3_throneBase`, { width: 3, height: 1, depth: 3 }, this.scene);
     throneBase.position.set(centerX, 0.5, centerZ + 8);
-    const throneMat = new StandardMaterial(`ch3_throneMat`, this.scene);
-    throneMat.diffuseColor = new Color3(0.7, 0.55, 0.2);
     throneBase.material = throneMat;
     this.renderer.shadowGenerator.addShadowCaster(throneBase);
 
@@ -2869,9 +2817,8 @@ export class World {
     throneTop.material = throneMat;
     this.renderer.shadowGenerator.addShadowCaster(throneTop);
 
-    // 2 mountain walls: large boxes flanking the area
-    const wallMat = new StandardMaterial(`ch3_wallMat`, this.scene);
-    wallMat.diffuseColor = new Color3(0.42, 0.38, 0.32);
+    // 2 mountain walls: large boxes flanking the area — stone PBR
+    const wallMat = this.getMat('pillar_stone', 'ch3_wallMat', 0.42, 0.38, 0.32, 0.05, 0.88);
 
     const wall1 = MeshBuilder.CreateBox(`ch3_wall1`, { width: 8, height: 12, depth: 1.5 }, this.scene);
     wall1.position.set(centerX - 15, 6, centerZ);
@@ -2883,22 +2830,20 @@ export class World {
     wall2.material = wallMat;
     this.renderer.shadowGenerator.addShadowCaster(wall2);
 
-    // 3 banner poles: cylinders with colored flag boxes
+    // 3 banner poles: cylinders with colored flag boxes — wood PBR
+    const ch3PoleMat = this.getMat('tree_bark', 'ch3_poleMat', 0.3, 0.25, 0.2, 0.0, 0.85);
     for (let i = 0; i < 3; i++) {
       const offsetX = (i - 1) * 5 + (rng() - 0.5) * 1;
       const poleX = centerX + offsetX;
 
       const pole = MeshBuilder.CreateCylinder(`ch3_pole_${i}`, { height: 5, diameter: 0.15, tessellation: 8 }, this.scene);
       pole.position.set(poleX, 2.5, centerZ - 8);
-      const poleMat = new StandardMaterial(`ch3_poleMat_${i}`, this.scene);
-      poleMat.diffuseColor = new Color3(0.3, 0.25, 0.2);
-      pole.material = poleMat;
+      pole.material = ch3PoleMat;
       this.renderer.shadowGenerator.addShadowCaster(pole);
 
       const flag = MeshBuilder.CreateBox(`ch3_flag_${i}`, { width: 0.3, height: 0.6, depth: 0.05 }, this.scene);
       flag.position.set(poleX, 5.2, centerZ - 8);
-      const flagMat = new StandardMaterial(`ch3_flagMat_${i}`, this.scene);
-      flagMat.diffuseColor = new Color3(1.0, 0.65, 0.2);
+      const flagMat = this.mkMat(`ch3_flagMat_${i}`, 1.0, 0.65, 0.2, 0.0, 0.3, 0.6, 0.3, 0.05);
       flag.material = flagMat;
       this.renderer.shadowGenerator.addShadowCaster(flag);
     }
@@ -2911,10 +2856,9 @@ export class World {
     const ch3Stone = new Color3(0.7, 0.65, 0.55);
     const ch3Warm = new Color3(1.0, 0.6, 0.2);
 
-    // Highland ashram hut — sturdy stone-and-wood shelter
+    // Highland ashram hut — sturdy stone-and-wood shelter (wood PBR)
     const ch3HutX = ashX + 8, ch3HutZ = ashZ - 3;
-    const ch3HutMat = new StandardMaterial('ch3_hutMat', this.scene);
-    ch3HutMat.diffuseColor = ch3Wood;
+    const ch3HutMat = this.getMat('tree_bark', 'ch3_hutMat', ch3Wood.r, ch3Wood.g, ch3Wood.b, 0.0, 0.85);
 
     for (let i = 0; i < 4; i++) {
       const [px, pz] = [[-2, -2], [2, -2], [-2, 2], [2, 2]][i];
@@ -2934,8 +2878,7 @@ export class World {
     }, this.scene);
     ch3Roof.position.set(ch3HutX, 4.6, ch3HutZ);
     ch3Roof.rotation.y = Math.PI / 4;
-    const ch3RoofMat = new StandardMaterial('ch3_roofMat', this.scene);
-    ch3RoofMat.diffuseColor = ch3Thatch;
+    const ch3RoofMat = this.getMat('tree_bark', 'ch3_roofMat', ch3Thatch.r, ch3Thatch.g, ch3Thatch.b, 0.0, 0.85);
     ch3Roof.material = ch3RoofMat;
     this.renderer.shadowGenerator.addShadowCaster(ch3Roof);
 
@@ -3024,9 +2967,8 @@ export class World {
   private buildChapter4Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
     const centerX = zone.x, centerZ = zone.z;
 
-    // 6 coastal boulders: spheres partially buried
-    const boulderMat = new StandardMaterial(`ch4_boulderMat`, this.scene);
-    boulderMat.diffuseColor = new Color3(0.6, 0.58, 0.55);
+    // 6 coastal boulders: spheres partially buried (stone PBR)
+    const boulderMat = this.getMat('pillar_stone', 'ch4_boulderMat', 0.6, 0.58, 0.55, 0.05, 0.88);
 
     for (let i = 0; i < 6; i++) {
       const offsetX = (i % 3 === 0 ? -1 : (i % 3 === 1 ? 1 : 0)) * 8 + (rng() - 0.5) * 3;
@@ -3041,9 +2983,8 @@ export class World {
       this.renderer.shadowGenerator.addShadowCaster(boulder);
     }
 
-    // 2 driftwood: angled boxes, lighter brown
-    const driftMat = new StandardMaterial(`ch4_driftMat`, this.scene);
-    driftMat.diffuseColor = new Color3(0.7, 0.6, 0.48);
+    // 2 driftwood: angled boxes, lighter brown (wood PBR)
+    const driftMat = this.getMat('tree_bark', 'ch4_driftMat', 0.7, 0.6, 0.48, 0.0, 0.85);
 
     for (let i = 0; i < 2; i++) {
       const offsetX = (i === 0 ? -5 : 5) + (rng() - 0.5) * 2;
@@ -3057,18 +2998,16 @@ export class World {
       this.renderer.shadowGenerator.addShadowCaster(drift);
     }
 
-    // Shore marker pole with flag
+    // Shore marker pole with flag (wood PBR)
     const markerPole = MeshBuilder.CreateCylinder(`ch4_markerPole`, { height: 4, diameter: 0.2, tessellation: 8 }, this.scene);
     markerPole.position.set(centerX, 2, centerZ - 6);
-    const markerPoleMat = new StandardMaterial(`ch4_markerPoleMat`, this.scene);
-    markerPoleMat.diffuseColor = new Color3(0.55, 0.5, 0.42);
+    const markerPoleMat = this.getMat('tree_bark', 'ch4_markerPoleMat', 0.55, 0.5, 0.42, 0.0, 0.85);
     markerPole.material = markerPoleMat;
     this.renderer.shadowGenerator.addShadowCaster(markerPole);
 
     const markerFlag = MeshBuilder.CreateBox(`ch4_markerFlag`, { width: 0.4, height: 0.7, depth: 0.05 }, this.scene);
     markerFlag.position.set(centerX, 4, centerZ - 6);
-    const markerFlagMat = new StandardMaterial(`ch4_markerFlagMat`, this.scene);
-    markerFlagMat.diffuseColor = new Color3(1.0, 0.5, 0.1);
+    const markerFlagMat = this.mkMat('ch4_markerFlagMat', 1.0, 0.5, 0.1, 0.0, 0.3, 0.6, 0.3, 0.05);
     markerFlag.material = markerFlagMat;
     this.renderer.shadowGenerator.addShadowCaster(markerFlag);
 
@@ -3080,10 +3019,9 @@ export class World {
     const ch4Stone = new Color3(0.65, 0.63, 0.58);
     const ch4Warm = new Color3(0.95, 0.65, 0.3);
 
-    // Coastal shelter hut — lighter, open-air feel
+    // Coastal shelter hut — lighter, open-air feel (wood PBR)
     const ch4HutX = ashX + 7, ch4HutZ = ashZ - 3;
-    const ch4HutMat = new StandardMaterial('ch4_hutMat', this.scene);
-    ch4HutMat.diffuseColor = ch4Wood;
+    const ch4HutMat = this.getMat('tree_bark', 'ch4_hutMat', ch4Wood.r, ch4Wood.g, ch4Wood.b, 0.0, 0.85);
 
     for (let i = 0; i < 4; i++) {
       const [px, pz] = [[-2, -2], [2, -2], [-2, 2], [2, 2]][i];
@@ -3103,8 +3041,7 @@ export class World {
     }, this.scene);
     ch4Roof.position.set(ch4HutX, 4.1, ch4HutZ);
     ch4Roof.rotation.y = Math.PI / 4;
-    const ch4RoofMat = new StandardMaterial('ch4_roofMat', this.scene);
-    ch4RoofMat.diffuseColor = ch4Thatch;
+    const ch4RoofMat = this.getMat('tree_bark', 'ch4_roofMat', ch4Thatch.r, ch4Thatch.g, ch4Thatch.b, 0.0, 0.85);
     ch4Roof.material = ch4RoofMat;
     this.renderer.shadowGenerator.addShadowCaster(ch4Roof);
 
@@ -3119,18 +3056,15 @@ export class World {
     ch4HutLight.intensity = 2.5;
     ch4HutLight.range = 12;
 
-    // Sacred fire pit (Havan Kund) — shore campfire
+    // Sacred fire pit (Havan Kund) — shore campfire (stone PBR)
     const ch4PitBase = MeshBuilder.CreateBox('ch4_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
     ch4PitBase.position.set(ashX, 0.2, ashZ);
-    const ch4PitMat = new StandardMaterial('ch4_pitMat', this.scene);
-    ch4PitMat.diffuseColor = new Color3(0.55, 0.45, 0.3);
+    const ch4PitMat = this.getMat('pillar_stone', 'ch4_pitMat', 0.55, 0.45, 0.3, 0.05, 0.88);
     ch4PitBase.material = ch4PitMat;
 
     const ch4FireCore = MeshBuilder.CreateBox('ch4_fireCore', { width: 0.8, height: 0.3, depth: 0.8 }, this.scene);
     ch4FireCore.position.set(ashX, 0.5, ashZ);
-    const ch4FireMat = new StandardMaterial('ch4_fireMat', this.scene);
-    ch4FireMat.diffuseColor = ch4Warm;
-    ch4FireMat.emissiveColor = ch4Warm;
+    const ch4FireMat = this.mkMat('ch4_fireMat', ch4Warm.r, ch4Warm.g, ch4Warm.b, 0.0, 0.3, ch4Warm.r, ch4Warm.g, ch4Warm.b);
     ch4FireCore.material = ch4FireMat;
 
     const ch4FireLight = new PointLight('ch4_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
@@ -3141,31 +3075,28 @@ export class World {
     // Authentic rangoli pattern at fire pit
     this.buildRangoli('ch4_rangoli', ashX, ashZ);
 
-    // Meditation circle with shell/stone markers
+    // Meditation circle with shell/stone markers (ground PBR)
     const ch4DiscR = 3;
     const ch4Disc = MeshBuilder.CreateDisc('ch4_meditationDisc', { radius: ch4DiscR, tessellation: 32 }, this.scene);
     ch4Disc.rotation.x = Math.PI / 2;
     ch4Disc.position.set(ashX, 0.05, ashZ + 6);
-    const ch4DiscMat = new StandardMaterial('ch4_discMat', this.scene);
-    ch4DiscMat.diffuseColor = new Color3(0.75, 0.7, 0.6);
+    const ch4DiscMat = this.getMat('ground_transition', 'ch4_discMat', 0.75, 0.7, 0.6, 0.0, 0.75);
     ch4Disc.material = ch4DiscMat;
 
+    const ch4StoneMat = this.getMat('pillar_stone', 'ch4_stoneMat', ch4Stone.r, ch4Stone.g, ch4Stone.b, 0.05, 0.88);
     for (let i = 0; i < 8; i++) {
       const angle = (Math.PI * 2 / 8) * i;
       const sx = ashX + Math.cos(angle) * (ch4DiscR + 0.5);
       const sz = (ashZ + 6) + Math.sin(angle) * (ch4DiscR + 0.5);
       const stone = MeshBuilder.CreateSphere(`ch4_ashStone_${i}`, { diameter: 0.4 + rng() * 0.3, segments: 6 }, this.scene);
       stone.position.set(sx, 0.25, sz);
-      const sMat = new StandardMaterial(`ch4_ashSMat_${i}`, this.scene);
-      sMat.diffuseColor = ch4Stone;
-      stone.material = sMat;
+      stone.material = ch4StoneMat;
       this.renderer.shadowGenerator.addShadowCaster(stone);
     }
 
-    // Entrance torana gate (driftwood coastal gate)
+    // Entrance torana gate (driftwood coastal gate) — wood PBR
     const ch4GateX = ashX, ch4GateZ = ashZ - 12;
-    const ch4GateMat = new StandardMaterial('ch4_ashGateMat', this.scene);
-    ch4GateMat.diffuseColor = new Color3(0.7, 0.65, 0.5);
+    const ch4GateMat = this.getMat('tree_bark', 'ch4_ashGateMat', 0.7, 0.65, 0.5, 0.0, 0.85);
 
     for (const side of [-1, 1]) {
       const gP = MeshBuilder.CreateCylinder(`ch4_ashGate_${side}`, { height: 3.8, diameter: 0.35, tessellation: 8 }, this.scene);
@@ -3184,9 +3115,7 @@ export class World {
     }, this.scene);
     ch4GateTop.position.set(ch4GateX, 4.35, ch4GateZ);
     ch4GateTop.rotation.y = Math.PI / 4;
-    const ch4GateTopMat = new StandardMaterial('ch4_ashGateTopMat', this.scene);
-    ch4GateTopMat.diffuseColor = ch4Warm;
-    ch4GateTopMat.emissiveColor = new Color3(0.3, 0.2, 0.05);
+    const ch4GateTopMat = this.mkMat('ch4_ashGateTopMat', ch4Warm.r, ch4Warm.g, ch4Warm.b, 0.0, 0.3, 0.3, 0.2, 0.05);
     ch4GateTop.material = ch4GateTopMat;
   }
 
@@ -3194,10 +3123,8 @@ export class World {
     // Ram Setu Bridge shrine structures near bridge center
     const centerX = zone.x, centerZ = zone.z;
 
-    // 3 sacred stone pillars at shrine center
-    const pillarMat = new StandardMaterial(`ch5_pillarMat`, this.scene);
-    pillarMat.diffuseColor = new Color3(0.8, 0.75, 0.65);
-    pillarMat.specularColor = new Color3(0.2, 0.2, 0.2);
+    // 3 sacred stone pillars at shrine center (stone PBR)
+    const pillarMat = this.getMat('pillar_stone', 'ch5_pillarMat', 0.8, 0.75, 0.65, 0.05, 0.88);
 
     for (let i = 0; i < 3; i++) {
       const angle = (i / 3) * Math.PI * 2;
@@ -3253,11 +3180,8 @@ export class World {
     // GOLDEN OUTER RAMPART WALLS - Approaching Sone ki Lanka
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Golden outer rampart walls (gleaming gold-ivory)
-    const goldenWallMat = new StandardMaterial(`ch6_goldenWallMat`, this.scene);
-    goldenWallMat.diffuseColor = new Color3(0.85, 0.72, 0.25);  // Golden primary
-    goldenWallMat.emissiveColor = new Color3(0.3, 0.22, 0.05);  // Golden glow
-    goldenWallMat.specularColor = new Color3(0.5, 0.4, 0.1);
+    // Golden outer rampart walls (gleaming gold-ivory) — metallic gold PBR
+    const goldenWallMat = this.mkMat('ch6_goldenWallMat', 0.85, 0.72, 0.25, 0.7, 0.25, 0.3, 0.22, 0.05);
 
     const wallFlankPositions = [
       { x: centerX - 45, z: centerZ },
@@ -3276,11 +3200,8 @@ export class World {
     // ORNATE GATEHOUSE - Golden pillars with lotus capitals
     // ─────────────────────────────────────────────────────────────────
 
-    // Golden pillar material for gatehouse
-    const gatePillarMat = new StandardMaterial(`ch6_gatePillarMat`, this.scene);
-    gatePillarMat.diffuseColor = new Color3(0.9, 0.75, 0.2);  // Golden bright
-    gatePillarMat.emissiveColor = new Color3(0.4, 0.3, 0.08);
-    gatePillarMat.specularColor = new Color3(0.6, 0.5, 0.15);
+    // Golden pillar material for gatehouse — metallic gold PBR
+    const gatePillarMat = this.mkMat('ch6_gatePillarMat', 0.9, 0.75, 0.2, 0.75, 0.25, 0.4, 0.3, 0.08);
 
     // 2 tall golden pillars
     const gateX = [centerX - 6, centerX + 6];
@@ -3339,9 +3260,7 @@ export class World {
     // GUARDIAN RAKSHASA STATUES - Flanking the gate
     // ─────────────────────────────────────────────────────────────────
 
-    const rakshasaMat = new StandardMaterial(`ch6_rakshasaMat`, this.scene);
-    rakshasaMat.diffuseColor = new Color3(0.85, 0.72, 0.25);  // Golden
-    rakshasaMat.emissiveColor = new Color3(0.2, 0.15, 0.03);
+    const rakshasaMat = this.mkMat('ch6_rakshasaMat', 0.85, 0.72, 0.25, 0.7, 0.25, 0.2, 0.15, 0.03);
 
     const rakshPositions = [
       { x: centerX - 10, z: centerZ + 8 },
@@ -3376,12 +3295,9 @@ export class World {
     // GOLDEN BANNER POLES - Saffron flags (not lava totems)
     // ─────────────────────────────────────────────────────────────────
 
-    const bannerPoleMat = new StandardMaterial(`ch6_bannerPoleMat`, this.scene);
-    bannerPoleMat.diffuseColor = new Color3(0.5, 0.35, 0.15);
+    const bannerPoleMat = this.getMat('tree_bark', 'ch6_bannerPoleMat', 0.5, 0.35, 0.15, 0.0, 0.85);
 
-    const saffronMat = new StandardMaterial(`ch6_saffronMat`, this.scene);
-    saffronMat.diffuseColor = new Color3(0.95, 0.55, 0.1);  // Saffron flag
-    saffronMat.emissiveColor = new Color3(0.3, 0.15, 0.02);
+    const saffronMat = this.mkMat('ch6_saffronMat', 0.95, 0.55, 0.1, 0.0, 0.3, 0.3, 0.15, 0.02);
 
     const bannerPositions = [
       { x: centerX - 25, z: centerZ },
@@ -3410,9 +3326,7 @@ export class World {
     // APPROACH TORCHES - Warm golden light (not red/volcanic)
     // ─────────────────────────────────────────────────────────────────
 
-    const torchBrazierMat = new StandardMaterial(`ch6_torchBrazierMat`, this.scene);
-    torchBrazierMat.diffuseColor = new Color3(0.6, 0.4, 0.15);
-    torchBrazierMat.emissiveColor = new Color3(0.8, 0.6, 0.2);
+    const torchBrazierMat = this.mkMat('ch6_torchBrazierMat', 0.6, 0.4, 0.15, 0.0, 0.3, 0.8, 0.6, 0.2);
 
     const brazierPositions = [
       { x: centerX - 20, z: centerZ - 10, py: 10 },
@@ -3444,10 +3358,7 @@ export class World {
     // 4 CEREMONIAL GOLDEN PILLARS - Flanking approach to palace
     // ═══════════════════════════════════════════════════════════════════════════
 
-    const pillarMat = new StandardMaterial(`ch7_pillarMat`, this.scene);
-    pillarMat.diffuseColor = new Color3(0.9, 0.75, 0.2);  // Golden bright
-    pillarMat.specularColor = new Color3(0.5, 0.5, 0.5);
-    pillarMat.emissiveColor = new Color3(0.4, 0.3, 0.08);
+    const pillarMat = this.mkMat('ch7_pillarMat', 0.9, 0.75, 0.2, 0.75, 0.25, 0.4, 0.3, 0.08);
 
     const pillarPositions = [
       { x: centerX - 15, z: centerZ - 40 },
@@ -3468,9 +3379,7 @@ export class World {
     // GOLDEN FORTRESS WALLS - Rampart structures
     // ─────────────────────────────────────────────────────────────────
 
-    const goldenWallMat = new StandardMaterial(`ch7_goldenWallMat`, this.scene);
-    goldenWallMat.diffuseColor = new Color3(0.85, 0.72, 0.25);  // Golden primary
-    goldenWallMat.emissiveColor = new Color3(0.3, 0.22, 0.05);
+    const goldenWallMat = this.mkMat('ch7_goldenWallMat', 0.85, 0.72, 0.25, 0.7, 0.25, 0.3, 0.22, 0.05);
 
     const wallSegmentPositions = [
       { x: centerX - 50, z: centerZ - 20 },
@@ -3489,10 +3398,7 @@ export class World {
     // PEARL ARCHWAY TO BOSS ARENA - Pearl-strung gateway
     // ─────────────────────────────────────────────────────────────────
 
-    const pearlMat = new StandardMaterial(`ch7_pearlMat`, this.scene);
-    pearlMat.emissiveColor = new Color3(0.95, 0.9, 0.8);
-    pearlMat.diffuseColor = new Color3(0.9, 0.85, 0.75);
-    pearlMat.disableLighting = false;
+    const pearlMat = this.mkMat('ch7_pearlMat', 0.9, 0.85, 0.75, 0.4, 0.1, 0.95, 0.9, 0.8);
 
     const gatePillarX = [centerX - 8, centerX + 8];
     for (let i = 0; i < gatePillarX.length; i++) {
@@ -3520,10 +3426,7 @@ export class World {
     // GRAND PALACE FACADE - 3-tiered golden structure with spires
     // ─────────────────────────────────────────────────────────────────
 
-    const palaceMat = new StandardMaterial(`ch7_palaceMat`, this.scene);
-    palaceMat.diffuseColor = new Color3(0.9, 0.75, 0.2);  // Golden primary
-    palaceMat.emissiveColor = new Color3(0.4, 0.3, 0.08);
-    palaceMat.specularColor = new Color3(0.6, 0.5, 0.15);
+    const palaceMat = this.mkMat('ch7_palaceMat', 0.9, 0.75, 0.2, 0.75, 0.25, 0.4, 0.3, 0.08);
 
     const ivoryMat = new StandardMaterial(`ch7_ivoryMat`, this.scene);
     ivoryMat.diffuseColor = new Color3(0.95, 0.9, 0.8);  // Ivory

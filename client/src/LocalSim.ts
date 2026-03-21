@@ -527,7 +527,8 @@ export class LocalSim {
       heads: [],
     };
 
-    // Initialize obstacles in the world
+    // Initialize comprehensive world collisions (trees, rocks, structures)
+    this.initWorldCollisions();
     this.onObstaclesInit(this.obstacles);
 
     // T4-3: Initialize sacred pillar puzzles
@@ -537,6 +538,197 @@ export class LocalSim {
   get playerId(): number { return 1; }
 
   getPlayerState(): PlayerState { return this.player; }
+
+  /**
+   * Initialize comprehensive world collisions: trees, rocks, and chapter structures.
+   * Uses the same RNG seed and skip conditions as World.ts to ensure collision geometry
+   * matches visual geometry exactly.
+   */
+  private initWorldCollisions(): void {
+    // Generate trees using exact same RNG as World.ts buildTrees()
+    this.initTreeCollisions();
+
+    // Generate rocks using exact same RNG as World.ts buildGround()
+    this.initRockCollisions();
+
+    // Add all chapter landmark structures (huts, fire pits, arena, bridge, etc.)
+    this.initChapterStructures();
+  }
+
+  /**
+   * Generate tree collision cylinders matching World.ts buildTrees() RNG positioning.
+   * Uses mulberry32(12345) seed to match World.ts exactly.
+   * MUST consume rng() calls in exact same order as World.ts buildTrees().
+   */
+  private initTreeCollisions(): void {
+    const rng = this.mulberry32(12345);
+    const treeCount = C.TREE_COUNT;
+
+    for (let i = 0; i < treeCount; i++) {
+      const x = (rng() - 0.5) * C.WORLD_SIZE;
+      const z = (rng() - 0.5) * C.WORLD_SIZE;
+
+      // Skip conditions must match World.ts exactly
+      if (Math.abs(x) < 5 && Math.abs(z) < 5) {
+        // World.ts continues before consuming scale/yRot, so we must too
+        continue;
+      }
+
+      const dBoss = Math.sqrt((x - C.BOSS_ARENA_CENTER.x) ** 2 + (z - C.BOSS_ARENA_CENTER.z) ** 2);
+      if (dBoss < C.BOSS_ARENA_RADIUS + 10) {
+        continue;
+      }
+
+      const nearBridge = Math.abs(x - ((C.RAM_SETU_START.x + C.RAM_SETU_END.x) / 2)) < 20 &&
+                         Math.abs(z - ((C.RAM_SETU_START.z + C.RAM_SETU_END.z) / 2)) < 100;
+      if (nearBridge) {
+        continue;
+      }
+
+      // Must consume BOTH rng calls to stay in sync with World.ts
+      const scale = 0.7 + rng() * 0.6;   // World.ts line 555
+      rng();  // yRot = rng() * Math.PI * 2 — World.ts line 556
+
+      const trunkRadius = (C.TREE_TRUNK_DIAMETER / 2) * scale;
+      this.obstacles.push({ pos: { x, y: 0, z }, radius: trunkRadius });
+    }
+  }
+
+  /**
+   * Generate rock collision spheres matching World.ts buildGround() RNG positioning.
+   * Seed 9999 is shared with grass blades and flowers in World.ts, so we must
+   * consume ALL preceding rng() calls in the exact same order to stay in sync.
+   */
+  private initRockCollisions(): void {
+    const rng = this.mulberry32(9999);
+
+    // ── Phase 1: Consume grass blade RNG calls (World.ts lines 421-434) ──
+    for (let i = 0; i < 1200; i++) {
+      const x = (rng() - 0.5) * C.WORLD_SIZE;  // x
+      const z = (rng() - 0.5) * C.WORLD_SIZE;  // z
+      if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
+      rng(); // height: 0.4 + rng() * 0.3
+      rng(); // rotation.y: rng() * Math.PI * 2
+      rng(); // position.y: 0.2 + rng() * 0.08
+      rng(); // material index: Math.floor(rng() * 4)
+    }
+
+    // ── Phase 2: Consume flower cluster RNG calls (World.ts lines 452-469) ──
+    for (let cluster = 0; cluster < 50; cluster++) {
+      const cx = (rng() - 0.5) * C.WORLD_SIZE * 0.8;  // cx
+      const cz = (rng() - 0.5) * C.WORLD_SIZE * 0.8;  // cz
+      if (Math.abs(cx) < 10 && Math.abs(cz) < 10) continue;
+      const flowerCount = 3 + Math.floor(rng() * 3);   // flowerCount
+      for (let f = 0; f < flowerCount; f++) {
+        rng(); // flower x offset
+        rng(); // flower z offset
+        rng(); // flower material index
+      }
+    }
+
+    // ── Phase 3: Rock positions (World.ts lines 475-489) ──
+    for (let i = 0; i < 180; i++) {
+      const x = (rng() - 0.5) * C.WORLD_SIZE;
+      const z = (rng() - 0.5) * C.WORLD_SIZE;
+      if (Math.abs(x) < 10 && Math.abs(z) < 10) {
+        continue; // World.ts skips before consuming diameter/scale/rot
+      }
+
+      const diameter = 0.4 + rng() * 0.8;   // diameter
+      rng();  // scaling.y: 0.5 + rng() * 0.3
+      rng();  // rotation.y: rng() * Math.PI * 2
+
+      const radius = diameter * 0.4;
+      this.obstacles.push({ pos: { x, y: 0, z }, radius });
+    }
+  }
+
+  /**
+   * Add collisions for chapter structures: ashram huts, fire pits, arena, bridge, etc.
+   */
+  private initChapterStructures(): void {
+    const arenaCenter = C.BOSS_ARENA_CENTER;
+    const arenaRadius = C.BOSS_ARENA_RADIUS;
+
+    // 8 arena perimeter pillars
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const px = arenaCenter.x + Math.cos(angle) * (arenaRadius - 1);
+      const pz = arenaCenter.z + Math.sin(angle) * (arenaRadius - 1);
+      this.obstacles.push({ pos: { x: px, y: 0, z: pz }, radius: 0.5 });
+    }
+
+    // 4 Shikhara temple spires
+    const spireRadius = arenaRadius + 5;
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2;
+      const px = arenaCenter.x + Math.cos(angle) * spireRadius;
+      const pz = arenaCenter.z + Math.sin(angle) * spireRadius;
+      this.obstacles.push({ pos: { x: px, y: 0, z: pz }, radius: 1.5 });
+    }
+
+    // 2 arena gate pillars
+    this.obstacles.push({ pos: { x: arenaCenter.x - 4, y: 0, z: arenaCenter.z - (arenaRadius + 3) }, radius: 0.4 });
+    this.obstacles.push({ pos: { x: arenaCenter.x + 4, y: 0, z: arenaCenter.z - (arenaRadius + 3) }, radius: 0.4 });
+
+    // Chapter ashrams (huts + fire pits)
+    const chapters = [
+      { center: C.CHAPTER_ZONES[0], hutOffset: [8, -5], fireOffset: [0, -2] },
+      { center: C.CHAPTER_ZONES[1], hutOffset: [7, -4], fireOffset: [0, -2] },
+      { center: C.CHAPTER_ZONES[3], hutOffset: [8, -3], fireOffset: [0, -2] },
+      { center: C.CHAPTER_ZONES[4], hutOffset: [7, -3], fireOffset: [0, -2] },
+    ];
+
+    for (const ch of chapters) {
+      const cx = ch.center.x, cz = ch.center.z;
+      this.obstacles.push({ pos: { x: cx + ch.hutOffset[0], y: 0, z: cz + ch.hutOffset[1] }, radius: 2.5 });
+      this.obstacles.push({ pos: { x: cx + ch.fireOffset[0], y: 0, z: cz + ch.fireOffset[1] }, radius: 0.8 });
+    }
+
+    // Ram Setu Bridge walls
+    this.initBridgeCollisions();
+  }
+
+  /**
+   * Add collision walls for Ram Setu Bridge path.
+   */
+  private initBridgeCollisions(): void {
+    const start = C.RAM_SETU_START;
+    const end = C.RAM_SETU_END;
+    const width = C.RAM_SETU_WIDTH;
+
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const bridgeLength = Math.sqrt(dx * dx + dz * dz);
+    const angle = Math.atan2(dx, dz);
+
+    const segmentSpacing = 15;
+    for (let dist = 0; dist < bridgeLength; dist += segmentSpacing) {
+      const t = dist / bridgeLength;
+      const cx = start.x + dx * t;
+      const cz = start.z + dz * t;
+
+      const leftX = cx - Math.sin(angle) * (width / 2 + 0.5);
+      const leftZ = cz + Math.cos(angle) * (width / 2 + 0.5);
+      this.obstacles.push({ pos: { x: leftX, y: 0, z: leftZ }, radius: 0.6 });
+
+      const rightX = cx + Math.sin(angle) * (width / 2 + 0.5);
+      const rightZ = cz - Math.cos(angle) * (width / 2 + 0.5);
+      this.obstacles.push({ pos: { x: rightX, y: 0, z: rightZ }, radius: 0.6 });
+    }
+  }
+
+  /**
+   * Seeded RNG matching World.ts mulberry32 implementation.
+   */
+  private mulberry32(a: number): () => number {
+    return () => {
+      let t = (a += 0x6D2B79F5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
 
   // ── Goal System ─────────────────────────────────────────────────
   revealGoal(chapter: number): void {

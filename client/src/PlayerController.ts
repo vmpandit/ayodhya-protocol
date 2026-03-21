@@ -484,10 +484,17 @@ export class PlayerController {
       flags |= this.touchFlags;
     } else {
       if (!this.suppressMovement) {
-        if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) flags |= InputFlag.Forward;
-        if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) flags |= InputFlag.Backward;
-        if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) flags |= InputFlag.Left;
-        if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) flags |= InputFlag.Right;
+        // Arrow keys = movement
+        if (this.keys.has('ArrowUp')) flags |= InputFlag.Forward;
+        if (this.keys.has('ArrowDown')) flags |= InputFlag.Backward;
+        if (this.keys.has('ArrowLeft')) flags |= InputFlag.Left;
+        if (this.keys.has('ArrowRight')) flags |= InputFlag.Right;
+        // WASD = camera orbit (applied per-frame below)
+        const camSpeed = 2.5 * dt;
+        if (this.keys.has('KeyA')) this.yaw += camSpeed;
+        if (this.keys.has('KeyD')) this.yaw -= camSpeed;
+        if (this.keys.has('KeyW')) this.pitch = Math.min(Math.PI / 3, this.pitch + camSpeed * 0.6);
+        if (this.keys.has('KeyS')) this.pitch = Math.max(-Math.PI / 3, this.pitch - camSpeed * 0.6);
         if (this.keys.has('Space')) flags |= InputFlag.Jump;
         if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) flags |= InputFlag.Sprint;
         if (this.keys.has('ControlLeft') || this.keys.has('KeyC')) flags |= InputFlag.Dodge;

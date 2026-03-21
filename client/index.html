@@ -314,13 +314,20 @@
       100% { opacity: 1; transform: translateY(0); }
     }
 
+    /* Dialogue wrapper — stacks choices above NPC text */
+    #dialogueWrapper {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      width: 520px; max-width: 90vw; z-index: 180;
+      display: flex; flex-direction: column; gap: 10px;
+      pointer-events: none;
+    }
     /* Dialogue overlay */
     #dialogueOverlay {
-      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-      width: 520px; max-width: 90vw; padding: 18px 24px;
+      padding: 18px 24px;
       background: rgba(0,0,0,0.9); border: 2px solid rgba(212,160,23,0.5);
-      border-radius: 10px; z-index: 180; pointer-events: auto;
+      border-radius: 10px; pointer-events: auto;
       opacity: 0; transition: opacity 0.6s ease;
+      max-height: 200px; overflow-y: auto;
     }
     #dialogueOverlay.visible { opacity: 1; }
     .dialogue-name {
@@ -333,14 +340,14 @@
       color: #ddc88a; line-height: 1.5;
     }
 
-    /* Dialogue choices */
+    /* Dialogue choices — sits above dialog text in flex column */
     #dialogueChoices {
-      position: fixed; bottom: 180px; left: 50%; transform: translateX(-50%);
-      width: 520px; max-width: 90vw; padding: 16px 20px;
+      padding: 16px 20px;
       background: rgba(0,0,0,0.92); border: 2px solid #d4a017;
-      border-radius: 10px; z-index: 200; pointer-events: none;
+      border-radius: 10px; pointer-events: none;
       opacity: 0; transition: opacity 0.4s ease;
-      display: block;
+      display: block; max-height: 220px; overflow-y: auto;
+      order: -1; /* render above dialogueOverlay in column */
     }
     #dialogueChoices.visible { opacity: 1; pointer-events: auto; }
     .dialogue-choice-header {
@@ -874,14 +881,17 @@
     <div id="downedOverlay"><div id="downedText">DOWNED — Waiting for revive</div></div>
     <div id="gameOverScreen"><video class="bg-video" id="gameOverVideo" muted loop playsinline></video><div id="gameOverTitle"></div></div>
 
-    <!-- Dialogue overlay (ally NPC conversations) -->
-    <div id="dialogueOverlay">
-      <div class="dialogue-name">Sugriv</div>
-      <div class="dialogue-message"></div>
-    </div>
+    <!-- Dialogue wrapper — stacks choices above NPC text -->
+    <div id="dialogueWrapper">
+      <!-- Dialogue overlay (ally NPC conversations) -->
+      <div id="dialogueOverlay">
+        <div class="dialogue-name">Sugriv</div>
+        <div class="dialogue-message"></div>
+      </div>
 
-    <!-- Dialogue choices -->
-    <div id="dialogueChoices">
+      <!-- Dialogue choices -->
+      <div id="dialogueChoices">
+      </div>
     </div>
 
     <!-- Dialogue hint -->
@@ -981,8 +991,8 @@
     <!-- Tutorial checklist -->
     <div id="tutorialChecklist">
       <div class="tutorial-title">TRAINING</div>
-      <div class="tutorial-step" data-step="move"><span class="tut-check">○</span> WASD — Move</div>
-      <div class="tutorial-step" data-step="look"><span class="tut-check">○</span> Mouse — Look Around</div>
+      <div class="tutorial-step" data-step="move"><span class="tut-check">○</span> Arrow Keys — Move</div>
+      <div class="tutorial-step" data-step="look"><span class="tut-check">○</span> WASD / Mouse — Camera</div>
       <div class="tutorial-step" data-step="shoot"><span class="tut-check">○</span> Left Click / Q — Shoot Arrow</div>
       <div class="tutorial-step" data-step="dodge"><span class="tut-check">○</span> C / Ctrl — Dodge Roll</div>
       <div class="tutorial-step" data-step="sprint"><span class="tut-check">○</span> Shift — Sprint</div>
@@ -1072,7 +1082,8 @@
       <!-- Desktop controls -->
       <div class="instr-section" id="instrDesktop">
         <div class="instr-section-title">Controls — Keyboard &amp; Mouse</div>
-        <div class="instr-row"><span class="instr-key">W A S D</span><span class="instr-desc">Move</span></div>
+        <div class="instr-row"><span class="instr-key">Arrow Keys</span><span class="instr-desc">Move</span></div>
+        <div class="instr-row"><span class="instr-key">W A S D</span><span class="instr-desc">Camera — orbit view around Rama</span></div>
         <div class="instr-row"><span class="instr-key">Mouse</span><span class="instr-desc">Look / Aim (click game to lock cursor). Hover over enemy to target.</span></div>
         <div class="instr-row"><span class="instr-key">L-Click / Q</span><span class="instr-desc">Fire basic arrow at targeted enemy</span></div>
         <div class="instr-row"><span class="instr-key">R-Click</span><span class="instr-desc">Fire selected special arrow (Astra)</span></div>

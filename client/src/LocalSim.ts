@@ -3400,6 +3400,12 @@ export class LocalSim {
     this.onBackstoryEnd(); // Signal Game.ts to hide the overlay and restore controls
     this.chapter = 1;
     this.chapterEnemiesKilled = 0;
+
+    // Re-snap player to terrain after chapter transition to prevent ground sinking
+    this.player.pos.y = getTerrainHeight(this.player.pos.x, this.player.pos.z);
+    this.playerVelY = 0;
+    this.grounded = true;
+
     this.setupInvestigationPoints(1); // G-08: Setup investigation points for Chapter 1
     this.spawnChapter1Enemies();
     this.onChapterChange(1, "The Dandaka Forest",

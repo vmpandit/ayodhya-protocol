@@ -1049,8 +1049,9 @@ export class World {
       const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
       billboardMat.diffuseTexture = this.playerSpriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.transparencyMode = 2; // ALPHATEST — crisp edges, no blending artifacts
+      billboardMat.transparencyMode = 3; // ALPHATESTANDBLEND — crisp center + smooth edges
       billboardMat.alphaMode = Engine.ALPHA_COMBINE;
+      billboardMat.alphaCutOff = 0.15; // low threshold: only fully transparent pixels are cut
       billboardMat.emissiveColor = new Color3(0.25, 0.22, 0.18); // brighter self-illumination so sprite is visible
       billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
@@ -1319,8 +1320,9 @@ export class World {
       const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
       billboardMat.diffuseTexture = spriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.transparencyMode = 2; // ALPHATEST — crisp edges
+      billboardMat.transparencyMode = 3; // ALPHATESTANDBLEND — smooth edges
       billboardMat.alphaMode = Engine.ALPHA_COMBINE;
+      billboardMat.alphaCutOff = 0.15;
       billboardMat.emissiveColor = new Color3(0.22, 0.18, 0.14); // brighter self-illumination
       billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
@@ -1437,8 +1439,9 @@ export class World {
       const billboardMat = new StandardMaterial('boss_billboardMat', this.scene);
       billboardMat.diffuseTexture = this.bossSpriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.transparencyMode = 2; // ALPHATEST
+      billboardMat.transparencyMode = 3; // ALPHATESTANDBLEND — smooth edges
       billboardMat.alphaMode = Engine.ALPHA_COMBINE;
+      billboardMat.alphaCutOff = 0.15;
       billboardMat.emissiveColor = new Color3(0.25, 0.2, 0.15);
       billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
@@ -1615,6 +1618,8 @@ export class World {
       const vfxMat = new StandardMaterial(`projMat_${proj.id}`, this.scene);
       vfxMat.diffuseTexture = vfxTex;
       vfxMat.useAlphaFromDiffuseTexture = true;
+      vfxMat.transparencyMode = 2; // ALPHATEST
+      vfxMat.alphaMode = Engine.ALPHA_COMBINE;
       vfxMat.emissiveColor = emissive;
       vfxMat.specularColor = new Color3(0, 0, 0);
       vfxMat.backFaceCulling = false;
@@ -2029,8 +2034,9 @@ export class World {
       // Use the generated sprite texture with transparency
       mat.diffuseTexture = spriteTex;
       mat.useAlphaFromDiffuseTexture = true;
-      mat.transparencyMode = 2; // ALPHATEST
+      mat.transparencyMode = 3; // ALPHATESTANDBLEND — smooth edges
       mat.alphaMode = Engine.ALPHA_COMBINE;
+      mat.alphaCutOff = 0.15;
       mat.emissiveColor = new Color3(0.3, 0.28, 0.25); // brighter self-illumination
       mat.disableLighting = false;
     } else {
@@ -2082,6 +2088,8 @@ export class World {
     const labelMat = new StandardMaterial(`allyLabelMat_${id}`, this.scene);
     labelMat.diffuseTexture = labelTex;
     labelMat.useAlphaFromDiffuseTexture = true;
+    labelMat.transparencyMode = 2; // ALPHATEST
+    labelMat.alphaMode = Engine.ALPHA_COMBINE;
     labelMat.emissiveColor = new Color3(1, 0.85, 0);
     labelMat.disableLighting = true;
     labelMat.backFaceCulling = false;
@@ -2268,6 +2276,8 @@ export class World {
     const labelMat = new StandardMaterial(`compLabelMat_${id}`, this.scene);
     labelMat.diffuseTexture = labelTex;
     labelMat.useAlphaFromDiffuseTexture = true;
+    labelMat.transparencyMode = 2; // ALPHATEST
+    labelMat.alphaMode = Engine.ALPHA_COMBINE;
     labelMat.emissiveColor = new Color3(0.5, 1, 0.5);
     labelMat.disableLighting = true;
     labelMat.backFaceCulling = false;
@@ -3928,6 +3938,8 @@ export class World {
           const mat = new StandardMaterial('torchFlameMat', this.scene);
           mat.diffuseTexture = this.torchFlameSpriteTexture;
           mat.useAlphaFromDiffuseTexture = true;
+          mat.transparencyMode = 2; // ALPHATEST
+          mat.alphaMode = Engine.ALPHA_COMBINE;
           mat.emissiveColor = new Color3(1.0, 0.5, 0.1);
           mat.specularColor = new Color3(0, 0, 0);
           mat.backFaceCulling = false;
@@ -3974,6 +3986,8 @@ export class World {
       const mat = new StandardMaterial('campfireMat', this.scene);
       mat.diffuseTexture = this.campfireSpriteTexture;
       mat.useAlphaFromDiffuseTexture = true;
+      mat.transparencyMode = 2; // ALPHATEST
+      mat.alphaMode = Engine.ALPHA_COMBINE;
       mat.emissiveColor = new Color3(0.6, 0.3, 0.05);
       mat.specularColor = new Color3(0, 0, 0);
       mat.backFaceCulling = false;
@@ -4135,6 +4149,8 @@ export class World {
         const mat = new StandardMaterial(`birdBBMat_${i}`, this.scene);
         mat.diffuseTexture = this.birdSpriteTexture;
         mat.useAlphaFromDiffuseTexture = true;
+        mat.transparencyMode = 2; // ALPHATEST
+        mat.alphaMode = Engine.ALPHA_COMBINE;
         mat.emissiveColor = new Color3(0.05, 0.04, 0.03);
         mat.specularColor = new Color3(0, 0, 0);
         mat.backFaceCulling = false;
@@ -4174,6 +4190,8 @@ export class World {
         const mat = new StandardMaterial(`deerBBMat_${i}`, this.scene);
         mat.diffuseTexture = this.deerSpriteTexture;
         mat.useAlphaFromDiffuseTexture = true;
+        mat.transparencyMode = 2; // ALPHATEST
+        mat.alphaMode = Engine.ALPHA_COMBINE;
         mat.emissiveColor = new Color3(0.08, 0.06, 0.03);
         mat.specularColor = new Color3(0, 0, 0);
         mat.backFaceCulling = false;

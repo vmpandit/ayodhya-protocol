@@ -158,9 +158,8 @@ export class World {
       }, this.scene);
       pillar.position = new Vector3(obstacle.pos.x, (3 + Math.random()) / 2, obstacle.pos.z);
 
-      const mat = new StandardMaterial(`obstacleMat_${i}`, this.scene);
-      mat.diffuseColor = new Color3(0.35, 0.3, 0.25); // dark stone
-      mat.specularColor = new Color3(0.1, 0.1, 0.1);
+      const mat = this.getMat('pillar_stone', `obstacleMat_${i}`,
+        0.5, 0.45, 0.38, 0.05, 0.88);
       pillar.material = mat;
 
       // Cast and receive shadows
@@ -282,6 +281,7 @@ export class World {
         (_msg, err) => reject(err || new Error(`Failed to load sprite: ${imagePath}`)),  // onError
       );
       tex.hasAlpha = true;
+      tex.getAlphaFromRGB = false; // Use actual alpha channel, not RGB luminance
     });
   }
 
@@ -351,9 +351,10 @@ export class World {
       (groundMat.bumpTexture as Texture).uScale = 20;
       (groundMat.bumpTexture as Texture).vScale = 20;
     }
-    groundMat.albedoColor = new Color3(0.15, 0.28, 0.1); // lush green base
+    groundMat.albedoColor = new Color3(0.3, 0.45, 0.2); // brighter lush green base
     groundMat.metallic = 0.0;
-    groundMat.roughness = 0.95;
+    groundMat.roughness = 0.88;
+    groundMat.environmentIntensity = 0.4; // subtle environment reflection
     ground.material = groundMat;
 
     // A-02: Store ground mesh reference for biome color changes
@@ -365,29 +366,29 @@ export class World {
     if (positions) {
       for (let i = 0; i < positions.length; i += 3) {
       const z = positions[i + 2];
-      let r = 0.15, g = 0.28, b = 0.1; // Default Ch0 lush green
+      let r = 0.3, g = 0.45, b = 0.2; // Default Ch0 lush green (brighter)
 
       if (z > -50) {
         // Ch0 (z > -50): Lush green (Panchavati forest)
-        r = 0.18; g = 0.32; b = 0.12;
+        r = 0.32; g = 0.48; b = 0.2;
       } else if (z > -150) {
-        // Ch1 (z -50 to -150): Dark forest (Dandaka)
-        r = 0.12; g = 0.22; b = 0.08;
+        // Ch1 (z -50 to -150): Dense forest (Dandaka) — darker green but still visible
+        r = 0.2; g = 0.35; b = 0.14;
       } else if (z > -250) {
         // Ch2 (z -150 to -250): Scorched earth (Jatayu's Fall)
-        r = 0.25; g = 0.15; b = 0.08;
+        r = 0.4; g = 0.28; b = 0.15;
       } else if (z > -380) {
         // Ch3 (z -250 to -380): Rocky highland (Kishkindha)
-        r = 0.35; g = 0.3; b = 0.2;
+        r = 0.48; g = 0.42; b = 0.3;
       } else if (z > -490) {
         // Ch4 (z -380 to -490): Sandy shore (Southern Shore)
-        r = 0.55; g = 0.48; b = 0.35;
+        r = 0.65; g = 0.58; b = 0.42;
       } else if (z > -580) {
         // Ch5 (z -490 to -580): Wet stone (Ram Setu)
-        r = 0.3; g = 0.35; b = 0.38;
+        r = 0.4; g = 0.45; b = 0.48;
       } else {
         // Ch6+ (z < -580): Golden Lanka (Sone ki Lanka)
-        r = 0.35; g = 0.28; b = 0.12;
+        r = 0.5; g = 0.4; b = 0.2;
       }
 
       const colorIdx = (i / 3) * 4;
@@ -402,73 +403,77 @@ export class World {
     // Add scattered ground cover: upright triangular grass blades
     const rng = mulberry32(9999);
 
-    // Grass blade patches (~1200 blades = 200 * 6x for larger world)
+    // Grass blade patches — share a few materials instead of 1200 individual ones
+    const grassMats: StandardMaterial[] = [];
+    for (let m = 0; m < 4; m++) {
+      const gm = new StandardMaterial(`grassMat_${m}`, this.scene);
+      gm.diffuseColor = new Color3(
+        0.15 + m * 0.04,
+        0.38 + m * 0.08,
+        0.08 + m * 0.04
+      );
+      gm.emissiveColor = new Color3(0.02, 0.05, 0.01); // faint self-glow
+      gm.specularColor = new Color3(0, 0, 0);
+      gm.backFaceCulling = false;
+      grassMats.push(gm);
+    }
+
     for (let i = 0; i < 1200; i++) {
       const x = (rng() - 0.5) * C.WORLD_SIZE;
       const z = (rng() - 0.5) * C.WORLD_SIZE;
-      // Skip near spawn
       if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
 
-      // Create upright plane blade
       const blade = MeshBuilder.CreatePlane(`grassBlade_${i}`, {
-        width: 0.08,
-        height: 0.3 + rng() * 0.2, // 0.3-0.5 height
+        width: 0.12,
+        height: 0.4 + rng() * 0.3,
       }, this.scene);
 
-      // Keep blade upright (no rotation.x), slight random tilt around Y
       blade.rotation.y = rng() * Math.PI * 2;
-      blade.position.set(x, 0.15 + rng() * 0.05, z);
-
-      const bladeMat = new StandardMaterial(`grassBladeMat_${i}`, this.scene);
-      // Various shades of green
-      bladeMat.diffuseColor = new Color3(
-        0.08 + rng() * 0.08,
-        0.25 + rng() * 0.25,
-        0.04 + rng() * 0.08
-      );
-      bladeMat.specularColor = new Color3(0, 0, 0);
-      bladeMat.backFaceCulling = false;
-      blade.material = bladeMat;
+      blade.position.set(x, 0.2 + rng() * 0.08, z);
+      blade.material = grassMats[Math.floor(rng() * grassMats.length)];
     }
 
-    // Add flower patches: small colored spheres in clusters (~50 clusters = 8 * 6x)
+    // Flower patches — share materials, bigger and emissive so they pop
+    const flowerMats: StandardMaterial[] = [];
+    const flowerColors = [
+      [1.0, 0.3, 0.5],  // pink
+      [1.0, 0.88, 0.25], // yellow
+      [1.0, 1.0, 1.0],  // white
+      [0.8, 0.3, 0.8],  // purple
+    ];
+    for (const [fr, fg, fb] of flowerColors) {
+      const fm = new StandardMaterial(`flowerMat_${flowerMats.length}`, this.scene);
+      fm.diffuseColor = new Color3(fr, fg, fb);
+      fm.emissiveColor = new Color3(fr * 0.15, fg * 0.15, fb * 0.15);
+      fm.specularColor = new Color3(0.15, 0.15, 0.15);
+      flowerMats.push(fm);
+    }
+
     for (let cluster = 0; cluster < 50; cluster++) {
       const cx = (rng() - 0.5) * C.WORLD_SIZE * 0.8;
       const cz = (rng() - 0.5) * C.WORLD_SIZE * 0.8;
-      // Skip near spawn
       if (Math.abs(cx) < 10 && Math.abs(cz) < 10) continue;
 
-      // 3-5 flowers per cluster
       const flowerCount = 3 + Math.floor(rng() * 3);
-      const colors = [
-        new Color3(1.0, 0.2, 0.4),    // pink
-        new Color3(1.0, 0.85, 0.2),   // yellow
-        new Color3(1.0, 1.0, 1.0),    // white
-      ];
-
       for (let f = 0; f < flowerCount; f++) {
         const flower = MeshBuilder.CreateSphere(`flower_${cluster}_${f}`, {
-          diameter: 0.1,
+          diameter: 0.15,
           segments: 6,
         }, this.scene);
-
         flower.position.set(
-          cx + (rng() - 0.5) * 1.0,
-          0.05,
-          cz + (rng() - 0.5) * 1.0
+          cx + (rng() - 0.5) * 1.2,
+          0.08,
+          cz + (rng() - 0.5) * 1.2
         );
-
-        const flowerMat = new StandardMaterial(`flowerMat_${cluster}_${f}`, this.scene);
-        flowerMat.diffuseColor = colors[Math.floor(rng() * colors.length)];
-        flowerMat.specularColor = new Color3(0.2, 0.2, 0.2);
-        flower.material = flowerMat;
+        flower.material = flowerMats[Math.floor(rng() * flowerMats.length)];
       }
     }
 
-    // Rocks scattered around (small gray boulders) (~180 rocks = 30 * 6x)
-    const rockMat = new StandardMaterial('rockMat', this.scene);
-    rockMat.diffuseColor = new Color3(0.4, 0.38, 0.35);
-    rockMat.specularColor = new Color3(0.1, 0.1, 0.1);
+    // Rocks scattered around (small boulders) — PBR with brighter color
+    const rockMat = new PBRMaterial('rockMat', this.scene);
+    rockMat.albedoColor = new Color3(0.5, 0.48, 0.42);
+    rockMat.metallic = 0.05;
+    rockMat.roughness = 0.9;
 
     for (let i = 0; i < 180; i++) {
       const x = (rng() - 0.5) * C.WORLD_SIZE;
@@ -502,15 +507,27 @@ export class World {
     masterTrunk.position.y = trunkHeight / 2;
     masterTrunk.setEnabled(false);
 
-    const trunkMat = new StandardMaterial('treeTrunkMat', this.scene);
-    trunkMat.diffuseColor = new Color3(0.35, 0.22, 0.1);
-    trunkMat.specularColor = new Color3(0, 0, 0);
-    masterTrunk.material = trunkMat;
+    // Use PBR bark texture if loaded, otherwise bright fallback
+    const trunkPBR = this.assets?.materials.get('tree_bark');
+    if (trunkPBR) {
+      masterTrunk.material = trunkPBR;
+    } else {
+      const trunkMat = new PBRMaterial('treeTrunkMat', this.scene);
+      trunkMat.albedoColor = new Color3(0.45, 0.3, 0.15); // warm brown bark
+      trunkMat.metallic = 0.0;
+      trunkMat.roughness = 0.92;
+      masterTrunk.material = trunkMat;
+    }
 
-    // Single large canopy sphere positioned high above ground (above camera at Y=8)
-    const canopyMat = new StandardMaterial('canopyMat', this.scene);
-    canopyMat.diffuseColor = new Color3(0.15, 0.4, 0.1);  // forest green
-    canopyMat.specularColor = new Color3(0, 0, 0);
+    // Use PBR foliage texture if loaded, otherwise bright green fallback
+    const foliagePBR = this.assets?.materials.get('tree_foliage');
+    const canopyMat = foliagePBR ?? (() => {
+      const mat = new PBRMaterial('canopyMat', this.scene);
+      mat.albedoColor = new Color3(0.25, 0.55, 0.15);  // bright forest green
+      mat.metallic = 0.0;
+      mat.roughness = 0.85;
+      return mat;
+    })();
 
     const masterCanopy = MeshBuilder.CreateSphere('masterCanopy', {
       diameter: (C.TREE_CANOPY_RADIUS_MIN + C.TREE_CANOPY_RADIUS_MAX),
@@ -1056,8 +1073,10 @@ export class World {
       const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
       billboardMat.diffuseTexture = this.playerSpriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1); // subtle self-illumination
-      billboardMat.specularColor = new Color3(0, 0, 0); // no specular shine
+      billboardMat.transparencyMode = 2; // ALPHATEST — crisp edges, no blending artifacts
+      billboardMat.alphaMode = Engine.ALPHA_COMBINE;
+      billboardMat.emissiveColor = new Color3(0.25, 0.22, 0.18); // brighter self-illumination so sprite is visible
+      billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
 
@@ -1344,7 +1363,9 @@ export class World {
       const billboardMat = new StandardMaterial(`${n}billboardMat`, this.scene);
       billboardMat.diffuseTexture = spriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.emissiveColor = new Color3(0.12, 0.1, 0.08); // subtle self-illumination
+      billboardMat.transparencyMode = 2; // ALPHATEST — crisp edges
+      billboardMat.alphaMode = Engine.ALPHA_COMBINE;
+      billboardMat.emissiveColor = new Color3(0.22, 0.18, 0.14); // brighter self-illumination
       billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
@@ -1460,8 +1481,10 @@ export class World {
       const billboardMat = new StandardMaterial('boss_billboardMat', this.scene);
       billboardMat.diffuseTexture = this.bossSpriteTexture;
       billboardMat.useAlphaFromDiffuseTexture = true;
-      billboardMat.emissiveColor = new Color3(0.15, 0.12, 0.1); // subtle self-illumination
-      billboardMat.specularColor = new Color3(0, 0, 0); // no specular shine
+      billboardMat.transparencyMode = 2; // ALPHATEST
+      billboardMat.alphaMode = Engine.ALPHA_COMBINE;
+      billboardMat.emissiveColor = new Color3(0.25, 0.2, 0.15);
+      billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
 
@@ -2050,7 +2073,9 @@ export class World {
       // Use the generated sprite texture with transparency
       mat.diffuseTexture = spriteTex;
       mat.useAlphaFromDiffuseTexture = true;
-      mat.emissiveColor = new Color3(0.3, 0.3, 0.3); // slight self-illumination
+      mat.transparencyMode = 2; // ALPHATEST
+      mat.alphaMode = Engine.ALPHA_COMBINE;
+      mat.emissiveColor = new Color3(0.3, 0.28, 0.25); // brighter self-illumination
       mat.disableLighting = false;
     } else {
       // Fallback: build a detailed primitive humanoid instead of colored plane
@@ -2368,15 +2393,12 @@ export class World {
 
   private buildChapter0Landmarks(rng: () => number, zone: { x: number; z: number; name: string }): void {
     const centerX = zone.x, centerZ = zone.z;
-    const woodColor = new Color3(0.45, 0.32, 0.18);
-    const thatchColor = new Color3(0.55, 0.45, 0.22);
-    const stoneColor = new Color3(0.5, 0.45, 0.4);
     const warmOrange = new Color3(0.8, 0.4, 0.1);
 
     // ─── ASHRAM HUT: Thatched-roof shelter with 4 pillars ───
     const hutX = centerX + 8, hutZ = centerZ - 5;
-    const hutMat = new StandardMaterial('ch0_hutMat', this.scene);
-    hutMat.diffuseColor = woodColor;
+    // Use loaded bark PBR or bright wood fallback
+    const hutMat = this.getMat('tree_bark', 'ch0_hutMat', 0.55, 0.38, 0.2, 0.0, 0.85);
 
     // 4 wooden support pillars
     const pillarPositions = [[-2, -2], [2, -2], [-2, 2], [2, 2]];
@@ -2400,8 +2422,10 @@ export class World {
     }, this.scene);
     roof.position.set(hutX, 4.5, hutZ);
     roof.rotation.y = Math.PI / 4; // rotate 45 degrees for square shape
-    const roofMat = new StandardMaterial('ch0_roofMat', this.scene);
-    roofMat.diffuseColor = thatchColor;
+    const roofMat = new PBRMaterial('ch0_roofMat', this.scene);
+    roofMat.albedoColor = new Color3(0.65, 0.52, 0.28); // warm thatch
+    roofMat.metallic = 0.0;
+    roofMat.roughness = 0.95;
     roof.material = roofMat;
     this.renderer.shadowGenerator.addShadowCaster(roof);
 
@@ -2414,9 +2438,9 @@ export class World {
 
     // Warm interior light inside hut
     const hutLight = new PointLight('ch0_hutLight', new Vector3(hutX, 2.5, hutZ), this.scene);
-    hutLight.diffuse = new Color3(1.0, 0.75, 0.4);
-    hutLight.intensity = 1.5;
-    hutLight.range = 8;
+    hutLight.diffuse = new Color3(1.0, 0.8, 0.45);
+    hutLight.intensity = 3;
+    hutLight.range = 14;
 
     // ─── SACRED FIRE PIT (Havan Kund) ───
     const fireX = centerX, fireZ = centerZ - 2;
@@ -2424,8 +2448,10 @@ export class World {
     // Square fire pit base (brick-like)
     const pitBase = MeshBuilder.CreateBox('ch0_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
     pitBase.position.set(fireX, 0.2, fireZ);
-    const pitMat = new StandardMaterial('ch0_pitMat', this.scene);
-    pitMat.diffuseColor = new Color3(0.6, 0.35, 0.2);
+    const pitMat = new PBRMaterial('ch0_pitMat', this.scene);
+    pitMat.albedoColor = new Color3(0.7, 0.42, 0.25);
+    pitMat.metallic = 0.0;
+    pitMat.roughness = 0.88;
     pitBase.material = pitMat;
 
     // Inner fire glow
@@ -2437,9 +2463,9 @@ export class World {
     fireCore.material = fireMat;
 
     const fireLight = new PointLight('ch0_fireLight', new Vector3(fireX, 1.5, fireZ), this.scene);
-    fireLight.diffuse = new Color3(1.0, 0.6, 0.2);
-    fireLight.intensity = 3;
-    fireLight.range = 12;
+    fireLight.diffuse = new Color3(1.0, 0.7, 0.3);
+    fireLight.intensity = 5;
+    fireLight.range = 18;
 
     // T2-5: Add concentric rangoli circle rings at fire pit
     const saffrronOrange = new Color3(1.0, 0.6, 0.2);
@@ -2488,7 +2514,7 @@ export class World {
       const stone = MeshBuilder.CreateCylinder(`ch0_stone_${i}`, { height: 0.6 + rng() * 0.4, diameter: 0.35, tessellation: 6 }, this.scene);
       stone.position.set(stoneX, 0.35, stoneZ);
       const sMat = new StandardMaterial(`ch0_sMat_${i}`, this.scene);
-      sMat.diffuseColor = stoneColor;
+      sMat.diffuseColor = new Color3(0.6, 0.55, 0.48); // warm stone
       stone.material = sMat;
       this.renderer.shadowGenerator.addShadowCaster(stone);
     }
@@ -2565,7 +2591,7 @@ export class World {
       pillar.position.set(pillarX, height / 2, pillarZ);
 
       const pillarMat = new StandardMaterial(`ch1_pillarMat_${i}`, this.scene);
-      pillarMat.diffuseColor = new Color3(0.15, 0.25, 0.1);
+      pillarMat.diffuseColor = new Color3(0.25, 0.4, 0.18);
       pillar.material = pillarMat;
       this.renderer.shadowGenerator.addShadowCaster(pillar);
     }
@@ -2583,7 +2609,7 @@ export class World {
       log.rotation.z = (rng() - 0.5) * 0.3;
 
       const logMat = new StandardMaterial(`ch1_logMat_${i}`, this.scene);
-      logMat.diffuseColor = new Color3(0.25, 0.15, 0.08);
+      logMat.diffuseColor = new Color3(0.4, 0.25, 0.15);
       log.material = logMat;
       this.renderer.shadowGenerator.addShadowCaster(log);
     }
@@ -2591,10 +2617,10 @@ export class World {
     // ─── DANDAKA ASHRAM (forest hermitage) ───
     // Ashram is at ASHRAM_POSITIONS[1] = (centerX, centerZ - 2)
     const ashX = centerX, ashZ = centerZ - 2;
-    const ch1Wood = new Color3(0.3, 0.22, 0.1);
-    const ch1Thatch = new Color3(0.35, 0.38, 0.15); // mossy green thatch
-    const ch1Stone = new Color3(0.35, 0.32, 0.28);
-    const ch1Warm = new Color3(0.8, 0.4, 0.1);
+    const ch1Wood = new Color3(0.48, 0.35, 0.18);
+    const ch1Thatch = new Color3(0.55, 0.56, 0.28); // mossy green thatch
+    const ch1Stone = new Color3(0.55, 0.5, 0.44);
+    const ch1Warm = new Color3(0.9, 0.55, 0.25);
 
     // Thatched-roof forest hut with 4 pillars
     const ch1HutX = ashX + 7, ch1HutZ = ashZ - 4;
@@ -2632,8 +2658,8 @@ export class World {
 
     const ch1HutLight = new PointLight('ch1_hutLight', new Vector3(ch1HutX, 2.5, ch1HutZ), this.scene);
     ch1HutLight.diffuse = new Color3(1.0, 0.75, 0.4);
-    ch1HutLight.intensity = 1.5;
-    ch1HutLight.range = 8;
+    ch1HutLight.intensity = 2.5;
+    ch1HutLight.range = 12;
 
     // Sacred fire pit (Havan Kund)
     const ch1PitBase = MeshBuilder.CreateBox('ch1_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
@@ -2651,8 +2677,8 @@ export class World {
 
     const ch1FireLight = new PointLight('ch1_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
     ch1FireLight.diffuse = new Color3(1.0, 0.6, 0.2);
-    ch1FireLight.intensity = 3;
-    ch1FireLight.range = 12;
+    ch1FireLight.intensity = 5;
+    ch1FireLight.range = 18;
 
     // T2-5: Add concentric rangoli circle rings at fire pit
     const saffrronOrange = new Color3(1.0, 0.6, 0.2);
@@ -2686,7 +2712,7 @@ export class World {
     ch1Disc.rotation.x = Math.PI / 2;
     ch1Disc.position.set(ashX, 0.05, ashZ + 6);
     const ch1DiscMat = new StandardMaterial('ch1_discMat', this.scene);
-    ch1DiscMat.diffuseColor = new Color3(0.25, 0.3, 0.18);
+    ch1DiscMat.diffuseColor = new Color3(0.4, 0.48, 0.3);
     ch1Disc.material = ch1DiscMat;
 
     for (let i = 0; i < 8; i++) {
@@ -2704,7 +2730,7 @@ export class World {
     // Entrance torana gate (vine-covered forest gate)
     const ch1GateX = ashX, ch1GateZ = ashZ - 12;
     const ch1GateMat = new StandardMaterial('ch1_gateMat', this.scene);
-    ch1GateMat.diffuseColor = new Color3(0.35, 0.28, 0.15);
+    ch1GateMat.diffuseColor = new Color3(0.55, 0.45, 0.28);
 
     for (const side of [-1, 1]) {
       const gP = MeshBuilder.CreateCylinder(`ch1_gate_${side}`, { height: 4, diameter: 0.35, tessellation: 8 }, this.scene);
@@ -2875,10 +2901,10 @@ export class World {
     // ─── KISHKINDHA ASHRAM (highland camp) ───
     // Ashram is at ASHRAM_POSITIONS[2] = (centerX, centerZ - 2)
     const ashX = centerX, ashZ = centerZ - 2;
-    const ch3Wood = new Color3(0.45, 0.35, 0.2);
-    const ch3Thatch = new Color3(0.5, 0.42, 0.18); // dry highland thatch
-    const ch3Stone = new Color3(0.5, 0.45, 0.38);
-    const ch3Warm = new Color3(0.9, 0.45, 0.1);
+    const ch3Wood = new Color3(0.68, 0.53, 0.35);
+    const ch3Thatch = new Color3(0.75, 0.63, 0.3); // dry highland thatch
+    const ch3Stone = new Color3(0.7, 0.65, 0.55);
+    const ch3Warm = new Color3(1.0, 0.6, 0.2);
 
     // Highland ashram hut — sturdy stone-and-wood shelter
     const ch3HutX = ashX + 8, ch3HutZ = ashZ - 3;
@@ -2916,8 +2942,8 @@ export class World {
 
     const ch3HutLight = new PointLight('ch3_hutLight', new Vector3(ch3HutX, 2.5, ch3HutZ), this.scene);
     ch3HutLight.diffuse = new Color3(1.0, 0.8, 0.45);
-    ch3HutLight.intensity = 1.5;
-    ch3HutLight.range = 8;
+    ch3HutLight.intensity = 2.5;
+    ch3HutLight.range = 12;
 
     // Sacred fire pit (Havan Kund)
     const ch3PitBase = MeshBuilder.CreateBox('ch3_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
@@ -2935,8 +2961,8 @@ export class World {
 
     const ch3FireLight = new PointLight('ch3_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
     ch3FireLight.diffuse = new Color3(1.0, 0.6, 0.2);
-    ch3FireLight.intensity = 3;
-    ch3FireLight.range = 12;
+    ch3FireLight.intensity = 5;
+    ch3FireLight.range = 18;
 
     // T2-5: Add concentric rangoli circle rings at fire pit
     const saffrronOrange = new Color3(1.0, 0.6, 0.2);
@@ -2970,7 +2996,7 @@ export class World {
     ch3Disc.rotation.x = Math.PI / 2;
     ch3Disc.position.set(ashX, 0.05, ashZ + 7);
     const ch3DiscMat = new StandardMaterial('ch3_discMat', this.scene);
-    ch3DiscMat.diffuseColor = new Color3(0.45, 0.38, 0.28);
+    ch3DiscMat.diffuseColor = new Color3(0.65, 0.57, 0.44);
     ch3Disc.material = ch3DiscMat;
 
     for (let i = 0; i < 8; i++) {
@@ -2988,7 +3014,7 @@ export class World {
     // Entrance torana gate (mountain stone gate)
     const ch3GateX = ashX, ch3GateZ = ashZ - 12;
     const ch3GateMat = new StandardMaterial('ch3_ashGateMat', this.scene);
-    ch3GateMat.diffuseColor = new Color3(0.48, 0.4, 0.28);
+    ch3GateMat.diffuseColor = new Color3(0.68, 0.6, 0.45);
 
     for (const side of [-1, 1]) {
       const gP = MeshBuilder.CreateCylinder(`ch3_ashGate_${side}`, { height: 4.5, diameter: 0.4, tessellation: 8 }, this.scene);
@@ -3018,7 +3044,7 @@ export class World {
 
     // 6 coastal boulders: spheres partially buried
     const boulderMat = new StandardMaterial(`ch4_boulderMat`, this.scene);
-    boulderMat.diffuseColor = new Color3(0.4, 0.38, 0.35);
+    boulderMat.diffuseColor = new Color3(0.6, 0.58, 0.55);
 
     for (let i = 0; i < 6; i++) {
       const offsetX = (i % 3 === 0 ? -1 : (i % 3 === 1 ? 1 : 0)) * 8 + (rng() - 0.5) * 3;
@@ -3035,7 +3061,7 @@ export class World {
 
     // 2 driftwood: angled boxes, lighter brown
     const driftMat = new StandardMaterial(`ch4_driftMat`, this.scene);
-    driftMat.diffuseColor = new Color3(0.5, 0.4, 0.3);
+    driftMat.diffuseColor = new Color3(0.7, 0.6, 0.48);
 
     for (let i = 0; i < 2; i++) {
       const offsetX = (i === 0 ? -5 : 5) + (rng() - 0.5) * 2;
@@ -3053,7 +3079,7 @@ export class World {
     const markerPole = MeshBuilder.CreateCylinder(`ch4_markerPole`, { height: 4, diameter: 0.2, tessellation: 8 }, this.scene);
     markerPole.position.set(centerX, 2, centerZ - 6);
     const markerPoleMat = new StandardMaterial(`ch4_markerPoleMat`, this.scene);
-    markerPoleMat.diffuseColor = new Color3(0.35, 0.3, 0.25);
+    markerPoleMat.diffuseColor = new Color3(0.55, 0.5, 0.42);
     markerPole.material = markerPoleMat;
     this.renderer.shadowGenerator.addShadowCaster(markerPole);
 
@@ -3067,10 +3093,10 @@ export class World {
     // ─── SOUTHERN SHORE ASHRAM (coastal shelter) ───
     // Ashram is at ASHRAM_POSITIONS[3] = (centerX, centerZ - 2)
     const ashX = centerX, ashZ = centerZ - 2;
-    const ch4Wood = new Color3(0.5, 0.4, 0.3); // sun-bleached driftwood
-    const ch4Thatch = new Color3(0.6, 0.55, 0.35); // pale sandy thatch
-    const ch4Stone = new Color3(0.45, 0.42, 0.38);
-    const ch4Warm = new Color3(0.85, 0.5, 0.15);
+    const ch4Wood = new Color3(0.7, 0.6, 0.48); // sun-bleached driftwood
+    const ch4Thatch = new Color3(0.8, 0.75, 0.55); // pale sandy thatch
+    const ch4Stone = new Color3(0.65, 0.63, 0.58);
+    const ch4Warm = new Color3(0.95, 0.65, 0.3);
 
     // Coastal shelter hut — lighter, open-air feel
     const ch4HutX = ashX + 7, ch4HutZ = ashZ - 3;
@@ -3108,8 +3134,8 @@ export class World {
 
     const ch4HutLight = new PointLight('ch4_hutLight', new Vector3(ch4HutX, 2.2, ch4HutZ), this.scene);
     ch4HutLight.diffuse = new Color3(1.0, 0.85, 0.55);
-    ch4HutLight.intensity = 1.5;
-    ch4HutLight.range = 8;
+    ch4HutLight.intensity = 2.5;
+    ch4HutLight.range = 12;
 
     // Sacred fire pit (Havan Kund) — shore campfire
     const ch4PitBase = MeshBuilder.CreateBox('ch4_firePit', { width: 1.5, height: 0.4, depth: 1.5 }, this.scene);
@@ -3127,8 +3153,8 @@ export class World {
 
     const ch4FireLight = new PointLight('ch4_fireLight', new Vector3(ashX, 1.5, ashZ), this.scene);
     ch4FireLight.diffuse = new Color3(1.0, 0.65, 0.25);
-    ch4FireLight.intensity = 3;
-    ch4FireLight.range = 12;
+    ch4FireLight.intensity = 5;
+    ch4FireLight.range = 18;
 
     // T2-5: Add concentric rangoli circle rings at fire pit
     const saffrronOrange = new Color3(1.0, 0.6, 0.2);
@@ -3162,7 +3188,7 @@ export class World {
     ch4Disc.rotation.x = Math.PI / 2;
     ch4Disc.position.set(ashX, 0.05, ashZ + 6);
     const ch4DiscMat = new StandardMaterial('ch4_discMat', this.scene);
-    ch4DiscMat.diffuseColor = new Color3(0.55, 0.5, 0.4);
+    ch4DiscMat.diffuseColor = new Color3(0.75, 0.7, 0.6);
     ch4Disc.material = ch4DiscMat;
 
     for (let i = 0; i < 8; i++) {
@@ -3180,7 +3206,7 @@ export class World {
     // Entrance torana gate (driftwood coastal gate)
     const ch4GateX = ashX, ch4GateZ = ashZ - 12;
     const ch4GateMat = new StandardMaterial('ch4_ashGateMat', this.scene);
-    ch4GateMat.diffuseColor = new Color3(0.5, 0.42, 0.3);
+    ch4GateMat.diffuseColor = new Color3(0.7, 0.65, 0.5);
 
     for (const side of [-1, 1]) {
       const gP = MeshBuilder.CreateCylinder(`ch4_ashGate_${side}`, { height: 3.8, diameter: 0.35, tessellation: 8 }, this.scene);
@@ -3211,7 +3237,7 @@ export class World {
 
     // 3 sacred stone pillars at shrine center
     const pillarMat = new StandardMaterial(`ch5_pillarMat`, this.scene);
-    pillarMat.diffuseColor = new Color3(0.6, 0.55, 0.45);
+    pillarMat.diffuseColor = new Color3(0.8, 0.75, 0.65);
     pillarMat.specularColor = new Color3(0.2, 0.2, 0.2);
 
     for (let i = 0; i < 3; i++) {
@@ -3239,7 +3265,7 @@ export class World {
 
     // 2 camp tents: angled boxes forming A-shape
     const tentMat = new StandardMaterial(`ch5_tentMat`, this.scene);
-    tentMat.diffuseColor = new Color3(0.5, 0.35, 0.2);
+    tentMat.diffuseColor = new Color3(0.75, 0.58, 0.38);
 
     for (let i = 0; i < 2; i++) {
       const tentCenterX = centerX + (i === 0 ? -12 : 12) + (rng() - 0.5) * 2;

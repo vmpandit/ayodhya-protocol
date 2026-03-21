@@ -36,14 +36,14 @@ export class Renderer {
 
     // ── Scene ───────────────────────────────────────────────────────
     this.scene = new Scene(this.engine);
-    // Deep blood-orange sky at the horizon, dark canopy overhead
-    this.scene.clearColor = new Color4(0.06, 0.03, 0.02, 1);
-    this.scene.ambientColor = new Color3(0.32, 0.22, 0.18);
+    // Warm dusk sky — brighter than before to reduce overall darkness
+    this.scene.clearColor = new Color4(0.12, 0.07, 0.04, 1);
+    this.scene.ambientColor = new Color3(0.45, 0.35, 0.28);
 
     // Layered exponential fog — near mist + far haze
     this.scene.fogMode    = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.008;  // A-04: Reduced from 0.012 to 0.008 for better visibility
-    this.scene.fogColor   = new Color3(0.22, 0.1, 0.06); // warm ember haze
+    this.scene.fogDensity = 0.006;  // Reduced further for better depth visibility
+    this.scene.fogColor   = new Color3(0.3, 0.18, 0.1);  // warm amber haze (brighter)
 
     // ── Camera ──────────────────────────────────────────────────────
     this.camera       = new FreeCamera('camera', new Vector3(0, 8, -12), this.scene);
@@ -53,11 +53,11 @@ export class Renderer {
     this.camera.detachControl();
 
     // ── Lighting ────────────────────────────────────────────────────
-    // Hemisphere — brighter ambient so scene isn't too dark
+    // Hemisphere — substantial ambient fill to prevent dark muddy look
     const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), this.scene);
-    ambient.intensity   = 0.62;
-    ambient.diffuse     = new Color3(0.65, 0.55, 0.45);   // warm upper sky
-    ambient.groundColor = new Color3(0.18, 0.14, 0.22);   // cool purple bounce
+    ambient.intensity   = 0.85;
+    ambient.diffuse     = new Color3(0.75, 0.65, 0.55);   // warm upper sky (brighter)
+    ambient.groundColor = new Color3(0.28, 0.22, 0.3);    // cool purple bounce (brighter)
 
     // Key light — low-angle blood-orange sun (22° elevation, NW)
     const sun = new DirectionalLight('sun',
@@ -67,12 +67,12 @@ export class Renderer {
     sun.specular  = new Color3(1.0, 0.55, 0.2);
     sun.position  = new Vector3(40, 60, -40);
 
-    // Fill light — indigo/purple from opposite side (sky fill)
+    // Fill light — indigo/purple from opposite side (sky fill) — boosted
     const fill = new DirectionalLight('fill',
       new Vector3(0.5, -0.5, -0.5).normalize(), this.scene);
-    fill.intensity = 0.85;
-    fill.diffuse   = new Color3(0.25, 0.2, 0.55);         // indigo fill
-    fill.specular  = new Color3(0.0, 0.0, 0.0);           // no specular contribution
+    fill.intensity = 1.1;
+    fill.diffuse   = new Color3(0.35, 0.3, 0.55);         // brighter indigo fill
+    fill.specular  = new Color3(0.05, 0.05, 0.08);        // subtle specular
 
     // ── Shadows (key light only) ─────────────────────────────────────
     this.shadowGenerator = new ShadowGenerator(2048, sun);
@@ -107,12 +107,12 @@ export class Renderer {
     pipe.imageProcessingEnabled = true;
     pipe.imageProcessing.toneMappingEnabled = true;
     pipe.imageProcessing.toneMappingType    = ImageProcessingConfiguration.TONEMAPPING_ACES;
-    pipe.imageProcessing.exposure    = 1.65;
-    pipe.imageProcessing.contrast    = 1.35;              // punchy contrast
+    pipe.imageProcessing.exposure    = 1.85;              // brighter overall
+    pipe.imageProcessing.contrast    = 1.25;              // less harsh contrast
 
-    // Dramatic vignette
+    // Subtle vignette — less aggressive
     pipe.imageProcessing.vignetteEnabled = true;
-    pipe.imageProcessing.vignetteWeight  = 2.2;
+    pipe.imageProcessing.vignetteWeight  = 1.4;
     pipe.imageProcessing.vignetteColor   = new Color4(0, 0, 0, 0);
 
     // Color grade — warm highlights, cool shadows, boosted saturation
@@ -134,14 +134,14 @@ export class Renderer {
   // A-03: Set biome fog and atmosphere per chapter
   setBiomeFog(chapter: number): void {
     const fogConfigs: Record<number, { color: [number, number, number]; density: number }> = {
-      0: { color: [0.1, 0.18, 0.08], density: 0.012 },
-      1: { color: [0.1, 0.18, 0.08], density: 0.015 },
-      2: { color: [0.3, 0.22, 0.12], density: 0.008 },
-      3: { color: [0.2, 0.22, 0.25], density: 0.01 },
-      4: { color: [0.15, 0.2, 0.28], density: 0.012 },
-      5: { color: [0.18, 0.22, 0.3], density: 0.018 },
-      6: { color: [0.35, 0.2, 0.08], density: 0.014 },
-      7: { color: [0.35, 0.2, 0.08], density: 0.014 },
+      0: { color: [0.18, 0.28, 0.14], density: 0.008 },   // Green forest mist
+      1: { color: [0.16, 0.25, 0.12], density: 0.01 },    // Dense forest haze
+      2: { color: [0.38, 0.28, 0.16], density: 0.007 },   // Warm scorched haze
+      3: { color: [0.3, 0.32, 0.35], density: 0.008 },    // Cool highland mist
+      4: { color: [0.25, 0.3, 0.38], density: 0.008 },    // Coastal blue haze
+      5: { color: [0.28, 0.32, 0.4], density: 0.012 },    // Ocean mist
+      6: { color: [0.45, 0.32, 0.15], density: 0.01 },    // Golden Lanka approach
+      7: { color: [0.45, 0.32, 0.15], density: 0.01 },    // Golden Lanka
     };
     const cfg = fogConfigs[chapter] ?? fogConfigs[0];
     this.scene.fogColor = new Color3(cfg.color[0], cfg.color[1], cfg.color[2]);

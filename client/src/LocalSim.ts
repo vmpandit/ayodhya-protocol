@@ -370,6 +370,7 @@ export class LocalSim {
     sprint: false,
     specialArrow: false,
     shockwave: false,
+    crouch: false,
     talk: false,
     meditate: false,
   };
@@ -1126,6 +1127,11 @@ export class LocalSim {
         this.tutorialSteps.jump = true;
         this.onTutorialStep('jump', this.checkTutorialComplete());
       }
+      // Check crouch
+      if (!this.tutorialSteps.crouch && (flags & InputFlag.Crouch)) {
+        this.tutorialSteps.crouch = true;
+        this.onTutorialStep('crouch', this.checkTutorialComplete());
+      }
       // Check meditate
       if (!this.tutorialSteps.meditate && (flags & InputFlag.Meditate)) {
         this.tutorialSteps.meditate = true;
@@ -1144,14 +1150,13 @@ export class LocalSim {
     if (len > 0) { moveX /= len; moveZ /= len; }
 
     let speed = C.PLAYER_SPEED;
-    if ((flags & InputFlag.Sprint) && this.player.stamina > 0) {
+    // Crouch and sprint are mutually exclusive (crouch wins — stealth takes priority)
+    if (this.isCrouching) {
+      speed *= C.CROUCH_SPEED_MULTIPLIER;
+    } else if ((flags & InputFlag.Sprint) && this.player.stamina > 0) {
       speed *= C.SPRINT_MULTIPLIER;
       this.player.stamina -= C.SPRINT_STAMINA_COST * input.dt;
       if (this.player.stamina < 0) this.player.stamina = 0;
-    }
-    // T3-4: Apply crouch speed reduction
-    if (this.isCrouching) {
-      speed *= C.CROUCH_SPEED_MULTIPLIER;
     }
     // Rākshasa maya slow effect
     if (now < this.mayaSlowEnd) {
@@ -1193,8 +1198,8 @@ export class LocalSim {
       this.grounded = true;
     }
 
-    // Jump
-    if ((flags & InputFlag.Jump) && this.grounded) {
+    // Jump (blocked during dodge — dodge has full priority)
+    if ((flags & InputFlag.Jump) && this.grounded && !this.player.isDodging) {
       this.playerVelY = C.JUMP_FORCE;
       this.grounded = false;
     }

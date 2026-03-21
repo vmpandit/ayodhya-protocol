@@ -65,8 +65,8 @@ export class PlayerController {
   private readonly SHAKE_DECAY = 9;
 
   // ── Camera ──
-  private cameraDistance = 12;
-  private cameraHeight = 5;
+  private cameraDistance = 10;    // Tightened from 12 — closer, more intimate action view
+  private cameraHeight = 4.2;     // Lowered from 5 — better action visibility
   private cameraSmoothPos = new Vector3(0, 5, -12);
 
   // ── Mouse position tracking for free-cursor aiming ──
@@ -120,8 +120,8 @@ export class PlayerController {
     if (this.isTouch) {
       this.bindTouchEvents();
       document.getElementById('touchControls')?.classList.add('visible');
-      this.cameraDistance = 8;
-      this.cameraHeight = 3.5;
+      this.cameraDistance = 7;
+      this.cameraHeight = 3;
     }
   }
 
@@ -192,6 +192,9 @@ export class PlayerController {
           crosshair.style.left = '50%';
           crosshair.style.top = '50%';
           crosshair.style.opacity = '1';
+          // Clear the "Click to resume" note when re-locking
+          const note = document.getElementById('pointerLockNote');
+          if (note) { note.style.display = 'none'; note.style.opacity = '0'; }
         } else {
           // Pointer lock lost (ESC pressed or another reason)
           crosshair.style.opacity = '0.5';
@@ -340,6 +343,7 @@ export class PlayerController {
     this.bindTouchButton('btnJump', () => { this.touchFlags |= InputFlag.Jump; }, () => { this.touchFlags &= ~InputFlag.Jump; });
     this.bindTouchButton('btnDodge', () => { this.touchFlags |= InputFlag.Dodge; }, () => { this.touchFlags &= ~InputFlag.Dodge; });
     this.bindTouchButton('btnSprint', () => { this.touchFlags |= InputFlag.Sprint; }, () => { this.touchFlags &= ~InputFlag.Sprint; });
+    this.bindTouchButton('btnCrouch', () => { this.touchFlags |= InputFlag.Crouch; }, () => { this.touchFlags &= ~InputFlag.Crouch; });
     this.bindTouchButton('btnFire', () => { this.tryFireArrow(); });
     this.bindTouchButton('btnShockwave', () => { this.tryShockwave(); });
   }
@@ -534,11 +538,16 @@ export class PlayerController {
     }
 
     let speed = C.PLAYER_SPEED;
-    if (flags & InputFlag.Sprint) speed *= C.SPRINT_MULTIPLIER;
+    // Crouch and sprint are mutually exclusive (crouch wins — you can't stealth-sprint)
+    if (flags & InputFlag.Crouch) {
+      speed *= C.CROUCH_SPEED_MULTIPLIER;
+    } else if (flags & InputFlag.Sprint) {
+      speed *= C.SPRINT_MULTIPLIER;
+    }
 
-    // Smooth acceleration / deceleration — gives movement a physical weight
-    const accel  = flags & InputFlag.Sprint ? 16 : 13;
-    const decel  = 11;
+    // Smooth acceleration / deceleration — snappy Souls-like feel
+    const accel  = flags & InputFlag.Sprint ? 24 : 18;
+    const decel  = 22;
     const hasInput = targetX !== 0 || targetZ !== 0;
     const lf = Math.min(1, input.dt * (hasInput ? accel : decel));
     this.moveVelX += (targetX * speed - this.moveVelX) * lf;
@@ -574,7 +583,8 @@ export class PlayerController {
     const camY = targetY + this.cameraHeight + Math.sin(-this.pitch) * this.cameraDistance * 0.3;
     const camZ = targetZ + Math.cos(this.yaw) * this.cameraDistance * Math.cos(this.pitch * 0.5);
 
-    const smoothing = 1 - Math.pow(0.001, dt);
+    // Frame-rate independent exponential decay: 60ms half-life → ~166ms to 95% target
+    const smoothing = 1 - Math.pow(0.5, dt / 0.06);
     this.cameraSmoothPos.x += (camX - this.cameraSmoothPos.x) * smoothing;
     this.cameraSmoothPos.y += (camY - this.cameraSmoothPos.y) * smoothing;
     this.cameraSmoothPos.z += (camZ - this.cameraSmoothPos.z) * smoothing;

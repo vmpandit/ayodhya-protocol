@@ -7,19 +7,19 @@ export const MAX_PLAYERS = 4;
 // Physics
 export const GRAVITY = -20;
 export const PLAYER_SPEED = 6;
-export const SPRINT_MULTIPLIER = 1.7;
-export const JUMP_FORCE = 9;
-export const DODGE_FORCE = 12;
-export const DODGE_DURATION_MS = 300;
-export const DODGE_COOLDOWN_MS = 1200;
+export const SPRINT_MULTIPLIER = 2.1;   // Buffed from 1.7 — sprint should feel dramatically faster
+export const JUMP_FORCE = 10.5;         // Buffed from 9 — apex 2.76m, 1.05s hang time (Zelda-like)
+export const DODGE_FORCE = 15;          // Buffed from 12 — covers 5.25 units (was 3.6, too short)
+export const DODGE_DURATION_MS = 350;   // Buffed from 300 — slightly longer for animation feel
+export const DODGE_COOLDOWN_MS = 700;   // Reduced from 1200 — enables skill-based dodge chains
 
 // Combat
 export const BOW_MIN_CHARGE_MS = 200;
 export const BOW_MAX_CHARGE_MS = 1500;
 export const ARROW_BASE_DAMAGE = 15;
 export const ARROW_MAX_DAMAGE = 45;
-export const ARROW_SPEED = 35;
-export const ARROW_LIFETIME_MS = 3000;
+export const ARROW_SPEED = 28;          // Reduced from 35 — prevents cross-arena sniping
+export const ARROW_LIFETIME_MS = 2200;  // Reduced from 3000 — effective range ~62 units (was 105)
 export const FIRE_ARROW_COOLDOWN_MS = 5000;
 export const FIRE_ARROW_DAMAGE = 30;
 export const FIRE_ARROW_DOT = 5;
@@ -60,9 +60,9 @@ export const ENEMY_SPECIAL_ARROW_ALERT_MS = 1200; // alert display time
 // Player stats
 export const PLAYER_MAX_HP = 100;
 export const PLAYER_MAX_STAMINA = 100;
-export const STAMINA_REGEN_RATE = 15; // per second
-export const SPRINT_STAMINA_COST = 20; // per second
-export const DODGE_STAMINA_COST = 25;
+export const STAMINA_REGEN_RATE = 20; // per second (buffed from 15 — faster recovery for active combat)
+export const SPRINT_STAMINA_COST = 15; // per second (reduced from 20 — sprint now sustainable)
+export const DODGE_STAMINA_COST = 20;  // reduced from 25 — less punishing, encourages evasion
 export const REVIVE_DURATION_MS = 3000;
 export const REVIVE_RANGE = 3;
 
@@ -173,7 +173,7 @@ export const DHARMA_BOND_HEAL_RATE = 3;  // HP/s when companions within range
 export const DHARMA_BOND_RANGE = 10;
 
 // ── Stamina-Tiered Shockwave ──
-export const SHOCKWAVE_STAMINA_COST = 40;
+export const SHOCKWAVE_STAMINA_COST = 35; // Reduced from 40 — better skill expression
 export const SHOCKWAVE_WEAK_RADIUS = 4;
 export const SHOCKWAVE_WEAK_DAMAGE = 20;
 export const SHOCKWAVE_STRONG_RADIUS = 10;

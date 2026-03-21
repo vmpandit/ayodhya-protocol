@@ -1080,16 +1080,6 @@ export class World {
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
 
-      // T2-6: Add divine aura glow sphere around player
-      const auraSphere = MeshBuilder.CreateSphere(`${n}auraSphere`, { diameter: 2.5, segments: 16 }, this.scene);
-      auraSphere.parent = root;
-      auraSphere.position.y = 1.25; // Center on player
-      const auraMat = new StandardMaterial(`${n}auraMat`, this.scene);
-      auraMat.alpha = 0.08;
-      auraMat.emissiveColor = new Color3(1.0, 0.85, 0.4); // Gold
-      auraMat.diffuseColor = new Color3(0, 0, 0); // Transparent diffuse
-      auraSphere.material = auraMat;
-
       return root;
     }
 
@@ -1168,16 +1158,6 @@ export class World {
 
     // ── Quiver (cylindrical, on back right) ───────────────────────────
     this.mkCyl(`${n}quiver`, 0.42, 0.085, 0.085, 8, mDark, root, 0.22, 1.13, 0.21, 0, 0, 0.25);
-
-    // T2-6: Add divine aura glow sphere around player
-    const auraSphere = MeshBuilder.CreateSphere(`${n}auraSphere`, { diameter: 2.5, segments: 16 }, this.scene);
-    auraSphere.parent = root;
-    auraSphere.position.y = 1.0; // Center on player torso
-    const auraMat = new StandardMaterial(`${n}auraMat`, this.scene);
-    auraMat.alpha = 0.08;
-    auraMat.emissiveColor = new Color3(1.0, 0.85, 0.4); // Gold
-    auraMat.diffuseColor = new Color3(0, 0, 0); // Transparent diffuse
-    auraSphere.material = auraMat;
 
     return root;
   }
@@ -2363,6 +2343,80 @@ export class World {
   //  CHAPTER LANDMARKS (Ramayana-themed procedural structures per chapter)
   // ══════════════════════════════════════════════════════════════════════════
 
+  /** Build an authentic geometric rangoli pattern at the given world position */
+  private buildRangoli(prefix: string, cx: number, cz: number): void {
+    // Shared materials (reuse scene-wide by checking cache)
+    let saffron = this.scene.getMaterialByName('rangoli_saffron') as StandardMaterial;
+    let red = this.scene.getMaterialByName('rangoli_red') as StandardMaterial;
+    let gold = this.scene.getMaterialByName('rangoli_gold') as StandardMaterial;
+    let white = this.scene.getMaterialByName('rangoli_white') as StandardMaterial;
+    if (!saffron) {
+      saffron = new StandardMaterial('rangoli_saffron', this.scene);
+      saffron.emissiveColor = new Color3(1.0, 0.6, 0.2);
+      saffron.diffuseColor = new Color3(1.0, 0.6, 0.2);
+      saffron.backFaceCulling = false;
+      red = new StandardMaterial('rangoli_red', this.scene);
+      red.emissiveColor = new Color3(0.7, 0.12, 0.06);
+      red.diffuseColor = new Color3(0.7, 0.12, 0.06);
+      red.backFaceCulling = false;
+      gold = new StandardMaterial('rangoli_gold', this.scene);
+      gold.emissiveColor = new Color3(1.0, 0.85, 0.4);
+      gold.diffuseColor = new Color3(1.0, 0.85, 0.4);
+      gold.backFaceCulling = false;
+      white = new StandardMaterial('rangoli_white', this.scene);
+      white.emissiveColor = new Color3(0.95, 0.9, 0.8);
+      white.diffuseColor = new Color3(0.95, 0.9, 0.8);
+      white.backFaceCulling = false;
+    }
+
+    // Outer + inner boundary rings
+    const outer = MeshBuilder.CreateTorus(`${prefix}_outer`, { diameter: 7.0, thickness: 0.1, tessellation: 48 }, this.scene);
+    outer.position.set(cx, 0.02, cz);
+    outer.material = gold;
+    const inner = MeshBuilder.CreateTorus(`${prefix}_inner`, { diameter: 3.0, thickness: 0.08, tessellation: 48 }, this.scene);
+    inner.position.set(cx, 0.02, cz);
+    inner.material = saffron;
+
+    // 8 lotus petals radiating outward
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const px = cx + Math.cos(angle) * 2.2;
+      const pz = cz + Math.sin(angle) * 2.2;
+      const petal = MeshBuilder.CreateDisc(`${prefix}_petal_${i}`, { radius: 0.55, tessellation: 4 }, this.scene);
+      petal.rotation.x = Math.PI / 2;
+      petal.rotation.y = angle;
+      petal.scaling.set(0.5, 1, 1.8);
+      petal.position.set(px, 0.025, pz);
+      petal.material = i % 2 === 0 ? saffron : red;
+    }
+
+    // 8 radial arms between petals
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const arm = MeshBuilder.CreatePlane(`${prefix}_arm_${i}`, { width: 0.06, height: 2.0 }, this.scene);
+      arm.rotation.x = Math.PI / 2;
+      arm.rotation.y = angle;
+      arm.position.set(cx + Math.cos(angle) * 2.5, 0.022, cz + Math.sin(angle) * 2.5);
+      arm.material = white;
+    }
+
+    // 8 diamond dots on outer ring
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const dot = MeshBuilder.CreateDisc(`${prefix}_dot_${i}`, { radius: 0.18, tessellation: 4 }, this.scene);
+      dot.rotation.x = Math.PI / 2;
+      dot.rotation.y = angle + Math.PI / 4;
+      dot.position.set(cx + Math.cos(angle) * 3.2, 0.023, cz + Math.sin(angle) * 3.2);
+      dot.material = gold;
+    }
+
+    // Central lotus
+    const lotus = MeshBuilder.CreateDisc(`${prefix}_lotus`, { radius: 0.4, tessellation: 8 }, this.scene);
+    lotus.rotation.x = Math.PI / 2;
+    lotus.position.set(cx, 0.03, cz);
+    lotus.material = gold;
+  }
+
   private buildChapterLandmarks(): void {
     const rng = mulberry32(777); // seeded RNG for deterministic random offsets
 
@@ -2467,34 +2521,8 @@ export class World {
     fireLight.intensity = 5;
     fireLight.range = 18;
 
-    // T2-5: Add concentric rangoli circle rings at fire pit
-    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
-    const deepRed = new Color3(0.6, 0.1, 0.05);
-    const goldColor = new Color3(1.0, 0.85, 0.4);
-
-    // Ring 1: radius 2.0, thickness 0.08, saffron orange
-    const ring1 = MeshBuilder.CreateTorus('ch0_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
-    ring1.position.set(fireX, 0.02, fireZ);
-    const ring1Mat = new StandardMaterial('ch0_ring1Mat', this.scene);
-    ring1Mat.emissiveColor = saffrronOrange;
-    ring1Mat.diffuseColor = saffrronOrange;
-    ring1.material = ring1Mat;
-
-    // Ring 2: radius 3.0, thickness 0.06, deep red
-    const ring2 = MeshBuilder.CreateTorus('ch0_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
-    ring2.position.set(fireX, 0.02, fireZ);
-    const ring2Mat = new StandardMaterial('ch0_ring2Mat', this.scene);
-    ring2Mat.emissiveColor = deepRed;
-    ring2Mat.diffuseColor = deepRed;
-    ring2.material = ring2Mat;
-
-    // Ring 3: radius 4.0, thickness 0.05, gold
-    const ring3 = MeshBuilder.CreateTorus('ch0_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
-    ring3.position.set(fireX, 0.02, fireZ);
-    const ring3Mat = new StandardMaterial('ch0_ring3Mat', this.scene);
-    ring3Mat.emissiveColor = goldColor;
-    ring3Mat.diffuseColor = goldColor;
-    ring3.material = ring3Mat;
+    // Authentic geometric rangoli around fire pit
+    this.buildRangoli('ch0_rangoli', fireX, fireZ);
 
     // ─── MEDITATION CIRCLE (Tapasya spot) ───
     const discRadius = 3;
@@ -2680,31 +2708,8 @@ export class World {
     ch1FireLight.intensity = 5;
     ch1FireLight.range = 18;
 
-    // T2-5: Add concentric rangoli circle rings at fire pit
-    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
-    const deepRed = new Color3(0.6, 0.1, 0.05);
-    const goldColor = new Color3(1.0, 0.85, 0.4);
-
-    const ch1Ring1 = MeshBuilder.CreateTorus('ch1_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
-    ch1Ring1.position.set(ashX, 0.02, ashZ);
-    const ch1Ring1Mat = new StandardMaterial('ch1_ring1Mat', this.scene);
-    ch1Ring1Mat.emissiveColor = saffrronOrange;
-    ch1Ring1Mat.diffuseColor = saffrronOrange;
-    ch1Ring1.material = ch1Ring1Mat;
-
-    const ch1Ring2 = MeshBuilder.CreateTorus('ch1_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
-    ch1Ring2.position.set(ashX, 0.02, ashZ);
-    const ch1Ring2Mat = new StandardMaterial('ch1_ring2Mat', this.scene);
-    ch1Ring2Mat.emissiveColor = deepRed;
-    ch1Ring2Mat.diffuseColor = deepRed;
-    ch1Ring2.material = ch1Ring2Mat;
-
-    const ch1Ring3 = MeshBuilder.CreateTorus('ch1_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
-    ch1Ring3.position.set(ashX, 0.02, ashZ);
-    const ch1Ring3Mat = new StandardMaterial('ch1_ring3Mat', this.scene);
-    ch1Ring3Mat.emissiveColor = goldColor;
-    ch1Ring3Mat.diffuseColor = goldColor;
-    ch1Ring3.material = ch1Ring3Mat;
+    // Authentic geometric rangoli around fire pit
+    this.buildRangoli('ch1_rangoli', ashX, ashZ);
 
     // Meditation circle with stone boundary markers
     const ch1DiscR = 3;
@@ -2964,31 +2969,8 @@ export class World {
     ch3FireLight.intensity = 5;
     ch3FireLight.range = 18;
 
-    // T2-5: Add concentric rangoli circle rings at fire pit
-    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
-    const deepRed = new Color3(0.6, 0.1, 0.05);
-    const goldColor = new Color3(1.0, 0.85, 0.4);
-
-    const ch3Ring1 = MeshBuilder.CreateTorus('ch3_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
-    ch3Ring1.position.set(ashX, 0.02, ashZ);
-    const ch3Ring1Mat = new StandardMaterial('ch3_ring1Mat', this.scene);
-    ch3Ring1Mat.emissiveColor = saffrronOrange;
-    ch3Ring1Mat.diffuseColor = saffrronOrange;
-    ch3Ring1.material = ch3Ring1Mat;
-
-    const ch3Ring2 = MeshBuilder.CreateTorus('ch3_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
-    ch3Ring2.position.set(ashX, 0.02, ashZ);
-    const ch3Ring2Mat = new StandardMaterial('ch3_ring2Mat', this.scene);
-    ch3Ring2Mat.emissiveColor = deepRed;
-    ch3Ring2Mat.diffuseColor = deepRed;
-    ch3Ring2.material = ch3Ring2Mat;
-
-    const ch3Ring3 = MeshBuilder.CreateTorus('ch3_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
-    ch3Ring3.position.set(ashX, 0.02, ashZ);
-    const ch3Ring3Mat = new StandardMaterial('ch3_ring3Mat', this.scene);
-    ch3Ring3Mat.emissiveColor = goldColor;
-    ch3Ring3Mat.diffuseColor = goldColor;
-    ch3Ring3.material = ch3Ring3Mat;
+    // Authentic rangoli pattern at fire pit
+    this.buildRangoli('ch3_rangoli', ashX, ashZ);
 
     // Meditation circle with stone boundary markers
     const ch3DiscR = 3;
@@ -3156,31 +3138,8 @@ export class World {
     ch4FireLight.intensity = 5;
     ch4FireLight.range = 18;
 
-    // T2-5: Add concentric rangoli circle rings at fire pit
-    const saffrronOrange = new Color3(1.0, 0.6, 0.2);
-    const deepRed = new Color3(0.6, 0.1, 0.05);
-    const goldColor = new Color3(1.0, 0.85, 0.4);
-
-    const ch4Ring1 = MeshBuilder.CreateTorus('ch4_rangoli_ring1', { diameter: 4.0, thickness: 0.08, tessellation: 32 }, this.scene);
-    ch4Ring1.position.set(ashX, 0.02, ashZ);
-    const ch4Ring1Mat = new StandardMaterial('ch4_ring1Mat', this.scene);
-    ch4Ring1Mat.emissiveColor = saffrronOrange;
-    ch4Ring1Mat.diffuseColor = saffrronOrange;
-    ch4Ring1.material = ch4Ring1Mat;
-
-    const ch4Ring2 = MeshBuilder.CreateTorus('ch4_rangoli_ring2', { diameter: 6.0, thickness: 0.06, tessellation: 32 }, this.scene);
-    ch4Ring2.position.set(ashX, 0.02, ashZ);
-    const ch4Ring2Mat = new StandardMaterial('ch4_ring2Mat', this.scene);
-    ch4Ring2Mat.emissiveColor = deepRed;
-    ch4Ring2Mat.diffuseColor = deepRed;
-    ch4Ring2.material = ch4Ring2Mat;
-
-    const ch4Ring3 = MeshBuilder.CreateTorus('ch4_rangoli_ring3', { diameter: 8.0, thickness: 0.05, tessellation: 32 }, this.scene);
-    ch4Ring3.position.set(ashX, 0.02, ashZ);
-    const ch4Ring3Mat = new StandardMaterial('ch4_ring3Mat', this.scene);
-    ch4Ring3Mat.emissiveColor = goldColor;
-    ch4Ring3Mat.diffuseColor = goldColor;
-    ch4Ring3.material = ch4Ring3Mat;
+    // Authentic rangoli pattern at fire pit
+    this.buildRangoli('ch4_rangoli', ashX, ashZ);
 
     // Meditation circle with shell/stone markers
     const ch4DiscR = 3;

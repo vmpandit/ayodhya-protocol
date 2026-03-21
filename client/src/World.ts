@@ -1052,7 +1052,7 @@ export class World {
       billboardMat.transparencyMode = 3; // ALPHATESTANDBLEND — crisp center + smooth edges
       billboardMat.alphaMode = Engine.ALPHA_COMBINE;
       billboardMat.alphaCutOff = 0.15; // low threshold: only fully transparent pixels are cut
-      billboardMat.emissiveColor = new Color3(0.25, 0.22, 0.18); // brighter self-illumination so sprite is visible
+      billboardMat.emissiveColor = new Color3(0.12, 0.1, 0.08); // subtle self-illumination
       billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
@@ -1323,7 +1323,7 @@ export class World {
       billboardMat.transparencyMode = 3; // ALPHATESTANDBLEND — smooth edges
       billboardMat.alphaMode = Engine.ALPHA_COMBINE;
       billboardMat.alphaCutOff = 0.15;
-      billboardMat.emissiveColor = new Color3(0.22, 0.18, 0.14); // brighter self-illumination
+      billboardMat.emissiveColor = new Color3(0.1, 0.08, 0.06); // subtle self-illumination
       billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
@@ -1442,7 +1442,7 @@ export class World {
       billboardMat.transparencyMode = 3; // ALPHATESTANDBLEND — smooth edges
       billboardMat.alphaMode = Engine.ALPHA_COMBINE;
       billboardMat.alphaCutOff = 0.15;
-      billboardMat.emissiveColor = new Color3(0.25, 0.2, 0.15);
+      billboardMat.emissiveColor = new Color3(0.12, 0.1, 0.07); // subtle self-illumination
       billboardMat.specularColor = new Color3(0, 0, 0);
       billboardMat.backFaceCulling = false;
       billboardPlane.material = billboardMat;
@@ -2037,7 +2037,7 @@ export class World {
       mat.transparencyMode = 3; // ALPHATESTANDBLEND — smooth edges
       mat.alphaMode = Engine.ALPHA_COMBINE;
       mat.alphaCutOff = 0.15;
-      mat.emissiveColor = new Color3(0.3, 0.28, 0.25); // brighter self-illumination
+      mat.emissiveColor = new Color3(0.15, 0.13, 0.11); // subtle self-illumination
       mat.disableLighting = false;
     } else {
       // Fallback: build a detailed primitive humanoid instead of colored plane

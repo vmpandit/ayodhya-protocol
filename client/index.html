@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; font-family: 'Segoe UI', sans-serif; -webkit-user-select: none; user-select: none; }
-    #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+    #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; cursor: crosshair; }
     @keyframes screenShake {
       0%, 100% { transform: translate(0,0); }
       10% { transform: translate(-3px, 2px); }
@@ -840,6 +840,7 @@
     <div id="goalWidget">
       <div id="goalLabel">CHAPTER GOAL</div>
       <div id="goalText">???</div>
+      <div id="killCounter" style="display:none; margin-top:6px; font-family:'Rajdhani',monospace; font-size:14px; color:#ffd700; letter-spacing:1px;"></div>
     </div>
 
     <div id="bossBar">
@@ -1084,9 +1085,9 @@
         <div class="instr-section-title">Controls — Keyboard &amp; Mouse</div>
         <div class="instr-row"><span class="instr-key">Arrow Keys</span><span class="instr-desc">Move</span></div>
         <div class="instr-row"><span class="instr-key">W A S D</span><span class="instr-desc">Camera — orbit view around Rama</span></div>
-        <div class="instr-row"><span class="instr-key">Mouse</span><span class="instr-desc">Look / Aim (click game to lock cursor). Hover over enemy to target.</span></div>
-        <div class="instr-row"><span class="instr-key">L-Click / Q</span><span class="instr-desc">Fire basic arrow at targeted enemy</span></div>
-        <div class="instr-row"><span class="instr-key">R-Click</span><span class="instr-desc">Fire selected special arrow (Astra)</span></div>
+        <div class="instr-row"><span class="instr-key">Mouse</span><span class="instr-desc">Aim — move crosshair to target enemies</span></div>
+        <div class="instr-row"><span class="instr-key">L-Click / Q</span><span class="instr-desc">Fire basic arrow at crosshair</span></div>
+        <div class="instr-row"><span class="instr-key">R-Click</span><span class="instr-desc">Fire selected special arrow (Astra) at crosshair</span></div>
         <div class="instr-row"><span class="instr-key">Scroll / 1-5</span><span class="instr-desc">Cycle or select special arrow: Agni, Vayu, Varuna, Naga, Brahma</span></div>
         <div class="instr-row"><span class="instr-key">Shift</span><span class="instr-desc">Sprint (costs stamina)</span></div>
         <div class="instr-row"><span class="instr-key">Space</span><span class="instr-desc">Jump</span></div>

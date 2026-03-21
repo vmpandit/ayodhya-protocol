@@ -24,8 +24,6 @@ export class PlayerController {
 
   // ── Keyboard state ──
   private keys = new Set<string>();
-  private rightMouseDown = false;
-  private rightMouseDragged = false;
 
   // ── Input suppression (when dialogue/backstory is active) ──
   public suppressMovement = false;
@@ -152,96 +150,38 @@ export class PlayerController {
       if (e.code === 'KeyR') this.reviving = false;
     });
 
-    // Mouse move: track position for free-cursor aiming
+    // Mouse move: track position for free-cursor aiming (no camera rotation)
     this.canvas.addEventListener('mousemove', (e) => {
       this.mouseScreenX = e.clientX;
       this.mouseScreenY = e.clientY;
-
-      // Pointer-locked mode: mouse always rotates camera (standard FPS)
-      if (document.pointerLockElement === this.canvas) {
-        this.yaw -= e.movementX * 0.003;
-        this.pitch -= e.movementY * 0.003;
-        this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
-        // Keep crosshair centered when pointer locked
-        this.mouseScreenX = this.canvas.clientWidth / 2;
-        this.mouseScreenY = this.canvas.clientHeight / 2;
-      } else if (this.rightMouseDown) {
-        // Right-click drag rotates camera (fallback for non-locked mode)
-        this.yaw -= e.movementX * 0.003;
-        this.pitch -= e.movementY * 0.003;
-        this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
-        if (Math.abs(e.movementX) > 2 || Math.abs(e.movementY) > 2) {
-          this.rightMouseDragged = true;
-        }
-      }
     });
 
-    // Click canvas to lock pointer (standard FPS camera control)
-    this.canvas.addEventListener('click', () => {
-      if (!document.pointerLockElement) {
-        this.canvas.requestPointerLock();
-      }
-    });
-
-    // ESC exits pointer lock (handled by browser), track state
-    document.addEventListener('pointerlockchange', () => {
-      // Update crosshair visibility based on lock state
-      const crosshair = document.getElementById('crosshair');
-      if (crosshair) {
-        if (document.pointerLockElement === this.canvas) {
-          crosshair.style.left = '50%';
-          crosshair.style.top = '50%';
-          crosshair.style.opacity = '1';
-          // Clear the "Click to resume" note when re-locking
-          const note = document.getElementById('pointerLockNote');
-          if (note) { note.style.display = 'none'; note.style.opacity = '0'; }
-        } else {
-          // Pointer lock lost (ESC pressed or another reason)
-          crosshair.style.opacity = '0.5';
-          // Show a note: "Click to resume"
-          const note = document.getElementById('pointerLockNote');
-          if (note) {
-            note.style.display = 'block';
-            note.style.opacity = '1';
-          }
-        }
-      }
-    });
-
+    // Left-click = shoot basic arrow at mouse aim point
     this.canvas.addEventListener('mousedown', (e) => {
       if (e.button === 0) {
-        // Only fire if pointer is already locked (otherwise the click was to lock)
-        if (document.pointerLockElement === this.canvas) {
-          this.touchShootTapped = true; // Left-click = basic arrow
-        }
+        this.touchShootTapped = true;
       }
       if (e.button === 2) {
-        // Right-click: do NOT request pointer lock, just set flag
-        this.rightMouseDown = true;
+        // Right-click = fire special arrow
+        this.trySpecialArrow();
       }
     });
-    this.canvas.addEventListener('mouseup', (e) => {
-      if (e.button === 2) {
-        this.rightMouseDown = false;
-        // Only fire special if we didn't drag much
-        if (!this.rightMouseDragged) this.trySpecialArrow();
-        this.rightMouseDragged = false;
-      }
-    });
+
+    // Mouse wheel cycles special arrow type
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? 1 : -1;
       const newSelect = (this.selectedSpecialArrow + delta + 5) % 5;
       this.selectSpecialArrow(newSelect as SpecialArrowType);
     });
-    this.canvas.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      // On Mac trackpads, two-finger tap fires contextmenu but mousedown/mouseup with button=2 may not fire
-      // Treat contextmenu as a right-click for special arrow
-      if (!this.rightMouseDragged) {
-        this.trySpecialArrow();
-      }
-    });
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Ensure crosshair is always visible on desktop
+    const crosshair = document.getElementById('crosshair');
+    if (crosshair) { crosshair.style.opacity = '1'; }
+    // Hide pointer-lock note (no longer needed)
+    const plNote = document.getElementById('pointerLockNote');
+    if (plNote) { plNote.style.display = 'none'; }
   }
 
   // ══════════════════════════════════════════════
@@ -679,7 +619,7 @@ export class PlayerController {
   private updateVisualYaw(dt: number): void {
     const flags = this.lastInputFlags;
     const isMoving = (flags & (InputFlag.Forward | InputFlag.Backward | InputFlag.Left | InputFlag.Right)) !== 0;
-    const isFiring = this.rightMouseDown || (flags & InputFlag.Shoot) !== 0;
+    const isFiring = (flags & InputFlag.Shoot) !== 0;
 
     const isSprinting = (flags & InputFlag.Sprint) !== 0;
     if (isFiring || isSprinting) {

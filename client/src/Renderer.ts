@@ -87,12 +87,12 @@ export class Renderer {
     // FXAA
     pipe.fxaaEnabled = true;
 
-    // Bloom — emissives punch through
+    // Bloom — only catch intentionally bright emissives (not sprites)
     pipe.bloomEnabled    = true;
-    pipe.bloomThreshold  = 0.62;
-    pipe.bloomWeight     = 0.45;
-    pipe.bloomKernel     = 80;
-    pipe.bloomScale      = 0.6;
+    pipe.bloomThreshold  = 0.75;
+    pipe.bloomWeight     = 0.28;
+    pipe.bloomKernel     = 60;
+    pipe.bloomScale      = 0.4;
 
     // Sharpening
     pipe.sharpenEnabled  = true;
@@ -107,17 +107,17 @@ export class Renderer {
     pipe.imageProcessingEnabled = true;
     pipe.imageProcessing.toneMappingEnabled = true;
     pipe.imageProcessing.toneMappingType    = ImageProcessingConfiguration.TONEMAPPING_ACES;
-    pipe.imageProcessing.exposure    = 1.85;              // brighter overall
-    pipe.imageProcessing.contrast    = 1.25;              // less harsh contrast
+    pipe.imageProcessing.exposure    = 1.5;               // balanced — no wash-out
+    pipe.imageProcessing.contrast    = 1.1;               // gentler contrast
 
     // Subtle vignette — less aggressive
     pipe.imageProcessing.vignetteEnabled = true;
-    pipe.imageProcessing.vignetteWeight  = 1.4;
+    pipe.imageProcessing.vignetteWeight  = 1.0;
     pipe.imageProcessing.vignetteColor   = new Color4(0, 0, 0, 0);
 
     // Color grade — warm highlights, cool shadows, boosted saturation
     const cc = new ColorCurves();
-    cc.globalSaturation    = 18;                          // +18 % saturation overall
+    cc.globalSaturation    = 12;                          // +12 % saturation — less over-saturated
     cc.highlightsHue       = 28;                          // amber highlights
     cc.highlightsDensity   = 25;
     cc.highlightsSaturation = 20;

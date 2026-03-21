@@ -557,6 +557,18 @@ export class Game {
       this.hud.completeGoal();
       this.hud.addKillFeedEntry(`Goal Complete: ${description}`, '#90ee90');
       this.audio.play(SFX.UIStart);
+      // Hide kill counter on goal completion
+      const kc = document.getElementById('killCounter');
+      if (kc) kc.style.display = 'none';
+    };
+
+    this.localSim.onKillCountUpdate = (killed, required) => {
+      const kc = document.getElementById('killCounter');
+      if (kc) {
+        kc.style.display = 'block';
+        kc.textContent = `${killed} / ${required} ENEMIES DEFEATED`;
+        kc.style.color = killed >= required ? '#90ee90' : '#ffd700';
+      }
     };
 
     // G-08: Wire investigation point clue display

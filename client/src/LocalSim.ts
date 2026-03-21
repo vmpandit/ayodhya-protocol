@@ -477,6 +477,7 @@ export class LocalSim {
   /** Multi-line dialogue sequence for richer story moments */
   public onDialogueSequence: (lines: { name: string; message: string }[]) => void = () => {};
   public onGoalCompleted: (chapter: number, description: string) => void = () => {};
+  public onKillCountUpdate: (killed: number, required: number) => void = () => {};
   public onTutorialStep: (step: string, allComplete: boolean) => void = () => {};
   public onBackstorySlide: (index: number, speaker: string, text: string, isLast: boolean) => void = () => {};
   public onBackstoryEnd: () => void = () => {};
@@ -736,6 +737,17 @@ export class LocalSim {
     if (goal && !goal.revealed) {
       goal.revealed = true;
       this.onGoalRevealed(chapter, goal.description);
+    }
+  }
+
+  /** Returns how many kills the current chapter requires for advancement (0 if N/A). */
+  private getChapterKillRequirement(): number {
+    switch (this.chapter) {
+      case 1: return 4;
+      case 2: return 4;
+      case 4: return 5;
+      case 5: return 5;
+      default: return 0; // Ch0=tutorial, Ch3/6=story, Ch7=boss
     }
   }
 
@@ -1777,7 +1789,12 @@ export class LocalSim {
     enemy.state.aiState = EnemyAIState.Dead;
     enemy.deathTime = performance.now();  // T3-5: Track death time for pruning
     // Don't count illusion kills for chapter progress
-    if (!enemy.isIllusion) this.chapterEnemiesKilled++;
+    if (!enemy.isIllusion) {
+      this.chapterEnemiesKilled++;
+      // Notify HUD of kill progress
+      const required = this.getChapterKillRequirement();
+      if (required > 0) this.onKillCountUpdate(this.chapterEnemiesKilled, required);
+    }
     if (enemy.isChampion) {
       this.karma.valor += C.KARMA_VALOR_CHAMPION_KILL;
       this.onKarmaEvent('valor', C.KARMA_VALOR_CHAMPION_KILL);
@@ -2492,6 +2509,8 @@ export class LocalSim {
     this.setupInvestigationPoints(4); // G-08: Setup investigation points for Chapter 4
     this.onChapterChange(4, "The March to the Sea",
       "With Sugriv's Vanara armies at your command, the march south begins. Jambavan the immortal bear-king and Sampati the wingless vulture await — ancient witnesses who carry wisdom no warrior can. But Ravana's demon scouts infest the path...");
+    this.revealGoal(4);
+    this.onKillCountUpdate(0, this.getChapterKillRequirement());
 
     // Spawn Jambavan as story NPC in Chapter 4
     const base4 = this.CHAPTER_POSITIONS[4];
@@ -3125,6 +3144,8 @@ export class LocalSim {
       this.chapterEnemiesKilled = 0;
       this.setupInvestigationPoints(2); // G-08: Setup investigation points for Chapter 2
       this.onChapterChange(2, "Jatayu's Legacy", "Beyond the fallen sentinels lies the place where noble Jatayu gave his life defending Sita. Ravana's Demon Guard patrol these bloodied grounds — elite warriors who sold their honour for power. Avenge the vulture king...");
+      this.revealGoal(2);
+      this.onKillCountUpdate(0, this.getChapterKillRequirement());
       this.onMapWaypoint(0, 0, 6, 'Chapter 2 — Jatayu\'s Legacy', 2); // ChapterGate = 6
       this.onMapReveal(0, -20, 25, 2, 'The Demon Guard patrols were mapped from battle');
 
@@ -3189,6 +3210,7 @@ export class LocalSim {
       this.setupInvestigationPoints(3); // G-08: Setup investigation points for Chapter 3
       this.onChapterChange(3, "Kishkindha — The Vanara Alliance",
         "You arrive at Rishyamukha, where Sugriv once hid from his brother Vali's wrath. It was here that Rama and Sugriv first met — two exiled kings bound by honour. The debt of Kishkindha is repaid in blood and brotherhood...");
+      this.revealGoal(3);
       this.onMapWaypoint(0, -15, 6, 'Chapter 3 — Kishkindha', 3);
       this.onMapReveal(0, -15, 30, 3, 'Sugriv revealed paths through Kishkindha');
 
@@ -3218,6 +3240,8 @@ export class LocalSim {
 
       this.onChapterChange(5, "Angad's Embassy",
         "Hanuman, who leapt across the ocean and set Lanka ablaze with his burning tail, now fights at your side. But first — Angad, son of the slain Vali, returns from Ravana's court. He planted his foot before the demon throne and none could move it. His loyalty to you transcends the grief of his father's death...");
+      this.revealGoal(5);
+      this.onKillCountUpdate(0, this.getChapterKillRequirement());
       this.onMapWaypoint(this.player.pos.x, this.player.pos.z, 7, 'Hanuman Joined', 5);
       this.onMapReveal(this.player.pos.x, this.player.pos.z, 30, 5, 'Hanuman scouted the demon positions ahead');
 
@@ -3289,6 +3313,7 @@ export class LocalSim {
 
       this.onChapterChange(6, "The Defector of Lanka",
         "Angad joins the righteous army. But now comes the most unexpected ally — Vibhishana, Ravana's own brother, who chose Dharma over blood. Three times he begged Ravana to return Sita. Three times he was refused. Banished from Lanka, he brings the secret that will end this war...");
+      this.revealGoal(6);
       this.onMapWaypoint(this.player.pos.x, this.player.pos.z, 7, 'Angad Joined', 6);
       this.onMapReveal(this.player.pos.x, this.player.pos.z, 35, 6, 'Angad revealed Ravana\'s fortress layout');
 
@@ -3342,6 +3367,7 @@ export class LocalSim {
 
     this.onChapterChange(7, "The Fall of Ravana",
       "Before you stands Lanka — the golden city that Ravana stole from his brother Kubera. Within those walls, ten-headed Ravana sits upon his throne of conquest, and Sita endures in the Ashoka Vatika. Vibhishana has revealed the secret: the Amrita in Ravana's navel sustains his ten heads. The Brahmastra must strike true. End the Adharma. Restore the balance of three worlds...");
+    this.revealGoal(7);
     // Reveal the boss arena area on the map
     this.onMapWaypoint(C.BOSS_ARENA_CENTER.x, C.BOSS_ARENA_CENTER.z, 3, 'Ravana — Boss Arena', 7);
     this.onMapReveal(C.BOSS_ARENA_CENTER.x, C.BOSS_ARENA_CENTER.z, 30, 7, 'The gates of Lanka stand open — Ravana awaits');
@@ -3410,6 +3436,8 @@ export class LocalSim {
     this.spawnChapter1Enemies();
     this.onChapterChange(1, "The Dandaka Forest",
       "Lord Rama steps into the ancient Dandaka — the forest where Rishis performed tapasya under Rakshasa threat. The same woods where Agastya armed you, where Surpanakha's humiliation set Ravana's rage ablaze. Every shadow here remembers...");
+    this.revealGoal(1);
+    this.onKillCountUpdate(0, this.getChapterKillRequirement());
   }
 
   /** G-08: Setup investigation points for a chapter with lore-authentic clues */

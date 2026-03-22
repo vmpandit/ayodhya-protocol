@@ -174,7 +174,11 @@ export class PlayerController {
       const newSelect = (this.selectedSpecialArrow + delta + 5) % 5;
       this.selectSpecialArrow(newSelect as SpecialArrowType);
     });
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // contextmenu fires on Mac trackpad two-finger tap (mousedown button=2 often doesn't)
+    this.canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.trySpecialArrow();
+    });
 
     // Ensure crosshair is always visible on desktop
     const crosshair = document.getElementById('crosshair');
